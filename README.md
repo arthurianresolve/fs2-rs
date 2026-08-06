@@ -3,23 +3,21 @@ This is a fork to evolve `fs2` into 2026, as original development of source has 
 
 # Changes
 1. Manifest modernization
-    - Ugraded to SPDX license syntax 
+    - Upgraded to SPDX license syntax
     - Added crate category and more accurate description
     - Removed deprecated Travis and AppVeyor metadata  
  * Dependency modernization
    - Replaced `winapi` with `windows-sys`
    - Replaced `tempdir` with `tempfile`
-   - Updated to current rust toolchain (rust-version `>=1.97.1`) and syntax (Edition `2024`)
+   - Updated to Rust 1.97.1 and Rust 2024 edition syntax
  * Updated to current `libc` library
 
  
 # fs2
 
 Extended utilities for working with files and filesystems in Rust. `fs2`
-requires Rust stable 1.8 or greater.
+requires Rust stable 1.97.1 or greater.
 
-[![Build Status](https://travis-ci.org/danburkert/fs2-rs.svg?branch=master)](https://travis-ci.org/danburkert/fs2-rs)
-[![Windows Build status](https://ci.appveyor.com/api/projects/status/iuvjv1aaaml0rntt/branch/master?svg=true)](https://ci.appveyor.com/project/danburkert/fs2-rs/branch/master)
 [![Documentation](https://docs.rs/fs2/badge.svg)](https://docs.rs/fs2)
 [![Crate](https://img.shields.io/crates/v/fs2.svg)](https://crates.io/crates/fs2)
 
@@ -36,24 +34,15 @@ requires Rust stable 1.8 or greater.
 `fs2` should work on any platform supported by
 [`libc`](https://github.com/rust-lang-nursery/libc#platforms-and-documentation).
 
-`fs2` is continuously tested on:
-  * `x86_64-unknown-linux-gnu` (Linux)
-  * `i686-unknown-linux-gnu`
-  * `x86_64-apple-darwin` (OSX)
-  * `i686-apple-darwin`
-  * `x86_64-pc-windows-msvc` (Windows)
-  * `i686-pc-windows-msvc`
-  * `x86_64-pc-windows-gnu`
-  * `i686-pc-windows-gnu`
+The CI matrix continuously tests the native `x86_64` targets on Linux, macOS,
+and Windows with Rust 1.97.1 and stable. The historical 32-bit and GNU
+Windows targets are not currently covered by CI.
 
-## Benchmarks
+## Benchmarking
 
-Simple benchmarks are provided for the methods provided. Many of these
-benchmarks use files in a temporary directory. On many modern Linux distros the
-default temporary directory, `/tmp`, is mounted on a tempfs filesystem, which
-will have different performance characteristics than a disk-backed filesystem.
-The temporary directory is configurable at runtime through the environment (see
-[`env::temp_dir`](https://doc.rust-lang.org/stable/std/env/fn.temp_dir.html)).
+Stable Criterion benchmarks are provided for the public APIs. When benchmarking
+files, account for the filesystem backing the temporary directory; `/tmp` is
+often a `tmpfs` mount.
 
 ## License
 

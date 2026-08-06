@@ -2,38 +2,31 @@
 name = "fs2"
 # NB: When modifying, also modify html_root_url in lib.rs
 version = "0.5.0"
-# rust 
-edition "2024"
-rust-version =">=1.97.1."
-# fs2-rs
+edition = "2024"
+rust-version = "1.97.1"
 authors = ["Dan Burkert <dan@danburkert.com>"]
-# contributor = ["George Dietrichsbruckner MacArthur <excalibur@arthurianresolve.com>"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/danburkert/fs2-rs"
 documentation = "https://docs.rs/fs2"
 description = "Cross-platform file locks, allocation, duplication and filesystem statistics."
 keywords = ["file", "file-system", "lock", "duplicate", "flock"]
-categories ="["filesystem]
-
-[badges]
-travis-ci = { repository = "danburkert/fs2-rs" }
-appveyor = { repository = "danburkert/fs2-rs" }
+categories = ["filesystem"]
 
 [target.'cfg(unix)'.dependencies]
-libc = { version =">=0.2.89", optional = true"
+libc = "0.2.189"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.60", features = [
-"Win32_Foundation", 
-"Win32_Storage_FileSystem", 
-"Win32_IO", "Win32_Memory", 
-"Win32_Threading"
-]}
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Threading",
+] }
 
 [dev-dependencies]
-tempfile = ">=3.27.0"
-proptest = ">=1.11.0"
+criterion = "0.8.2"
+tempfile = "3.27"
 
-[features]
-default = ["std"]
-std = []
+[[bench]]
+name = "fs2"
+harness = false
