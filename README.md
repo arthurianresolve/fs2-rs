@@ -1,3 +1,18 @@
+## Purpose of this fork
+This is a fork to evolve `fs2` into 2026, as original development of source has halted.
+
+# Changes
+1. Manifest modernization
+    - Ugraded to SPDX license syntax 
+    - Added crate category and more accurate description
+    - Removed deprecated Travis and AppVeyor metadata  
+ * Dependency modernization
+   - Replaced `winapi` with `windows-sys`
+   - Replaced `tempdir` with `tempfile`
+   - Updated to current rust toolchain (rust-version `>=1.97.1`) and syntax (Edition `2024`)
+ * Updated to current `libc` library
+
+ 
 # fs2
 
 Extended utilities for working with files and filesystems in Rust. `fs2`
