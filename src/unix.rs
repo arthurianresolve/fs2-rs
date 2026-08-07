@@ -9,7 +9,7 @@ use std::path::Path;
 
 use crate::allocation::AllocationState;
 use crate::lock::{LockMode, LockOperation};
-use crate::{FilesystemCounters, SpaceKind};
+use crate::{FilesystemCounters, FsStats, SpaceKind};
 
 #[inline]
 pub(crate) fn duplicate(file: &File) -> Result<File> {
@@ -217,7 +217,7 @@ pub(crate) fn statvfs(path: &Path) -> Result<FilesystemCounters> {
 }
 
 pub(crate) fn space(path: &Path, kind: SpaceKind) -> Result<u64> {
-    statvfs(path)?.value(kind)
+    FsStats::from_counters(statvfs(path)?).map(|stats| stats.value(kind))
 }
 
 #[cfg(test)]

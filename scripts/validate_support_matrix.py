@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MATRIX_PATH = ROOT / "support-matrix.json"
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "ci.yml"
 EVIDENCE_LEVELS = {"runtime", "compile", "not-covered"}
+ALLOCATION_CAPABILITIES = {"physical-reservation", "unsupported", "unknown"}
 MATRIX_EXPRESSION_PREFIX = "${{ fromJSON(needs.support-matrix.outputs.matrices)."
 MATRIX_EXPRESSION_SUFFIX = " }}"
 
@@ -46,6 +47,8 @@ def validate_matrix(data: dict) -> dict:
     jobs: set[str] = set()
     for entry in targets:
         required = {"target", "platform", "evidence", "allocation", "ci_job", "ci"}
+        if not isinstance(entry, dict):
+            fail(f"target entry must be an object: {entry!r}")
         if not required <= entry.keys():
             fail(f"target entry is missing fields: {sorted(required - entry.keys())}")
 
@@ -55,6 +58,12 @@ def validate_matrix(data: dict) -> dict:
         seen_targets.add(target)
         if entry["evidence"] not in EVIDENCE_LEVELS:
             fail(f"unknown evidence level for {target}")
+        if entry["allocation"] not in ALLOCATION_CAPABILITIES:
+            fail(f"unknown allocation capability for {target}")
+        if entry["evidence"] == "not-covered" and entry["allocation"] != "unknown":
+            fail(f"not-covered target {target} must have unknown allocation capability")
+        if entry["evidence"] != "not-covered" and entry["allocation"] == "unknown":
+            fail(f"covered target {target} must declare an allocation capability")
 
         job = entry["ci_job"]
         ci = entry["ci"]

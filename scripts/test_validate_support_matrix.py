@@ -49,6 +49,13 @@ class SupportMatrixTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             validate_matrix(invalid)
 
+    def test_rejects_unknown_allocation_capability(self):
+        invalid = copy.deepcopy(self.data)
+        invalid["targets"][0]["allocation"] = "not-a-real-capability"
+
+        with self.assertRaises(SystemExit):
+            validate_matrix(invalid)
+
     def test_declared_matrices_are_consumed_by_workflow_jobs(self):
         validate_workflow(self.data, load_workflow())
 

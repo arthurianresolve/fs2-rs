@@ -24,6 +24,8 @@ impl FsStats {
             checked_space(counters.allocation_granularity, counters.total_blocks)?,
         );
         #[cfg(windows)]
+        // The legacy Windows API reports physical free space separately from
+        // quota-limited total space, so these counters are not always ordered.
         let (free_space, available_space, total_space) = (
             counters.free_space,
             counters.available_space,
@@ -39,6 +41,7 @@ impl FsStats {
                 "filesystem available space exceeds free space",
             ));
         }
+        #[cfg(unix)]
         if free_space > total_space {
             return Err(invalid_stats("filesystem free space exceeds total space"));
         }
@@ -82,7 +85,8 @@ impl FsStats {
         self.allocation_granularity
     }
 
-    fn value(&self, kind: SpaceKind) -> u64 {
+    #[cfg(unix)]
+    pub(crate) fn value(&self, kind: SpaceKind) -> u64 {
         match kind {
             SpaceKind::Free => self.free_space,
             SpaceKind::Available => self.available_space,
@@ -100,6 +104,11 @@ pub(crate) enum SpaceKind {
     AllocationGranularity,
 }
 
+/// Platform-native filesystem counters before conversion to [`FsStats`].
+///
+/// On Windows, the legacy API can combine physical free space with
+/// quota-limited total space; callers must not assume that `free_space <=
+/// total_space` for that snapshot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct FilesystemCounters {
     pub(crate) allocation_granularity: u64,
@@ -115,12 +124,6 @@ pub(crate) struct FilesystemCounters {
     pub(crate) available_space: u64,
     #[cfg(windows)]
     pub(crate) total_space: u64,
-}
-
-impl FilesystemCounters {
-    pub(crate) fn value(self, kind: SpaceKind) -> Result<u64> {
-        FsStats::from_counters(self).map(|stats| stats.value(kind))
-    }
 }
 
 /// Gets one statistics snapshot for the filesystem containing `path`.
@@ -262,8 +265,19 @@ mod tests {
         let tempdir = tempdir().unwrap();
         let stats = statvfs(tempdir.path()).unwrap();
 
-        assert!(stats.total_space() > stats.free_space());
-        assert!(stats.total_space() > stats.available_space());
+        assert!(stats.total_space() > 0);
         assert!(stats.available_space() <= stats.free_space());
+        #[cfg(unix)]
+        assert!(stats.total_space() > stats.free_space());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn accepts_quota_limited_total_space() {
+        let stats = FsStats::from_counters(counters(4096, 50_000, 10_000, 40_000)).unwrap();
+
+        assert_eq!(stats.free_space(), 50_000);
+        assert_eq!(stats.available_space(), 10_000);
+        assert_eq!(stats.total_space(), 40_000);
     }
 }

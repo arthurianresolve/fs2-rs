@@ -5,7 +5,10 @@ use std::os::windows::io::{AsHandle, AsRawHandle};
 use std::path::Path;
 use std::sync::OnceLock;
 
-use windows_sys::Win32::Foundation::{ERROR_LOCK_VIOLATION, S_OK};
+use windows_sys::Win32::Foundation::{
+    E_NOTIMPL, ERROR_CALL_NOT_IMPLEMENTED, ERROR_INVALID_FUNCTION, ERROR_LOCK_VIOLATION,
+    ERROR_NOT_SUPPORTED, S_OK,
+};
 use windows_sys::Win32::Storage::FileSystem::{
     DISK_SPACE_INFORMATION, FILE_ALLOCATION_INFO, FILE_STANDARD_INFO, FileAllocationInfo,
     FileStandardInfo, GetDiskFreeSpaceExW, GetDiskFreeSpaceW, GetFileInformationByHandleEx,
@@ -170,6 +173,13 @@ fn modern_statvfs(root_path: &[u16]) -> Option<Result<FilesystemCounters>> {
             .map(|function| std::mem::transmute(function))
     });
 
+    modern_statvfs_with(root_path, get_disk_space_information)
+}
+
+fn modern_statvfs_with(
+    root_path: &[u16],
+    get_disk_space_information: Option<GetDiskSpaceInformation>,
+) -> Option<Result<FilesystemCounters>> {
     let get_disk_space_information = get_disk_space_information?;
     let mut info = DISK_SPACE_INFORMATION::default();
     let result = unsafe {
@@ -177,10 +187,24 @@ fn modern_statvfs(root_path: &[u16]) -> Option<Result<FilesystemCounters>> {
         get_disk_space_information(root_path.as_ptr(), &mut info)
     };
     if result != S_OK {
-        return None;
+        if modern_statvfs_unavailable(result) {
+            return None;
+        }
+        return Some(Err(Error::last_os_error()));
     }
 
     Some(counters_from_disk_space_information(info))
+}
+
+const fn hresult_from_win32(error: u32) -> windows_sys::core::HRESULT {
+    ((error & 0xffff) | 0x8007_0000) as windows_sys::core::HRESULT
+}
+
+fn modern_statvfs_unavailable(result: windows_sys::core::HRESULT) -> bool {
+    result == E_NOTIMPL
+        || result == hresult_from_win32(ERROR_CALL_NOT_IMPLEMENTED)
+        || result == hresult_from_win32(ERROR_INVALID_FUNCTION)
+        || result == hresult_from_win32(ERROR_NOT_SUPPORTED)
 }
 
 fn counters_from_disk_space_information(
@@ -199,7 +223,7 @@ fn counters_from_disk_space_information(
         allocation_granularity,
         free_space: checked_bytes(info.ActualAvailableAllocationUnits)?,
         available_space: checked_bytes(info.CallerAvailableAllocationUnits)?,
-        total_space: checked_bytes(info.CallerTotalAllocationUnits)?,
+        total_space: checked_bytes(info.ActualTotalAllocationUnits)?,
     })
 }
 
@@ -209,9 +233,9 @@ fn legacy_statvfs(root_path: &[u16]) -> Result<FilesystemCounters> {
 
     Ok(FilesystemCounters {
         allocation_granularity: caller.allocation_granularity,
-        free_space: bytes.free,
-        available_space: bytes.available,
-        total_space: bytes.total,
+        free_space: bytes.actual_free,
+        available_space: bytes.caller_available,
+        total_space: bytes.caller_total,
     })
 }
 
@@ -219,28 +243,14 @@ pub(crate) fn space(path: &Path, kind: SpaceKind) -> Result<u64> {
     let mut root_path = [0u16; VOLUME_PATH_CAPACITY];
     volume_path(path, &mut root_path)?;
 
-    let counters = match kind {
-        SpaceKind::Free => {
-            let bytes = byte_space(&root_path)?;
-            FilesystemCounters {
-                allocation_granularity: 1,
-                free_space: bytes.free,
-                available_space: bytes.available,
-                total_space: bytes.total,
-            }
+    match kind {
+        SpaceKind::Free => byte_space(&root_path).map(|space| space.actual_free),
+        SpaceKind::Available => caller_space(&root_path).map(|space| space.available),
+        SpaceKind::Total => caller_space(&root_path).map(|space| space.total),
+        SpaceKind::AllocationGranularity => {
+            caller_space(&root_path).map(|space| space.allocation_granularity)
         }
-        SpaceKind::Available | SpaceKind::Total | SpaceKind::AllocationGranularity => {
-            let caller = caller_space(&root_path)?;
-            FilesystemCounters {
-                allocation_granularity: caller.allocation_granularity,
-                free_space: caller.available,
-                available_space: caller.available,
-                total_space: caller.total,
-            }
-        }
-    };
-
-    counters.value(kind)
+    }
 }
 
 struct CallerSpace {
@@ -284,9 +294,9 @@ fn caller_space(root_path: &[u16]) -> Result<CallerSpace> {
 }
 
 struct ByteSpace {
-    free: u64,
-    available: u64,
-    total: u64,
+    actual_free: u64,
+    caller_available: u64,
+    caller_total: u64,
 }
 
 fn byte_space(root_path: &[u16]) -> Result<ByteSpace> {
@@ -307,9 +317,9 @@ fn byte_space(root_path: &[u16]) -> Result<ByteSpace> {
     }
 
     Ok(ByteSpace {
-        free: total_number_of_free_bytes,
-        available: free_bytes_available_to_caller,
-        total: total_number_of_bytes,
+        actual_free: total_number_of_free_bytes,
+        caller_available: free_bytes_available_to_caller,
+        caller_total: total_number_of_bytes,
     })
 }
 
@@ -323,8 +333,8 @@ mod test {
     use windows_sys::Win32::Storage::FileSystem::DISK_SPACE_INFORMATION;
 
     use super::{
-        VOLUME_PATH_CAPACITY, counters_from_disk_space_information, legacy_statvfs, modern_statvfs,
-        volume_path,
+        E_NOTIMPL, VOLUME_PATH_CAPACITY, counters_from_disk_space_information, legacy_statvfs,
+        modern_statvfs, modern_statvfs_with, volume_path,
     };
     use crate::{FileExt, lock_contended_error};
     use tempfile::tempdir;
@@ -333,6 +343,7 @@ mod test {
     fn maps_modern_disk_space_information() {
         let info = DISK_SPACE_INFORMATION {
             ActualAvailableAllocationUnits: 8,
+            ActualTotalAllocationUnits: 10,
             CallerTotalAllocationUnits: 10,
             CallerAvailableAllocationUnits: 6,
             SectorsPerAllocationUnit: 2,
@@ -375,7 +386,7 @@ mod test {
         let legacy = legacy_statvfs(&root_path).unwrap();
         assert!(legacy.allocation_granularity > 0);
         assert!(legacy.available_space <= legacy.free_space);
-        assert!(legacy.free_space <= legacy.total_space);
+        assert!(legacy.total_space > 0);
 
         if let Some(modern) = modern_statvfs(&root_path) {
             let modern = modern.unwrap();
@@ -383,6 +394,32 @@ mod test {
             assert!(modern.available_space <= modern.free_space);
             assert!(modern.free_space <= modern.total_space);
         }
+    }
+
+    #[test]
+    fn distinguishes_unavailable_and_failed_modern_api() {
+        unsafe extern "system" fn unavailable_api(
+            _root_path: *const u16,
+            _info: *mut DISK_SPACE_INFORMATION,
+        ) -> windows_sys::core::HRESULT {
+            E_NOTIMPL
+        }
+
+        unsafe extern "system" fn failed_api(
+            _root_path: *const u16,
+            _info: *mut DISK_SPACE_INFORMATION,
+        ) -> windows_sys::core::HRESULT {
+            -1
+        }
+
+        let root_path = [0u16; VOLUME_PATH_CAPACITY];
+        assert!(modern_statvfs_with(&root_path, None).is_none());
+        assert!(modern_statvfs_with(&root_path, Some(unavailable_api)).is_none());
+        assert!(
+            modern_statvfs_with(&root_path, Some(failed_api))
+                .expect("failed API should not trigger fallback")
+                .is_err()
+        );
     }
 
     /// The duplicate method returns a file with a new file handle.
