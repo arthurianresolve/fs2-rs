@@ -134,6 +134,7 @@ pub trait FileExt {
 }
 
 impl FileExt for File {
+    #[inline]
     fn duplicate(&self) -> Result<File> {
         sys::duplicate(self)
     }

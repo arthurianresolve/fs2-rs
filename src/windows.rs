@@ -19,6 +19,7 @@ use crate::lock::{LockMode, LockOperation};
 
 const VOLUME_PATH_CAPACITY: usize = 261;
 
+#[inline]
 pub(crate) fn duplicate(file: &File) -> Result<File> {
     let owned = file.as_handle().try_clone_to_owned()?;
     Ok(File::from(owned))

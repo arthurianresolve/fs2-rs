@@ -11,6 +11,7 @@ use crate::FilesystemCounters;
 use crate::allocation::AllocationState;
 use crate::lock::{LockMode, LockOperation};
 
+#[inline]
 pub(crate) fn duplicate(file: &File) -> Result<File> {
     let owned = file.as_fd().try_clone_to_owned()?;
     Ok(File::from(owned))
