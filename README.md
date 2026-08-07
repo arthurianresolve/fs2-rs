@@ -40,7 +40,10 @@ adapters in this repository. Unix support uses
 
 The CI matrix continuously tests the native `x86_64` targets on Linux, macOS,
 and Windows with Rust 1.97.1 and stable. The historical 32-bit and GNU
-Windows targets are not currently covered by CI.
+Windows targets are not currently covered by the native test matrix. The
+`armv7-unknown-linux-uclibceabihf` target is compile-checked separately with
+nightly `build-std`; runtime tests require a target-specific emulator and
+uClibc sysroot.
 
 ## Benchmarking
 

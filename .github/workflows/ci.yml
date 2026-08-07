@@ -24,3 +24,14 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test --lib
       - run: cargo bench --no-run
+
+  uclibc:
+    name: armv7 uClibc compile check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+        with:
+          toolchain: nightly
+          components: rust-src
+      - run: cargo check -Z build-std=std,panic_abort --target armv7-unknown-linux-uclibceabihf --lib --locked
