@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::{Error, Result};
+use std::io::{Error, ErrorKind, Result};
 use std::os::windows::ffi::OsStrExt;
 use std::os::windows::io::{AsRawHandle, FromRawHandle};
 use std::path::Path;
@@ -60,8 +60,10 @@ pub(crate) fn allocated_size(file: &File) -> Result<u64> {
 }
 
 pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
+    let len = i64::try_from(len)
+        .map_err(|_| Error::new(ErrorKind::InvalidInput, "allocation length is too large"))?;
     let info = FILE_ALLOCATION_INFO {
-        AllocationSize: len as i64,
+        AllocationSize: len,
     };
     let ret = unsafe {
         SetFileInformationByHandle(

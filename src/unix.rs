@@ -103,11 +103,13 @@ pub(crate) fn allocated_size(file: &File) -> Result<u64> {
     target_os = "emscripten"
 ))]
 pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
-    let ret = unsafe { libc::posix_fallocate(file.as_raw_fd(), 0, len as libc::off_t) };
+    let len = libc::off_t::try_from(len)
+        .map_err(|_| Error::new(ErrorKind::InvalidInput, "allocation length is too large"))?;
+    let ret = unsafe { libc::posix_fallocate(file.as_raw_fd(), 0, len) };
     if ret == 0 {
         Ok(())
     } else {
-        Err(Error::last_os_error())
+        Err(Error::from_raw_os_error(ret))
     }
 }
 
@@ -116,11 +118,13 @@ pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
     let stat = file.metadata()?;
 
     if len > stat.blocks() as u64 * 512 {
+        let len = libc::off_t::try_from(len)
+            .map_err(|_| Error::new(ErrorKind::InvalidInput, "allocation length is too large"))?;
         let mut fstore = libc::fstore_t {
             fst_flags: libc::F_ALLOCATECONTIG,
             fst_posmode: libc::F_PEOFPOSMODE,
             fst_offset: 0,
-            fst_length: len as libc::off_t,
+            fst_length: len,
             fst_bytesalloc: 0,
         };
 

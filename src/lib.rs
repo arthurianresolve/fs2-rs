@@ -33,6 +33,10 @@ pub(crate) enum LockOperation {
     Release,
 }
 
+fn acquire_lock(file: &File, mode: LockMode, nonblocking: bool) -> Result<()> {
+    sys::lock(file, LockOperation::Acquire { mode, nonblocking })
+}
+
 /// Extension trait for `std::fs::File` which provides allocation, duplication and locking methods.
 ///
 /// On Rust 1.97 and later, `std::fs::File` also has inherent locking methods
@@ -158,40 +162,16 @@ impl FileExt for File {
         }
     }
     fn lock_shared(&self) -> Result<()> {
-        sys::lock(
-            self,
-            LockOperation::Acquire {
-                mode: LockMode::Shared,
-                nonblocking: false,
-            },
-        )
+        acquire_lock(self, LockMode::Shared, false)
     }
     fn lock_exclusive(&self) -> Result<()> {
-        sys::lock(
-            self,
-            LockOperation::Acquire {
-                mode: LockMode::Exclusive,
-                nonblocking: false,
-            },
-        )
+        acquire_lock(self, LockMode::Exclusive, false)
     }
     fn try_lock_shared(&self) -> Result<()> {
-        sys::lock(
-            self,
-            LockOperation::Acquire {
-                mode: LockMode::Shared,
-                nonblocking: true,
-            },
-        )
+        acquire_lock(self, LockMode::Shared, true)
     }
     fn try_lock_exclusive(&self) -> Result<()> {
-        sys::lock(
-            self,
-            LockOperation::Acquire {
-                mode: LockMode::Exclusive,
-                nonblocking: true,
-            },
-        )
+        acquire_lock(self, LockMode::Exclusive, true)
     }
     fn unlock(&self) -> Result<()> {
         sys::lock(self, LockOperation::Release)
@@ -391,5 +371,21 @@ mod test {
         file.allocate(blksize + 1).unwrap();
         assert_eq!(2 * blksize, file.allocated_size().unwrap());
         assert_eq!(blksize + 1, file.metadata().unwrap().len());
+    }
+
+    #[test]
+    fn allocate_rejects_unrepresentable_length() {
+        let tempdir = tempdir().unwrap();
+        let file = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(tempdir.path().join("fs2"))
+            .unwrap();
+
+        assert_eq!(
+            file.allocate(i64::MAX as u64 + 1).unwrap_err().kind(),
+            std::io::ErrorKind::InvalidInput
+        );
     }
 }
