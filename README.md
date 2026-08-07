@@ -45,6 +45,11 @@ Windows targets are not currently covered by the native test matrix. The
 nightly `build-std`; runtime tests require a target-specific emulator and
 uClibc sysroot.
 
+The target evidence and allocation capability claims are recorded in
+[`support-matrix.json`](support-matrix.json). CI validates the matrix, runs
+native runtime tests, and compile-checks the listed cross targets. Compile-only
+evidence does not imply runtime support.
+
 ## Benchmarking
 
 Stable Criterion benchmarks are provided for the public APIs. When benchmarking

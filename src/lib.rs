@@ -24,7 +24,6 @@ pub use stats::{
     FsStats, allocation_granularity, available_space, free_space, statvfs, total_space,
 };
 
-pub(crate) use allocation::AllocationCapability;
 pub(crate) use stats::FilesystemCounters;
 
 #[derive(Clone, Copy)]

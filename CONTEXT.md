@@ -5,7 +5,7 @@
 File allocation reserves physical filesystem space for a file and ensures the
 file length reaches the requested size. `FileExt::allocate` owns the capacity
 and length postcondition; platform adapters provide only the reservation
-primitive through the `AllocationCapability` seam. A platform without a
+primitive through the `AllocationOutcome` seam. A platform without a
 reservation primitive must return `Unsupported` rather than claiming the
 physical-space guarantee.
 
