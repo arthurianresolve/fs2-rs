@@ -14,13 +14,24 @@ mod windows;
 #[cfg(windows)]
 use windows as sys;
 
-mod lock;
-
 use std::fs::File;
 use std::io::{Error, Result};
-use std::path::Path;
 
-pub use stats::FsStats;
+pub use stats::{
+    FsStats, allocation_granularity, available_space, free_space, statvfs, total_space,
+};
+
+#[derive(Clone, Copy)]
+pub(crate) enum LockMode {
+    Shared,
+    Exclusive,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum LockOperation {
+    Acquire { mode: LockMode, nonblocking: bool },
+    Release,
+}
 
 /// Extension trait for `std::fs::File` which provides allocation, duplication and locking methods.
 ///
@@ -147,73 +158,50 @@ impl FileExt for File {
         }
     }
     fn lock_shared(&self) -> Result<()> {
-        lock::lock_shared(self)
+        sys::lock(
+            self,
+            LockOperation::Acquire {
+                mode: LockMode::Shared,
+                nonblocking: false,
+            },
+        )
     }
     fn lock_exclusive(&self) -> Result<()> {
-        lock::lock_exclusive(self)
+        sys::lock(
+            self,
+            LockOperation::Acquire {
+                mode: LockMode::Exclusive,
+                nonblocking: false,
+            },
+        )
     }
     fn try_lock_shared(&self) -> Result<()> {
-        lock::try_lock_shared(self)
+        sys::lock(
+            self,
+            LockOperation::Acquire {
+                mode: LockMode::Shared,
+                nonblocking: true,
+            },
+        )
     }
     fn try_lock_exclusive(&self) -> Result<()> {
-        lock::try_lock_exclusive(self)
+        sys::lock(
+            self,
+            LockOperation::Acquire {
+                mode: LockMode::Exclusive,
+                nonblocking: true,
+            },
+        )
     }
     fn unlock(&self) -> Result<()> {
-        lock::unlock(self)
+        sys::lock(self, LockOperation::Release)
     }
 }
 
 /// Returns the error that a call to a try lock method on a contended file will
 /// return.
 pub fn lock_contended_error() -> Error {
-    lock::contended_error()
-}
-
-/// Get the stats of the file system containing the provided path.
-pub fn statvfs<P>(path: P) -> Result<FsStats>
-where
-    P: AsRef<Path>,
-{
-    sys::statvfs(path.as_ref())
-}
-
-/// Returns the number of free bytes in the file system containing the provided
-/// path.
-pub fn free_space<P>(path: P) -> Result<u64>
-where
-    P: AsRef<Path>,
-{
-    statvfs(path).map(|stat| stat.free_space())
-}
-
-/// Returns the available space in bytes to non-priveleged users in the file
-/// system containing the provided path.
-pub fn available_space<P>(path: P) -> Result<u64>
-where
-    P: AsRef<Path>,
-{
-    statvfs(path).map(|stat| stat.available_space())
-}
-
-/// Returns the total space in bytes in the file system containing the provided
-/// path.
-pub fn total_space<P>(path: P) -> Result<u64>
-where
-    P: AsRef<Path>,
-{
-    statvfs(path).map(|stat| stat.total_space())
-}
-
-/// Returns the filesystem's disk space allocation granularity in bytes.
-/// The provided path may be for any file in the filesystem.
-///
-/// On Posix, this is equivalent to the filesystem's block size.
-/// On Windows, this is equivalent to the filesystem's cluster size.
-pub fn allocation_granularity<P>(path: P) -> Result<u64>
-where
-    P: AsRef<Path>,
-{
-    statvfs(path).map(|stat| stat.allocation_granularity())
+    sys::lock_error()
 }
 
 #[cfg(test)]
@@ -397,19 +385,11 @@ mod test {
         file.set_len(blksize + 1).unwrap();
         assert_eq!(2 * blksize, file.allocated_size().unwrap());
         assert_eq!(blksize + 1, file.metadata().unwrap().len());
-    }
 
-    /// Checks filesystem space methods.
-    #[test]
-    fn filesystem_space() {
-        let tempdir = tempdir().unwrap();
-        let stats = statvfs(tempdir.path()).unwrap();
-        let total_space = stats.total_space();
-        let free_space = stats.free_space();
-        let available_space = stats.available_space();
-
-        assert!(total_space > free_space);
-        assert!(total_space > available_space);
-        assert!(available_space <= free_space);
+        // An allocation request that is already satisfied leaves both the
+        // allocated space and the file length unchanged.
+        file.allocate(blksize + 1).unwrap();
+        assert_eq!(2 * blksize, file.allocated_size().unwrap());
+        assert_eq!(blksize + 1, file.metadata().unwrap().len());
     }
 }

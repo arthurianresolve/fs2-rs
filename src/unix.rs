@@ -7,8 +7,7 @@ use std::os::unix::fs::MetadataExt;
 use std::os::unix::io::{AsRawFd, FromRawFd};
 use std::path::Path;
 
-use crate::FsStats;
-use crate::lock::{LockMode, LockOperation};
+use crate::{FsStats, LockMode, LockOperation};
 
 pub(crate) fn duplicate(file: &File) -> Result<File> {
     unsafe {

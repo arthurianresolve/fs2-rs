@@ -16,8 +16,7 @@ use windows_sys::Win32::System::IO::OVERLAPPED;
 use windows_sys::Win32::System::Threading::GetCurrentProcess;
 use windows_sys::core::BOOL;
 
-use crate::FsStats;
-use crate::lock::{LockMode, LockOperation};
+use crate::{FsStats, LockMode, LockOperation};
 
 const VOLUME_PATH_CAPACITY: usize = 261;
 
@@ -61,21 +60,19 @@ pub(crate) fn allocated_size(file: &File) -> Result<u64> {
 }
 
 pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
-    if allocated_size(file)? < len {
-        let info = FILE_ALLOCATION_INFO {
-            AllocationSize: len as i64,
-        };
-        let ret = unsafe {
-            SetFileInformationByHandle(
-                file.as_raw_handle(),
-                FileAllocationInfo,
-                std::ptr::from_ref(&info).cast(),
-                std::mem::size_of::<FILE_ALLOCATION_INFO>() as u32,
-            )
-        };
-        if ret == 0 {
-            return Err(Error::last_os_error());
-        }
+    let info = FILE_ALLOCATION_INFO {
+        AllocationSize: len as i64,
+    };
+    let ret = unsafe {
+        SetFileInformationByHandle(
+            file.as_raw_handle(),
+            FileAllocationInfo,
+            std::ptr::from_ref(&info).cast(),
+            std::mem::size_of::<FILE_ALLOCATION_INFO>() as u32,
+        )
+    };
+    if ret == 0 {
+        return Err(Error::last_os_error());
     }
     Ok(())
 }
