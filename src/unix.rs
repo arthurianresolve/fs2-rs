@@ -102,10 +102,25 @@ pub(crate) fn allocated_size(file: &File) -> Result<u64> {
     target_os = "android",
     target_os = "emscripten"
 ))]
+#[cfg(not(all(target_os = "linux", target_env = "uclibc")))]
+#[cfg(not(all(target_os = "linux", target_pointer_width = "32")))]
 pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
     let len = libc::off_t::try_from(len)
         .map_err(|_| Error::new(ErrorKind::InvalidInput, "allocation length is too large"))?;
     let ret = unsafe { libc::posix_fallocate(file.as_raw_fd(), 0, len) };
+    if ret == 0 {
+        Ok(())
+    } else {
+        Err(Error::from_raw_os_error(ret))
+    }
+}
+
+#[cfg(all(target_os = "linux", target_pointer_width = "32"))]
+#[cfg(not(target_env = "uclibc"))]
+pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
+    let len = libc::off64_t::try_from(len)
+        .map_err(|_| Error::new(ErrorKind::InvalidInput, "allocation length is too large"))?;
+    let ret = unsafe { libc::posix_fallocate64(file.as_raw_fd(), 0, len) };
     if ret == 0 {
         Ok(())
     } else {
@@ -143,10 +158,13 @@ pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
 }
 
 #[cfg(any(
+    all(target_os = "linux", target_env = "uclibc"),
     target_os = "openbsd",
     target_os = "netbsd",
     target_os = "dragonfly",
     target_os = "solaris",
+    target_os = "illumos",
+    target_os = "redox",
     target_os = "haiku"
 ))]
 pub(crate) fn allocate_space(_file: &File, _len: u64) -> Result<()> {
