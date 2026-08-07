@@ -18,39 +18,10 @@ use windows_sys::core::BOOL;
 
 use crate::FsStats;
 use crate::lock::{LockMode, LockOperation};
-use crate::platform::Platform;
-
-pub(crate) struct PlatformAdapter;
-
-impl Platform for PlatformAdapter {
-    fn duplicate(file: &File) -> Result<File> {
-        duplicate(file)
-    }
-
-    fn allocated_size(file: &File) -> Result<u64> {
-        allocated_size(file)
-    }
-
-    fn allocate_space(file: &File, len: u64) -> Result<()> {
-        allocate_space(file, len)
-    }
-
-    fn lock(file: &File, operation: LockOperation) -> Result<()> {
-        lock(file, operation)
-    }
-
-    fn lock_error() -> Error {
-        lock_error()
-    }
-
-    fn statvfs(path: &Path) -> Result<FsStats> {
-        statvfs(path)
-    }
-}
 
 const VOLUME_PATH_CAPACITY: usize = 261;
 
-fn duplicate(file: &File) -> Result<File> {
+pub(crate) fn duplicate(file: &File) -> Result<File> {
     let mut handle = std::ptr::null_mut();
     let current_process = unsafe { GetCurrentProcess() };
     let ret = unsafe {
@@ -71,7 +42,7 @@ fn duplicate(file: &File) -> Result<File> {
     }
 }
 
-fn allocated_size(file: &File) -> Result<u64> {
+pub(crate) fn allocated_size(file: &File) -> Result<u64> {
     let mut info = FILE_STANDARD_INFO::default();
     let ret = unsafe {
         GetFileInformationByHandleEx(
@@ -89,7 +60,7 @@ fn allocated_size(file: &File) -> Result<u64> {
     }
 }
 
-fn allocate_space(file: &File, len: u64) -> Result<()> {
+pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
     if allocated_size(file)? < len {
         let info = FILE_ALLOCATION_INFO {
             AllocationSize: len as i64,
@@ -109,7 +80,7 @@ fn allocate_space(file: &File, len: u64) -> Result<()> {
     Ok(())
 }
 
-fn lock(file: &File, operation: LockOperation) -> Result<()> {
+pub(crate) fn lock(file: &File, operation: LockOperation) -> Result<()> {
     match operation {
         LockOperation::Acquire { mode, nonblocking } => {
             let mut flags = match mode {
@@ -132,7 +103,7 @@ fn lock(file: &File, operation: LockOperation) -> Result<()> {
     }
 }
 
-fn lock_error() -> Error {
+pub(crate) fn lock_error() -> Error {
     Error::from_raw_os_error(ERROR_LOCK_VIOLATION as i32)
 }
 
@@ -171,7 +142,7 @@ fn volume_path(path: &Path, volume_path: &mut [u16]) -> Result<()> {
     }
 }
 
-fn statvfs(path: &Path) -> Result<FsStats> {
+pub(crate) fn statvfs(path: &Path) -> Result<FsStats> {
     let mut root_path = [0u16; VOLUME_PATH_CAPACITY];
     volume_path(path, &mut root_path)?;
 

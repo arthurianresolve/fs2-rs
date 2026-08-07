@@ -33,8 +33,10 @@ requires Rust stable 1.97.1 or greater.
 
 ## Platforms
 
-`fs2` should work on any platform supported by
-[`libc`](https://github.com/rust-lang-nursery/libc#platforms-and-documentation).
+`fs2` supports the Unix and Windows targets implemented by the platform
+adapters in this repository. Unix support uses
+[`libc`](https://github.com/rust-lang/libc); Windows support uses
+[`windows-sys`](https://github.com/microsoft/windows-rs).
 
 The CI matrix continuously tests the native `x86_64` targets on Linux, macOS,
 and Windows with Rust 1.97.1 and stable. The historical 32-bit and GNU

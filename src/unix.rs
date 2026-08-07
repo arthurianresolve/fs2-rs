@@ -9,37 +9,8 @@ use std::path::Path;
 
 use crate::FsStats;
 use crate::lock::{LockMode, LockOperation};
-use crate::platform::Platform;
 
-pub(crate) struct PlatformAdapter;
-
-impl Platform for PlatformAdapter {
-    fn duplicate(file: &File) -> Result<File> {
-        duplicate(file)
-    }
-
-    fn allocated_size(file: &File) -> Result<u64> {
-        allocated_size(file)
-    }
-
-    fn allocate_space(file: &File, len: u64) -> Result<()> {
-        allocate_space(file, len)
-    }
-
-    fn lock(file: &File, operation: LockOperation) -> Result<()> {
-        lock(file, operation)
-    }
-
-    fn lock_error() -> Error {
-        lock_error()
-    }
-
-    fn statvfs(path: &Path) -> Result<FsStats> {
-        statvfs(path)
-    }
-}
-
-fn duplicate(file: &File) -> Result<File> {
+pub(crate) fn duplicate(file: &File) -> Result<File> {
     unsafe {
         let fd = libc::dup(file.as_raw_fd());
 
@@ -51,7 +22,7 @@ fn duplicate(file: &File) -> Result<File> {
     }
 }
 
-fn lock(file: &File, operation: LockOperation) -> Result<()> {
+pub(crate) fn lock(file: &File, operation: LockOperation) -> Result<()> {
     let flag = match operation {
         LockOperation::Acquire { mode, nonblocking } => {
             let mode_flag = match mode {
@@ -70,7 +41,7 @@ fn lock(file: &File, operation: LockOperation) -> Result<()> {
     flock(file, flag)
 }
 
-fn lock_error() -> Error {
+pub(crate) fn lock_error() -> Error {
     Error::from_raw_os_error(libc::EWOULDBLOCK)
 }
 
@@ -122,7 +93,7 @@ fn flock(file: &File, flag: libc::c_int) -> Result<()> {
     }
 }
 
-fn allocated_size(file: &File) -> Result<u64> {
+pub(crate) fn allocated_size(file: &File) -> Result<u64> {
     file.metadata().map(|m| m.blocks() * 512)
 }
 
@@ -180,7 +151,7 @@ pub(crate) fn allocate_space(_file: &File, _len: u64) -> Result<()> {
     Ok(())
 }
 
-fn statvfs(path: &Path) -> Result<FsStats> {
+pub(crate) fn statvfs(path: &Path) -> Result<FsStats> {
     let cstr = match CString::new(path.as_os_str().as_bytes()) {
         Ok(cstr) => cstr,
         Err(..) => return Err(Error::new(ErrorKind::InvalidInput, "path contained a null")),

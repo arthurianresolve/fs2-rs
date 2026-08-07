@@ -2,19 +2,17 @@
 
 #![doc(html_root_url = "https://docs.rs/fs2/0.5.0")]
 
-mod allocation;
-mod platform;
 mod stats;
 
 #[cfg(unix)]
 mod unix;
 #[cfg(unix)]
-use unix::PlatformAdapter;
+use unix as sys;
 
 #[cfg(windows)]
 mod windows;
 #[cfg(windows)]
-use windows::PlatformAdapter;
+use windows as sys;
 
 mod lock;
 
@@ -132,35 +130,43 @@ pub trait FileExt {
 
 impl FileExt for File {
     fn duplicate(&self) -> Result<File> {
-        <PlatformAdapter as platform::Platform>::duplicate(self)
+        sys::duplicate(self)
     }
     fn allocated_size(&self) -> Result<u64> {
-        <PlatformAdapter as platform::Platform>::allocated_size(self)
+        sys::allocated_size(self)
     }
     fn allocate(&self, len: u64) -> Result<()> {
-        allocation::allocate::<PlatformAdapter>(self, len)
+        if sys::allocated_size(self)? < len {
+            sys::allocate_space(self, len)?;
+        }
+
+        if self.metadata()?.len() < len {
+            self.set_len(len)
+        } else {
+            Ok(())
+        }
     }
     fn lock_shared(&self) -> Result<()> {
-        lock::lock_shared::<PlatformAdapter>(self)
+        lock::lock_shared(self)
     }
     fn lock_exclusive(&self) -> Result<()> {
-        lock::lock_exclusive::<PlatformAdapter>(self)
+        lock::lock_exclusive(self)
     }
     fn try_lock_shared(&self) -> Result<()> {
-        lock::try_lock_shared::<PlatformAdapter>(self)
+        lock::try_lock_shared(self)
     }
     fn try_lock_exclusive(&self) -> Result<()> {
-        lock::try_lock_exclusive::<PlatformAdapter>(self)
+        lock::try_lock_exclusive(self)
     }
     fn unlock(&self) -> Result<()> {
-        lock::unlock::<PlatformAdapter>(self)
+        lock::unlock(self)
     }
 }
 
 /// Returns the error that a call to a try lock method on a contended file will
 /// return.
 pub fn lock_contended_error() -> Error {
-    lock::contended_error::<PlatformAdapter>()
+    lock::contended_error()
 }
 
 /// Get the stats of the file system containing the provided path.
@@ -168,7 +174,7 @@ pub fn statvfs<P>(path: P) -> Result<FsStats>
 where
     P: AsRef<Path>,
 {
-    <PlatformAdapter as platform::Platform>::statvfs(path.as_ref())
+    sys::statvfs(path.as_ref())
 }
 
 /// Returns the number of free bytes in the file system containing the provided
