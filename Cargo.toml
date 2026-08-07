@@ -12,6 +12,10 @@ description = "Cross-platform file locks, allocation, duplication and filesystem
 keywords = ["file", "file-system", "lock", "duplicate", "flock"]
 categories = ["filesystem"]
 
+[workspace]
+members = ["benchmarks"]
+resolver = "3"
+
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.189"
 
@@ -24,9 +28,4 @@ windows-sys = { version = "0.61.2", features = [
 ] }
 
 [dev-dependencies]
-criterion = "0.8.2"
 tempfile = "3.27"
-
-[[bench]]
-name = "fs2"
-harness = false

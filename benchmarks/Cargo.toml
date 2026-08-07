@@ -1,0 +1,15 @@
+[package]
+name = "fs2-benchmarks"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.97.1"
+publish = false
+
+[dependencies]
+criterion = "0.8.2"
+fs2 = { path = ".." }
+tempfile = "3.27"
+
+[[bench]]
+name = "fs2"
+harness = false

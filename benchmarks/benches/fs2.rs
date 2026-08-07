@@ -3,7 +3,7 @@ use std::hint::black_box;
 use std::path::Path;
 
 use criterion::{Criterion, criterion_group, criterion_main};
-use fs2::{FileExt, available_space, free_space, total_space};
+use fs2::{FileExt, allocation_granularity, available_space, free_space, statvfs, total_space};
 use tempfile::tempdir;
 
 fn open_file(path: &Path) -> File {
@@ -111,6 +111,35 @@ fn bench_total_space(c: &mut Criterion) {
     });
 }
 
+fn bench_stats_snapshot(c: &mut Criterion) {
+    let tempdir = tempdir().unwrap();
+    let path = tempdir.path();
+    let mut group = c.benchmark_group("stats_snapshot");
+
+    group.bench_function("one_snapshot", |b| {
+        b.iter(|| {
+            let stats = statvfs(path).unwrap();
+            black_box((
+                stats.free_space(),
+                stats.available_space(),
+                stats.total_space(),
+                stats.allocation_granularity(),
+            ))
+        });
+    });
+    group.bench_function("four_convenience_queries", |b| {
+        b.iter(|| {
+            black_box((
+                free_space(path).unwrap(),
+                available_space(path).unwrap(),
+                total_space(path).unwrap(),
+                allocation_granularity(path).unwrap(),
+            ))
+        });
+    });
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_file_create,
@@ -122,5 +151,6 @@ criterion_group!(
     bench_free_space,
     bench_available_space,
     bench_total_space,
+    bench_stats_snapshot,
 );
 criterion_main!(benches);

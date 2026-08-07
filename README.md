@@ -46,15 +46,24 @@ nightly `build-std`; runtime tests require a target-specific emulator and
 uClibc sysroot.
 
 The target evidence and allocation capability claims are recorded in
-[`support-matrix.json`](support-matrix.json). CI validates the matrix, runs
-native runtime tests, and compile-checks the listed cross targets. Compile-only
+[`support-matrix.json`](support-matrix.json). CI validates the matrix and
+generates its native and cross-target job matrices from the registry, then runs
+native runtime tests and compile-checks the listed cross targets. Compile-only
 evidence does not imply runtime support.
 
 ## Benchmarking
 
-Stable Criterion benchmarks are provided for the public APIs. When benchmarking
-files, account for the filesystem backing the temporary directory; `/tmp` is
-often a `tmpfs` mount.
+Stable Criterion benchmarks are provided for the public APIs in the separate
+`fs2-benchmarks` workspace member. Run them with
+`cargo bench --manifest-path benchmarks/Cargo.toml`. When benchmarking files,
+account for the filesystem backing the temporary directory; `/tmp` is often a
+`tmpfs` mount.
+
+When several filesystem counters are needed, prefer one `statvfs` snapshot and
+read its accessors rather than calling the individual convenience functions.
+The `stats_snapshot` benchmark measures that choice without adding another
+public abstraction; the existing `FsStats` type is already the appropriate
+snapshot boundary.
 
 ## License
 
