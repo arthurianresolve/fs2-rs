@@ -13,49 +13,25 @@ pub struct FsStats {
 }
 
 impl FsStats {
-    #[cfg(unix)]
-    pub(crate) fn from_block_counts(
-        allocation_granularity: u64,
-        free_blocks: u64,
-        available_blocks: u64,
-        total_blocks: u64,
-    ) -> Result<Self> {
-        let free_space = checked_space(allocation_granularity, free_blocks)?;
-        let available_space = checked_space(allocation_granularity, available_blocks)?;
-        let total_space = checked_space(allocation_granularity, total_blocks)?;
-
-        Self::from_bytes(
-            allocation_granularity,
-            free_space,
-            available_space,
-            total_space,
-        )
-    }
-
-    pub(crate) fn from_bytes(
-        allocation_granularity: u64,
-        free_space: u64,
-        available_space: u64,
-        total_space: u64,
-    ) -> Result<Self> {
-        if allocation_granularity == 0 {
+    pub(crate) fn from_counters(counters: FilesystemCounters) -> Result<Self> {
+        if counters.allocation_granularity == 0 {
             return Err(invalid_stats("filesystem allocation granularity is zero"));
         }
 
-        if available_space > free_space {
+        if counters.available_space > counters.free_space {
             return Err(invalid_stats(
                 "filesystem available space exceeds free space",
             ));
         }
-        if free_space > total_space {
+        if counters.free_space > counters.total_space {
             return Err(invalid_stats("filesystem free space exceeds total space"));
         }
 
         Ok(Self {
-            free_space,
-            available_space,
-            total_space,
-            allocation_granularity,
+            free_space: counters.free_space,
+            available_space: counters.available_space,
+            total_space: counters.total_space,
+            allocation_granularity: counters.allocation_granularity,
         })
     }
 
@@ -84,6 +60,31 @@ impl FsStats {
     /// On Windows, this is equivalent to the filesystem's cluster size.
     pub fn allocation_granularity(&self) -> u64 {
         self.allocation_granularity
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct FilesystemCounters {
+    pub(crate) allocation_granularity: u64,
+    pub(crate) free_space: u64,
+    pub(crate) available_space: u64,
+    pub(crate) total_space: u64,
+}
+
+impl FilesystemCounters {
+    #[cfg(unix)]
+    pub(crate) fn from_block_counts(
+        allocation_granularity: u64,
+        free_blocks: u64,
+        available_blocks: u64,
+        total_blocks: u64,
+    ) -> Result<Self> {
+        Ok(Self {
+            allocation_granularity,
+            free_space: checked_space(allocation_granularity, free_blocks)?,
+            available_space: checked_space(allocation_granularity, available_blocks)?,
+            total_space: checked_space(allocation_granularity, total_blocks)?,
+        })
     }
 }
 
@@ -151,12 +152,14 @@ mod tests {
 
     use std::io::ErrorKind;
 
-    use super::{FsStats, statvfs};
+    use super::{FilesystemCounters, FsStats, statvfs};
 
     #[cfg(unix)]
     #[test]
     fn constructs_stats_from_block_counts() {
-        let stats = FsStats::from_block_counts(4096, 8, 6, 10).unwrap();
+        let stats =
+            FsStats::from_counters(FilesystemCounters::from_block_counts(4096, 8, 6, 10).unwrap())
+                .unwrap();
 
         assert_eq!(stats.free_space(), 32_768);
         assert_eq!(stats.available_space(), 24_576);
@@ -166,7 +169,13 @@ mod tests {
 
     #[test]
     fn constructs_stats_from_bytes() {
-        let stats = FsStats::from_bytes(4096, 32_768, 24_576, 40_960).unwrap();
+        let stats = FsStats::from_counters(FilesystemCounters {
+            allocation_granularity: 4096,
+            free_space: 32_768,
+            available_space: 24_576,
+            total_space: 40_960,
+        })
+        .unwrap();
 
         assert_eq!(stats.free_space(), 32_768);
         assert_eq!(stats.available_space(), 24_576);
@@ -174,32 +183,46 @@ mod tests {
         assert_eq!(stats.allocation_granularity(), 4096);
     }
 
+    #[test]
+    fn rejects_zero_granularity() {
+        let error = FsStats::from_counters(FilesystemCounters {
+            allocation_granularity: 0,
+            free_space: 1,
+            available_space: 1,
+            total_space: 1,
+        })
+        .unwrap_err();
+
+        assert_eq!(error.kind(), ErrorKind::InvalidData);
+    }
+
     #[cfg(unix)]
     #[test]
     fn rejects_block_count_zero_granularity() {
-        let error = FsStats::from_block_counts(0, 1, 1, 1).unwrap_err();
-
-        assert_eq!(error.kind(), ErrorKind::InvalidData);
-    }
-
-    #[test]
-    fn rejects_zero_granularity() {
-        let error = FsStats::from_bytes(0, 1, 1, 1).unwrap_err();
+        let error =
+            FsStats::from_counters(FilesystemCounters::from_block_counts(0, 1, 1, 1).unwrap())
+                .unwrap_err();
 
         assert_eq!(error.kind(), ErrorKind::InvalidData);
     }
 
     #[cfg(unix)]
     #[test]
-    fn rejects_block_count_space_overflow() {
-        let error = FsStats::from_block_counts(u64::MAX, 2, 1, 2).unwrap_err();
+    fn rejects_space_overflow() {
+        let error = FilesystemCounters::from_block_counts(u64::MAX, 2, 1, 2).unwrap_err();
 
         assert_eq!(error.kind(), ErrorKind::InvalidData);
     }
 
     #[test]
     fn rejects_inconsistent_space_counts() {
-        let error = FsStats::from_bytes(4096, 32_768, 36_864, 40_960).unwrap_err();
+        let error = FsStats::from_counters(FilesystemCounters {
+            allocation_granularity: 4096,
+            free_space: 32_768,
+            available_space: 36_864,
+            total_space: 40_960,
+        })
+        .unwrap_err();
 
         assert_eq!(error.kind(), ErrorKind::InvalidData);
     }

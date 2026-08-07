@@ -7,7 +7,7 @@ use std::os::unix::fs::MetadataExt;
 use std::os::unix::io::{AsFd, AsRawFd};
 use std::path::Path;
 
-use crate::{FsStats, LockMode, LockOperation};
+use crate::{AllocationCapability, FilesystemCounters, FsStats, LockMode, LockOperation};
 
 pub(crate) fn duplicate(file: &File) -> Result<File> {
     let owned = file.as_fd().try_clone_to_owned()?;
@@ -103,7 +103,7 @@ pub(crate) fn allocated_size(file: &File) -> Result<u64> {
 ))]
 #[cfg(not(all(target_os = "linux", target_env = "uclibc")))]
 #[cfg(not(all(target_os = "linux", target_pointer_width = "32")))]
-pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
+pub(crate) fn allocate_space(file: &File, len: u64) -> Result<AllocationCapability> {
     let len = libc::off_t::try_from(len)
         .map_err(|_| Error::new(ErrorKind::InvalidInput, "allocation length is too large"))?;
     let ret = unsafe {
@@ -111,7 +111,7 @@ pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
         libc::posix_fallocate(file.as_raw_fd(), 0, len)
     };
     if ret == 0 {
-        Ok(())
+        Ok(AllocationCapability)
     } else {
         Err(Error::from_raw_os_error(ret))
     }
@@ -119,7 +119,7 @@ pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
 
 #[cfg(all(target_os = "linux", target_pointer_width = "32"))]
 #[cfg(not(target_env = "uclibc"))]
-pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
+pub(crate) fn allocate_space(file: &File, len: u64) -> Result<AllocationCapability> {
     let len = libc::off64_t::try_from(len)
         .map_err(|_| Error::new(ErrorKind::InvalidInput, "allocation length is too large"))?;
     let ret = unsafe {
@@ -127,14 +127,14 @@ pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
         libc::posix_fallocate64(file.as_raw_fd(), 0, len)
     };
     if ret == 0 {
-        Ok(())
+        Ok(AllocationCapability)
     } else {
         Err(Error::from_raw_os_error(ret))
     }
 }
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
-pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
+pub(crate) fn allocate_space(file: &File, len: u64) -> Result<AllocationCapability> {
     let stat = file.metadata()?;
 
     if len > stat.blocks() as u64 * 512 {
@@ -165,7 +165,7 @@ pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
         }
     }
 
-    Ok(())
+    Ok(AllocationCapability)
 }
 
 #[cfg(any(
@@ -178,9 +178,12 @@ pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
     target_os = "redox",
     target_os = "haiku"
 ))]
-pub(crate) fn allocate_space(_file: &File, _len: u64) -> Result<()> {
+pub(crate) fn allocate_space(_file: &File, _len: u64) -> Result<AllocationCapability> {
     // No file allocation API is available on these platforms.
-    Ok(())
+    Err(Error::new(
+        ErrorKind::Unsupported,
+        "physical file allocation is unavailable on this platform",
+    ))
 }
 
 pub(crate) fn statvfs(path: &Path) -> Result<FsStats> {
@@ -194,12 +197,12 @@ pub(crate) fn statvfs(path: &Path) -> Result<FsStats> {
     if ret != 0 {
         Err(Error::last_os_error())
     } else {
-        FsStats::from_block_counts(
+        FsStats::from_counters(FilesystemCounters::from_block_counts(
             stat.f_frsize as u64,
             stat.f_bfree as u64,
             stat.f_bavail as u64,
             stat.f_blocks as u64,
-        )
+        )?)
     }
 }
 

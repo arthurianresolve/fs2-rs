@@ -13,7 +13,7 @@ use windows_sys::Win32::Storage::FileSystem::{
 };
 use windows_sys::Win32::System::IO::OVERLAPPED;
 
-use crate::{FsStats, LockMode, LockOperation};
+use crate::{AllocationCapability, FilesystemCounters, FsStats, LockMode, LockOperation};
 
 const VOLUME_PATH_CAPACITY: usize = 261;
 
@@ -41,7 +41,7 @@ pub(crate) fn allocated_size(file: &File) -> Result<u64> {
     }
 }
 
-pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
+pub(crate) fn allocate_space(file: &File, len: u64) -> Result<AllocationCapability> {
     let len = i64::try_from(len)
         .map_err(|_| Error::new(ErrorKind::InvalidInput, "allocation length is too large"))?;
     let info = FILE_ALLOCATION_INFO {
@@ -59,7 +59,7 @@ pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
     if ret == 0 {
         return Err(Error::last_os_error());
     }
-    Ok(())
+    Ok(AllocationCapability)
 }
 
 pub(crate) fn lock(file: &File, operation: LockOperation) -> Result<()> {
@@ -171,12 +171,12 @@ pub(crate) fn statvfs(path: &Path) -> Result<FsStats> {
         return Err(Error::last_os_error());
     }
 
-    FsStats::from_bytes(
+    FsStats::from_counters(FilesystemCounters {
         allocation_granularity,
-        total_number_of_free_bytes,
-        free_bytes_available_to_caller,
-        total_number_of_bytes,
-    )
+        free_space: total_number_of_free_bytes,
+        available_space: free_bytes_available_to_caller,
+        total_space: total_number_of_bytes,
+    })
 }
 
 #[cfg(test)]

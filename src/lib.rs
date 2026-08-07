@@ -2,6 +2,9 @@
 
 #![doc(html_root_url = "https://docs.rs/fs2/0.5.0")]
 
+mod allocation;
+#[cfg(test)]
+mod lock_contract;
 mod stats;
 
 #[cfg(unix)]
@@ -20,6 +23,9 @@ use std::io::{Error, Result};
 pub use stats::{
     FsStats, allocation_granularity, available_space, free_space, statvfs, total_space,
 };
+
+pub(crate) use allocation::AllocationCapability;
+pub(crate) use stats::FilesystemCounters;
 
 #[derive(Clone, Copy)]
 pub(crate) enum LockMode {
@@ -79,10 +85,8 @@ pub trait FileExt {
     ///
     /// # Notes
     ///
-    /// This is implemented with
-    /// [`dup(2)`](http://man7.org/linux/man-pages/man2/dup.2.html) on Unix and
-    /// [`DuplicateHandle`](https://msdn.microsoft.com/en-us/library/windows/desktop/ms724251(v=vs.85).aspx)
-    /// on Windows.
+    /// This uses the platform's safe standard-library file descriptor or handle
+    /// cloning implementation.
     fn duplicate(&self) -> Result<File>;
 
     /// Returns the amount of physical space allocated for a file.
@@ -92,6 +96,8 @@ pub trait FileExt {
     /// file, and the file size is at least `len` bytes. After a successful call
     /// to `allocate`, subsequent writes to the file within the specified length
     /// are guaranteed not to fail because of lack of disk space.
+    /// On platforms without a physical reservation primitive, this returns
+    /// [`std::io::ErrorKind::Unsupported`] when additional space is needed.
     fn allocate(&self, len: u64) -> Result<()>;
 
     /// Locks the file for shared usage, blocking if the file is currently
@@ -151,15 +157,7 @@ impl FileExt for File {
         sys::allocated_size(self)
     }
     fn allocate(&self, len: u64) -> Result<()> {
-        if sys::allocated_size(self)? < len {
-            sys::allocate_space(self, len)?;
-        }
-
-        if self.metadata()?.len() < len {
-            self.set_len(len)
-        } else {
-            Ok(())
-        }
+        allocation::allocate(self, len)
     }
     fn lock_shared(&self) -> Result<()> {
         acquire_lock(self, LockMode::Shared, false)
@@ -221,118 +219,6 @@ mod test {
         file2.seek(SeekFrom::Start(0)).unwrap();
         file2.read_to_end(&mut buf).unwrap();
         assert_eq!(&buf, &b"foo");
-    }
-
-    /// Tests shared file lock operations.
-    #[test]
-    fn lock_shared() {
-        let tempdir = tempdir().unwrap();
-        let path = tempdir.path().join("fs2");
-        let file1 = fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(&path)
-            .unwrap();
-        let file2 = fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(&path)
-            .unwrap();
-        let file3 = fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(&path)
-            .unwrap();
-
-        // Concurrent shared access is OK, but not shared and exclusive.
-        file1.fs2_lock_shared().unwrap();
-        file2.fs2_lock_shared().unwrap();
-        assert_eq!(
-            file3.fs2_try_lock_exclusive().unwrap_err().kind(),
-            lock_contended_error().kind()
-        );
-        file1.fs2_unlock().unwrap();
-        assert_eq!(
-            file3.fs2_try_lock_exclusive().unwrap_err().kind(),
-            lock_contended_error().kind()
-        );
-
-        // Once all shared file locks are dropped, an exclusive lock may be created;
-        file2.fs2_unlock().unwrap();
-        file3.fs2_lock_exclusive().unwrap();
-    }
-
-    /// Tests exclusive file lock operations.
-    #[test]
-    fn lock_exclusive() {
-        let tempdir = tempdir().unwrap();
-        let path = tempdir.path().join("fs2");
-        let file1 = fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(&path)
-            .unwrap();
-        let file2 = fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(&path)
-            .unwrap();
-
-        // No other access is possible once an exclusive lock is created.
-        file1.fs2_lock_exclusive().unwrap();
-        assert_eq!(
-            file2.fs2_try_lock_exclusive().unwrap_err().kind(),
-            lock_contended_error().kind()
-        );
-        assert_eq!(
-            file2.fs2_try_lock_shared().unwrap_err().kind(),
-            lock_contended_error().kind()
-        );
-
-        // Once the exclusive lock is dropped, the second file is able to create a lock.
-        file1.fs2_unlock().unwrap();
-        file2.fs2_lock_exclusive().unwrap();
-    }
-
-    /// Tests that a lock is released after the file that owns it is dropped.
-    #[test]
-    fn lock_cleanup() {
-        let tempdir = tempdir().unwrap();
-        let path = tempdir.path().join("fs2");
-        let file1 = fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(&path)
-            .unwrap();
-        let file2 = fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(&path)
-            .unwrap();
-
-        file1.fs2_lock_exclusive().unwrap();
-        assert_eq!(
-            file2.fs2_try_lock_shared().unwrap_err().kind(),
-            lock_contended_error().kind()
-        );
-
-        // Drop file1; the lock should be released.
-        drop(file1);
-        file2.fs2_lock_shared().unwrap();
     }
 
     /// Tests file allocation.
