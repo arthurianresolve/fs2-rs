@@ -3,14 +3,10 @@ use std::io::Result;
 
 use crate::sys;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum AllocationOutcome {
-    AlreadyAllocated,
-    PhysicallyReserved,
-}
-
 pub(crate) fn allocate(file: &File, len: u64) -> Result<()> {
-    let _outcome = reserve(file, len)?;
+    if sys::allocated_size(file)? < len {
+        sys::allocate_space(file, len)?;
+    }
 
     if file.metadata()?.len() < len {
         file.set_len(len)
@@ -19,23 +15,14 @@ pub(crate) fn allocate(file: &File, len: u64) -> Result<()> {
     }
 }
 
-pub(crate) fn reserve(file: &File, len: u64) -> Result<AllocationOutcome> {
-    if sys::allocated_size(file)? >= len {
-        return Ok(AllocationOutcome::AlreadyAllocated);
-    }
-
-    sys::allocate_space(file, len)?;
-    Ok(AllocationOutcome::PhysicallyReserved)
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{AllocationOutcome, reserve};
+    use super::allocate;
     use std::fs::OpenOptions;
     use tempfile::tempdir;
 
     #[test]
-    fn reports_already_allocated_for_zero_length() {
+    fn accepts_already_allocated_zero_length() {
         let tempdir = tempdir().unwrap();
         let file = OpenOptions::new()
             .write(true)
@@ -44,10 +31,7 @@ mod tests {
             .open(tempdir.path().join("fs2"))
             .unwrap();
 
-        assert_eq!(
-            reserve(&file, 0).unwrap(),
-            AllocationOutcome::AlreadyAllocated
-        );
+        allocate(&file, 0).unwrap();
     }
 
     #[cfg(any(
@@ -60,7 +44,7 @@ mod tests {
         all(target_os = "linux", not(target_env = "uclibc")),
     ))]
     #[test]
-    fn reports_physical_reservation_when_needed() {
+    fn allocates_physical_space_when_needed() {
         let tempdir = tempdir().unwrap();
         let file = OpenOptions::new()
             .write(true)
@@ -69,10 +53,7 @@ mod tests {
             .open(tempdir.path().join("fs2"))
             .unwrap();
 
-        assert_eq!(
-            reserve(&file, 4096).unwrap(),
-            AllocationOutcome::PhysicallyReserved
-        );
+        allocate(&file, 4096).unwrap();
     }
 
     #[cfg(any(
@@ -86,7 +67,7 @@ mod tests {
         target_os = "haiku",
     ))]
     #[test]
-    fn reports_unsupported_reservation_when_needed() {
+    fn rejects_unsupported_reservation_when_needed() {
         let tempdir = tempdir().unwrap();
         let file = OpenOptions::new()
             .write(true)
@@ -96,7 +77,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            reserve(&file, 4096).unwrap_err().kind(),
+            allocate(&file, 4096).unwrap_err().kind(),
             std::io::ErrorKind::Unsupported
         );
     }

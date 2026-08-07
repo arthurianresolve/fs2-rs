@@ -1,13 +1,13 @@
 {
-  "version": 2,
+  "version": 4,
   "evidence_levels": ["runtime", "compile", "not-covered"],
   "targets": [
     {"target": "x86_64-unknown-linux-gnu", "platform": "Linux", "evidence": "runtime", "allocation": "physical-reservation", "ci_job": "check", "ci": {"runner": "ubuntu-latest", "toolchains": ["1.97.1", "stable"]}},
     {"target": "x86_64-apple-darwin", "platform": "macOS", "evidence": "runtime", "allocation": "physical-reservation", "ci_job": "check", "ci": {"runner": "macos-latest", "toolchains": ["1.97.1", "stable"]}},
     {"target": "x86_64-pc-windows-msvc", "platform": "Windows MSVC", "evidence": "runtime", "allocation": "physical-reservation", "ci_job": "check", "ci": {"runner": "windows-latest", "toolchains": ["1.97.1", "stable"]}},
-    {"target": "i686-unknown-linux-gnu", "platform": "32-bit Linux", "evidence": "compile", "allocation": "physical-reservation", "ci_job": "cross-check", "ci": {"runner": "ubuntu-latest", "toolchains": ["1.97.1"]}},
-    {"target": "x86_64-unknown-illumos", "platform": "Illumos", "evidence": "compile", "allocation": "unsupported", "ci_job": "cross-check", "ci": {"runner": "ubuntu-latest", "toolchains": ["1.97.1"]}},
-    {"target": "x86_64-unknown-redox", "platform": "Redox", "evidence": "compile", "allocation": "unsupported", "ci_job": "cross-check", "ci": {"runner": "ubuntu-latest", "toolchains": ["1.97.1"]}},
+    {"target": "i686-unknown-linux-gnu", "platform": "32-bit Linux", "evidence": "compile", "allocation": "physical-reservation", "ci_job": "cross_check", "ci": {"runner": "ubuntu-latest", "toolchains": ["1.97.1"]}},
+    {"target": "x86_64-unknown-illumos", "platform": "Illumos", "evidence": "compile", "allocation": "unsupported", "ci_job": "cross_check", "ci": {"runner": "ubuntu-latest", "toolchains": ["1.97.1"]}},
+    {"target": "x86_64-unknown-redox", "platform": "Redox", "evidence": "compile", "allocation": "unsupported", "ci_job": "cross_check", "ci": {"runner": "ubuntu-latest", "toolchains": ["1.97.1"]}},
     {"target": "armv7-unknown-linux-uclibceabihf", "platform": "ARM uClibc", "evidence": "compile", "allocation": "unsupported", "ci_job": "uclibc", "ci": {"runner": "ubuntu-latest", "toolchains": ["nightly"]}},
     {"target": "x86_64-pc-windows-gnu", "platform": "Windows GNU", "evidence": "not-covered", "allocation": "unknown", "ci_job": null, "ci": null}
   ]

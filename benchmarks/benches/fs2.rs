@@ -56,6 +56,17 @@ fn bench_file_allocate(c: &mut Criterion) {
     });
 }
 
+fn bench_file_allocate_already_satisfied(c: &mut Criterion) {
+    let tempdir = tempdir().unwrap();
+    let path = tempdir.path().join("file");
+    let file = open_file(&path);
+    file.allocate(32 * 1024 * 1024).unwrap();
+
+    c.bench_function("file_allocate_already_satisfied", |b| {
+        b.iter(|| file.allocate(32 * 1024 * 1024).unwrap());
+    });
+}
+
 fn bench_allocated_size(c: &mut Criterion) {
     let tempdir = tempdir().unwrap();
     let path = tempdir.path().join("file");
@@ -145,6 +156,7 @@ criterion_group!(
     bench_file_create,
     bench_file_truncate,
     bench_file_allocate,
+    bench_file_allocate_already_satisfied,
     bench_allocated_size,
     bench_duplicate,
     bench_lock_unlock,

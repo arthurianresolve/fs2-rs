@@ -8,14 +8,13 @@ jobs:
   support-matrix:
     name: Validate support matrix
     outputs:
-      native: ${{ steps.matrix.outputs.native }}
-      cross: ${{ steps.matrix.outputs.cross }}
-      uclibc: ${{ steps.matrix.outputs.uclibc }}
+      matrices: ${{ steps.matrix.outputs.matrices }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - id: matrix
         run: python scripts/validate_support_matrix.py --github-output "$GITHUB_OUTPUT"
+      - run: python -m unittest discover --start-directory scripts --pattern "test_*.py"
 
   check:
     needs: support-matrix
@@ -23,7 +22,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.support-matrix.outputs.native) }}
+      matrix: ${{ fromJSON(needs.support-matrix.outputs.matrices).check }}
 
     steps:
       - uses: actions/checkout@v4
@@ -37,31 +36,34 @@ jobs:
       - run: cargo test --package fs2 --lib --target ${{ matrix.target }}
       - run: cargo bench --manifest-path benchmarks/Cargo.toml --bench fs2 --no-run --locked --target ${{ matrix.target }}
 
-  cross-check:
+  cross_check:
     needs: support-matrix
-    name: ${{ matrix.target }} / Rust 1.97.1
+    name: ${{ matrix.target }} / Rust ${{ matrix.toolchain }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.support-matrix.outputs.cross) }}
+      matrix: ${{ fromJSON(needs.support-matrix.outputs.matrices).cross_check }}
 
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
         with:
-          toolchain: "1.97.1"
+          toolchain: ${{ matrix.toolchain }}
           targets: ${{ matrix.target }}
       - run: cargo check --package fs2 --tests --target ${{ matrix.target }} --locked
 
   uclibc:
     needs: support-matrix
-    name: armv7 uClibc compile check
-    runs-on: ubuntu-latest
+    name: ${{ matrix.target }} / Rust ${{ matrix.toolchain }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.support-matrix.outputs.matrices).uclibc }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
         with:
-          toolchain: ${{ fromJSON(needs.support-matrix.outputs.uclibc).include[0].toolchain }}
+          toolchain: ${{ matrix.toolchain }}
           components: rust-src
-          targets: ${{ fromJSON(needs.support-matrix.outputs.uclibc).include[0].target }}
-      - run: cargo check -Z build-std=std,panic_abort --package fs2 --target ${{ fromJSON(needs.support-matrix.outputs.uclibc).include[0].target }} --lib --locked
+          targets: ${{ matrix.target }}
+      - run: cargo check -Z build-std=std,panic_abort --package fs2 --target ${{ matrix.target }} --lib --locked

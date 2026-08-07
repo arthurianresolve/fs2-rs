@@ -11,30 +11,25 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MATRIX_PATH = ROOT / "support-matrix.json"
 EVIDENCE_LEVELS = {"runtime", "compile", "not-covered"}
-JOB_IDS = {"check", "cross-check", "uclibc"}
-EXPECTED_TARGETS = {
-    "check": {
-        "x86_64-unknown-linux-gnu",
-        "x86_64-apple-darwin",
-        "x86_64-pc-windows-msvc",
-    },
-    "cross-check": {
-        "i686-unknown-linux-gnu",
-        "x86_64-unknown-illumos",
-        "x86_64-unknown-redox",
-    },
-    "uclibc": {"armv7-unknown-linux-uclibceabihf"},
-}
+
+
+def is_ci_job_name(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and value.isascii()
+        and bool(value)
+        and value[0].isalnum()
+        and all(character.isalnum() or character == "_" for character in value)
+    )
 
 
 def fail(message: str) -> None:
     raise SystemExit(f"support matrix is invalid: {message}")
 
 
-def load_matrix() -> dict:
-    data = json.loads(MATRIX_PATH.read_text(encoding="utf-8"))
-    if data.get("version") != 2:
-        fail("version must be 2")
+def validate_matrix(data: dict) -> dict:
+    if data.get("version") != 4:
+        fail("version must be 4")
     if set(data.get("evidence_levels", [])) != EVIDENCE_LEVELS:
         fail("evidence_levels must contain runtime, compile, and not-covered")
 
@@ -42,15 +37,17 @@ def load_matrix() -> dict:
     if not isinstance(targets, list) or not targets:
         fail("targets must be a non-empty list")
 
-    seen: set[str] = set()
+    seen_targets: set[str] = set()
+    jobs: set[str] = set()
     for entry in targets:
         required = {"target", "platform", "evidence", "allocation", "ci_job", "ci"}
         if not required <= entry.keys():
             fail(f"target entry is missing fields: {sorted(required - entry.keys())}")
+
         target = entry["target"]
-        if not isinstance(target, str) or not target or target in seen:
+        if not isinstance(target, str) or not target or target in seen_targets:
             fail(f"target must be a unique non-empty string: {target!r}")
-        seen.add(target)
+        seen_targets.add(target)
         if entry["evidence"] not in EVIDENCE_LEVELS:
             fail(f"unknown evidence level for {target}")
 
@@ -60,60 +57,58 @@ def load_matrix() -> dict:
             if ci is not None:
                 fail(f"not-covered target {target} must not have CI metadata")
             continue
-        if job not in JOB_IDS:
-            fail(f"unknown CI job {job!r} for {target}")
-        if not isinstance(ci, dict) or not isinstance(ci.get("runner"), str):
-            fail(f"CI metadata for {target} must define a runner")
+        if not is_ci_job_name(job):
+            fail(f"invalid CI job name for {target}: {job!r}")
+        if not isinstance(ci, dict):
+            fail(f"CI metadata for {target} must be an object")
+
+        runner = ci.get("runner")
         toolchains = ci.get("toolchains")
+        if not isinstance(runner, str) or not runner:
+            fail(f"CI metadata for {target} must define a runner")
         if not isinstance(toolchains, list) or not toolchains or not all(
             isinstance(toolchain, str) for toolchain in toolchains
         ):
             fail(f"CI metadata for {target} must define toolchains")
 
-        if job == "check":
-            if entry["evidence"] != "runtime" or len(toolchains) != 2:
-                fail(f"native target {target} must have runtime evidence on two toolchains")
-        elif job == "cross-check":
-            if entry["evidence"] != "compile" or toolchains != ["1.97.1"]:
-                fail(f"cross target {target} must have compile evidence on Rust 1.97.1")
-        elif job == "uclibc":
-            if entry["evidence"] != "compile" or toolchains != ["nightly"]:
-                fail(f"uClibc target {target} must have compile evidence on nightly")
+        jobs.add(job)
+        if entry["evidence"] == "runtime" and toolchains != ["1.97.1", "stable"]:
+            fail(f"runtime target {target} must use Rust 1.97.1 and stable")
+        if entry["evidence"] == "compile" and toolchains not in (["1.97.1"], ["nightly"]):
+            fail(f"compile target {target} must use Rust 1.97.1 or nightly")
 
-    for job, expected in EXPECTED_TARGETS.items():
-        actual = {entry["target"] for entry in targets if entry["ci_job"] == job}
-        if actual != expected:
-            fail(f"{job} targets differ from the owned set: {sorted(actual)}")
+    if not jobs:
+        fail("at least one CI job is required")
 
     return data
 
 
+def load_matrix(matrix_path: Path = MATRIX_PATH) -> dict:
+    return validate_matrix(json.loads(matrix_path.read_text(encoding="utf-8")))
+
+
 def matrices(data: dict) -> dict[str, dict[str, list[dict[str, str]]]]:
-    result: dict[str, dict[str, list[dict[str, str]]]] = {
-        "native": {"include": []},
-        "cross": {"include": []},
-        "uclibc": {"include": []},
-    }
+    generated: dict[str, dict[str, list[dict[str, str]]]] = {}
     for entry in data["targets"]:
-        job = entry["ci_job"]
-        if job is None:
+        if entry["ci_job"] is None:
             continue
-        output = "native" if job == "check" else job.removesuffix("-check")
+        matrix_name = entry["ci_job"]
+        matrix = generated.setdefault(matrix_name, {"include": []})
         for toolchain in entry["ci"]["toolchains"]:
-            result[output]["include"].append(
+            matrix["include"].append(
                 {
                     "os": entry["ci"]["runner"],
                     "target": entry["target"],
                     "toolchain": toolchain,
                 }
             )
-    return result
+    return generated
 
 
 def write_github_output(path: Path, generated: dict) -> None:
     with path.open("a", encoding="utf-8", newline="\n") as output:
-        for name, value in generated.items():
-            output.write(f"{name}={json.dumps(value, separators=(',', ':'))}\n")
+        value = json.dumps(generated, separators=(",", ":"))
+        output.write(f"matrices={value}\n")
 
 
 def main() -> None:
