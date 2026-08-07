@@ -3,16 +3,23 @@ use std::io::Result;
 
 use crate::sys;
 
+#[derive(Clone, Copy)]
+pub(crate) struct AllocationState {
+    pub(crate) allocated_size: u64,
+    pub(crate) file_size: u64,
+}
+
 pub(crate) fn allocate(file: &File, len: u64) -> Result<()> {
-    if sys::allocated_size(file)? < len {
+    let state = sys::allocation_state(file)?;
+    if state.allocated_size < len {
         sys::allocate_space(file, len)?;
     }
 
-    if file.metadata()?.len() < len {
-        file.set_len(len)
-    } else {
-        Ok(())
+    if state.file_size < len && file.metadata()?.len() < len {
+        file.set_len(len)?;
     }
+
+    Ok(())
 }
 
 #[cfg(test)]

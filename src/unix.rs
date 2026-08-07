@@ -8,6 +8,7 @@ use std::os::unix::io::{AsFd, AsRawFd};
 use std::path::Path;
 
 use crate::FilesystemCounters;
+use crate::allocation::AllocationState;
 use crate::lock::{LockMode, LockOperation};
 
 pub(crate) fn duplicate(file: &File) -> Result<File> {
@@ -92,8 +93,15 @@ fn flock(file: &File, flag: libc::c_int) -> Result<()> {
     }
 }
 
+pub(crate) fn allocation_state(file: &File) -> Result<AllocationState> {
+    file.metadata().map(|metadata| AllocationState {
+        allocated_size: metadata.blocks() * 512,
+        file_size: metadata.len(),
+    })
+}
+
 pub(crate) fn allocated_size(file: &File) -> Result<u64> {
-    file.metadata().map(|m| m.blocks() * 512)
+    allocation_state(file).map(|state| state.allocated_size)
 }
 
 #[cfg(any(

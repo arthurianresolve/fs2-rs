@@ -14,6 +14,7 @@ use windows_sys::Win32::Storage::FileSystem::{
 use windows_sys::Win32::System::IO::OVERLAPPED;
 
 use crate::FilesystemCounters;
+use crate::allocation::AllocationState;
 use crate::lock::{LockMode, LockOperation};
 
 const VOLUME_PATH_CAPACITY: usize = 261;
@@ -23,7 +24,7 @@ pub(crate) fn duplicate(file: &File) -> Result<File> {
     Ok(File::from(owned))
 }
 
-pub(crate) fn allocated_size(file: &File) -> Result<u64> {
+pub(crate) fn allocation_state(file: &File) -> Result<AllocationState> {
     let mut info = FILE_STANDARD_INFO::default();
     let ret = unsafe {
         // SAFETY: `file` owns a valid handle and `info` is properly sized and aligned.
@@ -38,8 +39,15 @@ pub(crate) fn allocated_size(file: &File) -> Result<u64> {
     if ret == 0 {
         Err(Error::last_os_error())
     } else {
-        Ok(info.AllocationSize as u64)
+        Ok(AllocationState {
+            allocated_size: info.AllocationSize as u64,
+            file_size: info.EndOfFile as u64,
+        })
     }
+}
+
+pub(crate) fn allocated_size(file: &File) -> Result<u64> {
+    allocation_state(file).map(|state| state.allocated_size)
 }
 
 pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
