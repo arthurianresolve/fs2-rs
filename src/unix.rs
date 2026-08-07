@@ -7,7 +7,8 @@ use std::os::unix::fs::MetadataExt;
 use std::os::unix::io::{AsFd, AsRawFd};
 use std::path::Path;
 
-use crate::{FilesystemCounters, LockMode, LockOperation};
+use crate::FilesystemCounters;
+use crate::lock::{LockMode, LockOperation};
 
 pub(crate) fn duplicate(file: &File) -> Result<File> {
     let owned = file.as_fd().try_clone_to_owned()?;

@@ -3,7 +3,10 @@ use std::path::Path;
 
 use crate::sys;
 
-/// `FsStats` contains some common stats about a file system.
+/// A consistent filesystem statistics snapshot.
+///
+/// Obtain one snapshot with [`statvfs`] when more than one counter is needed.
+/// The individual convenience functions each acquire their own snapshot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct FsStats {
     free_space: u64,
@@ -93,50 +96,40 @@ pub(crate) struct FilesystemCounters {
     pub(crate) total_space: u64,
 }
 
-/// Get the stats of the file system containing the provided path.
-pub fn statvfs<P>(path: P) -> Result<FsStats>
-where
-    P: AsRef<Path>,
-{
+/// Gets one statistics snapshot for the filesystem containing `path`.
+pub fn statvfs(path: impl AsRef<Path>) -> Result<FsStats> {
     sys::statvfs(path.as_ref()).and_then(FsStats::from_counters)
 }
 
-/// Returns the number of free bytes in the file system containing the provided
-/// path.
-pub fn free_space<P>(path: P) -> Result<u64>
-where
-    P: AsRef<Path>,
-{
+/// Returns free space from a newly acquired filesystem snapshot.
+///
+/// Call [`statvfs`] once and use [`FsStats::free_space`] when multiple counters
+/// are needed.
+pub fn free_space(path: impl AsRef<Path>) -> Result<u64> {
     statvfs(path).map(|stat| stat.free_space)
 }
 
-/// Returns the available space in bytes to non-privileged users in the file
-/// system containing the provided path.
-pub fn available_space<P>(path: P) -> Result<u64>
-where
-    P: AsRef<Path>,
-{
+/// Returns available space from a newly acquired filesystem snapshot.
+///
+/// Call [`statvfs`] once and use [`FsStats::available_space`] when multiple
+/// counters are needed.
+pub fn available_space(path: impl AsRef<Path>) -> Result<u64> {
     statvfs(path).map(|stat| stat.available_space)
 }
 
-/// Returns the total space in bytes in the file system containing the provided
-/// path.
-pub fn total_space<P>(path: P) -> Result<u64>
-where
-    P: AsRef<Path>,
-{
+/// Returns total space from a newly acquired filesystem snapshot.
+///
+/// Call [`statvfs`] once and use [`FsStats::total_space`] when multiple counters
+/// are needed.
+pub fn total_space(path: impl AsRef<Path>) -> Result<u64> {
     statvfs(path).map(|stat| stat.total_space)
 }
 
-/// Returns the filesystem's disk space allocation granularity in bytes.
-/// The provided path may be for any file in the filesystem.
+/// Returns allocation granularity from a newly acquired filesystem snapshot.
 ///
-/// On Posix, this is equivalent to the filesystem's block size.
-/// On Windows, this is equivalent to the filesystem's cluster size.
-pub fn allocation_granularity<P>(path: P) -> Result<u64>
-where
-    P: AsRef<Path>,
-{
+/// Call [`statvfs`] once and use [`FsStats::allocation_granularity`] when
+/// multiple counters are needed.
+pub fn allocation_granularity(path: impl AsRef<Path>) -> Result<u64> {
     statvfs(path).map(|stat| stat.allocation_granularity)
 }
 

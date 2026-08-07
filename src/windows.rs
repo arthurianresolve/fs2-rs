@@ -13,7 +13,8 @@ use windows_sys::Win32::Storage::FileSystem::{
 };
 use windows_sys::Win32::System::IO::OVERLAPPED;
 
-use crate::{FilesystemCounters, LockMode, LockOperation};
+use crate::FilesystemCounters;
+use crate::lock::{LockMode, LockOperation};
 
 const VOLUME_PATH_CAPACITY: usize = 261;
 

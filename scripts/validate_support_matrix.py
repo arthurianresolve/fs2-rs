@@ -7,10 +7,15 @@ import argparse
 import json
 from pathlib import Path
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parents[1]
 MATRIX_PATH = ROOT / "support-matrix.json"
+WORKFLOW_PATH = ROOT / ".github" / "workflows" / "ci.yml"
 EVIDENCE_LEVELS = {"runtime", "compile", "not-covered"}
+MATRIX_EXPRESSION_PREFIX = "${{ fromJSON(needs.support-matrix.outputs.matrices)."
+MATRIX_EXPRESSION_SUFFIX = " }}"
 
 
 def is_ci_job_name(value: object) -> bool:
@@ -84,7 +89,54 @@ def validate_matrix(data: dict) -> dict:
 
 
 def load_matrix(matrix_path: Path = MATRIX_PATH) -> dict:
-    return validate_matrix(json.loads(matrix_path.read_text(encoding="utf-8")))
+    data = validate_matrix(json.loads(matrix_path.read_text(encoding="utf-8")))
+    validate_workflow(data, load_workflow())
+    return data
+
+
+def load_workflow(workflow_path: Path = WORKFLOW_PATH) -> dict:
+    workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+    if not isinstance(workflow, dict):
+        fail("workflow must be a YAML object")
+    return workflow
+
+
+def validate_workflow(data: dict, workflow: dict) -> None:
+    jobs = workflow.get("jobs")
+    if not isinstance(jobs, dict):
+        fail("workflow must define a jobs object")
+
+    declared = {
+        entry["ci_job"]
+        for entry in data["targets"]
+        if entry["ci_job"] is not None
+    }
+    consumed = set()
+    for job_name, job in jobs.items():
+        if not isinstance(job, dict):
+            continue
+        strategy = job.get("strategy")
+        matrix = strategy.get("matrix") if isinstance(strategy, dict) else None
+        if not isinstance(matrix, str):
+            continue
+        if not matrix.startswith(MATRIX_EXPRESSION_PREFIX) or not matrix.endswith(
+            MATRIX_EXPRESSION_SUFFIX
+        ):
+            continue
+
+        referenced = matrix[
+            len(MATRIX_EXPRESSION_PREFIX) : -len(MATRIX_EXPRESSION_SUFFIX)
+        ]
+        if referenced != job_name:
+            fail(f"workflow job {job_name} consumes matrix {referenced!r}")
+        if referenced not in declared:
+            fail(f"workflow consumes undeclared matrix {referenced!r}")
+        consumed.add(referenced)
+
+    if consumed != declared:
+        missing = sorted(declared - consumed)
+        unused = sorted(consumed - declared)
+        fail(f"workflow matrix consumption drift: missing={missing}, unused={unused}")
 
 
 def matrices(data: dict) -> dict[str, dict[str, list[dict[str, str]]]]:

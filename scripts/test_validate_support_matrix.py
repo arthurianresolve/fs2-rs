@@ -3,8 +3,10 @@ import unittest
 
 from validate_support_matrix import (
     load_matrix,
+    load_workflow,
     matrices,
     validate_matrix,
+    validate_workflow,
 )
 
 
@@ -46,6 +48,18 @@ class SupportMatrixTests(unittest.TestCase):
 
         with self.assertRaises(SystemExit):
             validate_matrix(invalid)
+
+    def test_declared_matrices_are_consumed_by_workflow_jobs(self):
+        validate_workflow(self.data, load_workflow())
+
+    def test_rejects_workflow_matrix_consumption_drift(self):
+        invalid = copy.deepcopy(load_workflow())
+        invalid["jobs"]["uclibc"]["strategy"]["matrix"] = (
+            "${{ fromJSON(needs.support-matrix.outputs.matrices).missing }}"
+        )
+
+        with self.assertRaises(SystemExit):
+            validate_workflow(self.data, invalid)
 
 if __name__ == "__main__":
     unittest.main()

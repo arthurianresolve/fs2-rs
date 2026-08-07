@@ -59,8 +59,10 @@ Stable Criterion benchmarks are provided for the public APIs in the separate
 account for the filesystem backing the temporary directory; `/tmp` is often a
 `tmpfs` mount.
 
-When several filesystem counters are needed, prefer one `statvfs` snapshot and
-read its accessors rather than calling the individual convenience functions.
+`statvfs` is the snapshot-first interface: it acquires and validates one
+consistent set of filesystem counters. When several counters are needed, prefer
+one `statvfs` snapshot and read its accessors rather than calling the individual
+convenience functions, which each acquire a new snapshot.
 The `stats_snapshot` benchmark measures that choice without adding another
 public abstraction; the existing `FsStats` type is already the appropriate
 snapshot boundary.

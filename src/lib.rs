@@ -3,6 +3,7 @@
 #![doc(html_root_url = "https://docs.rs/fs2/0.5.0")]
 
 mod allocation;
+mod lock;
 #[cfg(test)]
 mod lock_contract;
 mod stats;
@@ -25,22 +26,6 @@ pub use stats::{
 };
 
 pub(crate) use stats::FilesystemCounters;
-
-#[derive(Clone, Copy)]
-pub(crate) enum LockMode {
-    Shared,
-    Exclusive,
-}
-
-#[derive(Clone, Copy)]
-pub(crate) enum LockOperation {
-    Acquire { mode: LockMode, nonblocking: bool },
-    Release,
-}
-
-fn acquire_lock(file: &File, mode: LockMode, nonblocking: bool) -> Result<()> {
-    sys::lock(file, LockOperation::Acquire { mode, nonblocking })
-}
 
 /// Extension trait for `std::fs::File` which provides allocation, duplication and locking methods.
 ///
@@ -159,19 +144,19 @@ impl FileExt for File {
         allocation::allocate(self, len)
     }
     fn lock_shared(&self) -> Result<()> {
-        acquire_lock(self, LockMode::Shared, false)
+        lock::shared(self)
     }
     fn lock_exclusive(&self) -> Result<()> {
-        acquire_lock(self, LockMode::Exclusive, false)
+        lock::exclusive(self)
     }
     fn try_lock_shared(&self) -> Result<()> {
-        acquire_lock(self, LockMode::Shared, true)
+        lock::try_shared(self)
     }
     fn try_lock_exclusive(&self) -> Result<()> {
-        acquire_lock(self, LockMode::Exclusive, true)
+        lock::try_exclusive(self)
     }
     fn unlock(&self) -> Result<()> {
-        sys::lock(self, LockOperation::Release)
+        lock::release(self)
     }
 }
 
