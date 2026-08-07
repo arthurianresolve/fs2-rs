@@ -1,5 +1,13 @@
-## Purpose of this fork
-This is a fork to evolve `fs2` into 2026, as original development of source has halted.
+# fs2
+
+This is the maintained `fs2` fork at
+[github.com/arthurianresolve/fs2-rs](https://github.com/arthurianresolve/fs2-rs),
+focused on evolving the crate for Rust 2024 and current stable Rust releases.
+The original implementation is from
+[danburkert/fs2-rs](https://github.com/danburkert/fs2-rs).
+
+Extended utilities for working with files and filesystems in Rust. `fs2`
+requires Rust stable 1.97.1 or greater.
 
 # Changes
 1. Manifest modernization
@@ -11,12 +19,6 @@ This is a fork to evolve `fs2` into 2026, as original development of source has 
    - Replaced `tempdir` with `tempfile`
    - Updated to Rust 1.97.1 and Rust 2024 edition syntax
  * Updated to current `libc` library
-
- 
-# fs2
-
-Extended utilities for working with files and filesystems in Rust. `fs2`
-requires Rust stable 1.97.1 or greater.
 
 [![Documentation](https://docs.rs/fs2/badge.svg)](https://docs.rs/fs2)
 [![Crate](https://img.shields.io/crates/v/fs2.svg)](https://crates.io/crates/fs2)
