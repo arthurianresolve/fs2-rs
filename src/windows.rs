@@ -3,21 +3,29 @@ use std::io::{Error, ErrorKind, Result};
 use std::os::windows::ffi::OsStrExt;
 use std::os::windows::io::{AsHandle, AsRawHandle};
 use std::path::Path;
+use std::sync::OnceLock;
 
-use windows_sys::Win32::Foundation::ERROR_LOCK_VIOLATION;
+use windows_sys::Win32::Foundation::{ERROR_LOCK_VIOLATION, S_OK};
 use windows_sys::Win32::Storage::FileSystem::{
-    FILE_ALLOCATION_INFO, FILE_STANDARD_INFO, FileAllocationInfo, FileStandardInfo,
-    GetDiskFreeSpaceExW, GetDiskFreeSpaceW, GetFileInformationByHandleEx, GetVolumePathNameW,
-    LOCKFILE_EXCLUSIVE_LOCK, LOCKFILE_FAIL_IMMEDIATELY, LockFileEx, SetFileInformationByHandle,
-    UnlockFile,
+    DISK_SPACE_INFORMATION, FILE_ALLOCATION_INFO, FILE_STANDARD_INFO, FileAllocationInfo,
+    FileStandardInfo, GetDiskFreeSpaceExW, GetDiskFreeSpaceW, GetFileInformationByHandleEx,
+    GetVolumePathNameW, LOCKFILE_EXCLUSIVE_LOCK, LOCKFILE_FAIL_IMMEDIATELY, LockFileEx,
+    SetFileInformationByHandle, UnlockFile,
 };
 use windows_sys::Win32::System::IO::OVERLAPPED;
+use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
 
-use crate::FilesystemCounters;
 use crate::allocation::AllocationState;
 use crate::lock::{LockMode, LockOperation};
+use crate::{FilesystemCounters, SpaceKind};
 
 const VOLUME_PATH_CAPACITY: usize = 261;
+type GetDiskSpaceInformation = unsafe extern "system" fn(
+    *const u16,
+    *mut DISK_SPACE_INFORMATION,
+) -> windows_sys::core::HRESULT;
+
+static GET_DISK_SPACE_INFORMATION: OnceLock<Option<GetDiskSpaceInformation>> = OnceLock::new();
 
 #[inline]
 pub(crate) fn duplicate(file: &File) -> Result<File> {
@@ -143,6 +151,105 @@ pub(crate) fn statvfs(path: &Path) -> Result<FilesystemCounters> {
     let mut root_path = [0u16; VOLUME_PATH_CAPACITY];
     volume_path(path, &mut root_path)?;
 
+    if let Some(result) = modern_statvfs(&root_path) {
+        return result;
+    }
+
+    legacy_statvfs(&root_path)
+}
+
+fn modern_statvfs(root_path: &[u16]) -> Option<Result<FilesystemCounters>> {
+    let get_disk_space_information = *GET_DISK_SPACE_INFORMATION.get_or_init(|| unsafe {
+        // SAFETY: kernel32 is loaded in every Windows process and both string literals are
+        // null-terminated. The resolved symbol is cast to its documented Windows ABI.
+        let module = GetModuleHandleA(windows_sys::core::s!("kernel32.dll"));
+        if module.is_null() {
+            return None;
+        }
+        GetProcAddress(module, windows_sys::core::s!("GetDiskSpaceInformationW"))
+            .map(|function| std::mem::transmute(function))
+    });
+
+    let get_disk_space_information = get_disk_space_information?;
+    let mut info = DISK_SPACE_INFORMATION::default();
+    let result = unsafe {
+        // SAFETY: `root_path` is null-terminated UTF-16 and `info` is valid output storage.
+        get_disk_space_information(root_path.as_ptr(), &mut info)
+    };
+    if result != S_OK {
+        return None;
+    }
+
+    Some(counters_from_disk_space_information(info))
+}
+
+fn counters_from_disk_space_information(
+    info: DISK_SPACE_INFORMATION,
+) -> Result<FilesystemCounters> {
+    let allocation_granularity = (info.SectorsPerAllocationUnit as u64)
+        .checked_mul(info.BytesPerSector as u64)
+        .ok_or_else(|| Error::new(ErrorKind::InvalidData, "filesystem cluster size overflowed"))?;
+    let checked_bytes = |units: u64| {
+        allocation_granularity
+            .checked_mul(units)
+            .ok_or_else(|| Error::new(ErrorKind::InvalidData, "filesystem space overflowed"))
+    };
+
+    Ok(FilesystemCounters {
+        allocation_granularity,
+        free_space: checked_bytes(info.ActualAvailableAllocationUnits)?,
+        available_space: checked_bytes(info.CallerAvailableAllocationUnits)?,
+        total_space: checked_bytes(info.CallerTotalAllocationUnits)?,
+    })
+}
+
+fn legacy_statvfs(root_path: &[u16]) -> Result<FilesystemCounters> {
+    let caller = caller_space(root_path)?;
+    let bytes = byte_space(root_path)?;
+
+    Ok(FilesystemCounters {
+        allocation_granularity: caller.allocation_granularity,
+        free_space: bytes.free,
+        available_space: bytes.available,
+        total_space: bytes.total,
+    })
+}
+
+pub(crate) fn space(path: &Path, kind: SpaceKind) -> Result<u64> {
+    let mut root_path = [0u16; VOLUME_PATH_CAPACITY];
+    volume_path(path, &mut root_path)?;
+
+    let counters = match kind {
+        SpaceKind::Free => {
+            let bytes = byte_space(&root_path)?;
+            FilesystemCounters {
+                allocation_granularity: 1,
+                free_space: bytes.free,
+                available_space: bytes.available,
+                total_space: bytes.total,
+            }
+        }
+        SpaceKind::Available | SpaceKind::Total | SpaceKind::AllocationGranularity => {
+            let caller = caller_space(&root_path)?;
+            FilesystemCounters {
+                allocation_granularity: caller.allocation_granularity,
+                free_space: caller.available,
+                available_space: caller.available,
+                total_space: caller.total,
+            }
+        }
+    };
+
+    counters.value(kind)
+}
+
+struct CallerSpace {
+    allocation_granularity: u64,
+    available: u64,
+    total: u64,
+}
+
+fn caller_space(root_path: &[u16]) -> Result<CallerSpace> {
     let mut sectors_per_cluster = 0;
     let mut bytes_per_sector = 0;
     let mut free_clusters = 0;
@@ -165,6 +272,24 @@ pub(crate) fn statvfs(path: &Path) -> Result<FilesystemCounters> {
         .checked_mul(bytes_per_sector as u64)
         .ok_or_else(|| Error::new(ErrorKind::InvalidData, "filesystem cluster size overflowed"))?;
 
+    Ok(CallerSpace {
+        allocation_granularity,
+        available: allocation_granularity
+            .checked_mul(free_clusters as u64)
+            .ok_or_else(|| Error::new(ErrorKind::InvalidData, "filesystem space overflowed"))?,
+        total: allocation_granularity
+            .checked_mul(total_clusters as u64)
+            .ok_or_else(|| Error::new(ErrorKind::InvalidData, "filesystem space overflowed"))?,
+    })
+}
+
+struct ByteSpace {
+    free: u64,
+    available: u64,
+    total: u64,
+}
+
+fn byte_space(root_path: &[u16]) -> Result<ByteSpace> {
     let mut free_bytes_available_to_caller = 0;
     let mut total_number_of_bytes = 0;
     let mut total_number_of_free_bytes = 0;
@@ -181,11 +306,10 @@ pub(crate) fn statvfs(path: &Path) -> Result<FilesystemCounters> {
         return Err(Error::last_os_error());
     }
 
-    Ok(FilesystemCounters {
-        allocation_granularity,
-        free_space: total_number_of_free_bytes,
-        available_space: free_bytes_available_to_caller,
-        total_space: total_number_of_bytes,
+    Ok(ByteSpace {
+        free: total_number_of_free_bytes,
+        available: free_bytes_available_to_caller,
+        total: total_number_of_bytes,
     })
 }
 
@@ -193,10 +317,73 @@ pub(crate) fn statvfs(path: &Path) -> Result<FilesystemCounters> {
 mod test {
 
     use std::fs;
+    use std::io::ErrorKind;
     use std::os::windows::io::AsRawHandle;
 
+    use windows_sys::Win32::Storage::FileSystem::DISK_SPACE_INFORMATION;
+
+    use super::{
+        VOLUME_PATH_CAPACITY, counters_from_disk_space_information, legacy_statvfs, modern_statvfs,
+        volume_path,
+    };
     use crate::{FileExt, lock_contended_error};
     use tempfile::tempdir;
+
+    #[test]
+    fn maps_modern_disk_space_information() {
+        let info = DISK_SPACE_INFORMATION {
+            ActualAvailableAllocationUnits: 8,
+            CallerTotalAllocationUnits: 10,
+            CallerAvailableAllocationUnits: 6,
+            SectorsPerAllocationUnit: 2,
+            BytesPerSector: 512,
+            ..Default::default()
+        };
+
+        let counters = counters_from_disk_space_information(info).unwrap();
+        assert_eq!(counters.allocation_granularity, 1024);
+        assert_eq!(counters.free_space, 8192);
+        assert_eq!(counters.available_space, 6144);
+        assert_eq!(counters.total_space, 10_240);
+    }
+
+    #[test]
+    fn rejects_modern_disk_space_overflow() {
+        let info = DISK_SPACE_INFORMATION {
+            ActualAvailableAllocationUnits: u64::MAX,
+            CallerTotalAllocationUnits: u64::MAX,
+            CallerAvailableAllocationUnits: u64::MAX,
+            SectorsPerAllocationUnit: 8,
+            BytesPerSector: 512,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            counters_from_disk_space_information(info)
+                .unwrap_err()
+                .kind(),
+            ErrorKind::InvalidData
+        );
+    }
+
+    #[test]
+    fn modern_and_legacy_stats_are_consistent() {
+        let tempdir = tempdir().unwrap();
+        let mut root_path = [0u16; VOLUME_PATH_CAPACITY];
+        volume_path(tempdir.path(), &mut root_path).unwrap();
+
+        let legacy = legacy_statvfs(&root_path).unwrap();
+        assert!(legacy.allocation_granularity > 0);
+        assert!(legacy.available_space <= legacy.free_space);
+        assert!(legacy.free_space <= legacy.total_space);
+
+        if let Some(modern) = modern_statvfs(&root_path) {
+            let modern = modern.unwrap();
+            assert_eq!(modern.allocation_granularity, legacy.allocation_granularity);
+            assert!(modern.available_space <= modern.free_space);
+            assert!(modern.free_space <= modern.total_space);
+        }
+    }
 
     /// The duplicate method returns a file with a new file handle.
     #[test]

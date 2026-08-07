@@ -25,7 +25,7 @@ pub use stats::{
     FsStats, allocation_granularity, available_space, free_space, statvfs, total_space,
 };
 
-pub(crate) use stats::FilesystemCounters;
+pub(crate) use stats::{FilesystemCounters, SpaceKind};
 
 /// Extension trait for `std::fs::File` which provides allocation, duplication and locking methods.
 ///

@@ -24,7 +24,9 @@ Filesystem statistics report free, available, and total space plus allocation
 granularity. The stats module owns the named `FilesystemCounters` seam, checked
 counter conversion, invariants, and the snapshot-first `FsStats` interface;
 Unix and Windows adapters acquire the raw counters. Convenience queries remain
-compatibility projections and each acquire a new snapshot.
+compatibility projections and each acquire a new snapshot. The Windows adapter
+uses a one-query full snapshot when the operating system supports it, retains
+the legacy fallback, and uses the narrowest correct query for scalar projections.
 
 ## Support evidence
 

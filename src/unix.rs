@@ -7,9 +7,9 @@ use std::os::unix::fs::MetadataExt;
 use std::os::unix::io::{AsFd, AsRawFd};
 use std::path::Path;
 
-use crate::FilesystemCounters;
 use crate::allocation::AllocationState;
 use crate::lock::{LockMode, LockOperation};
+use crate::{FilesystemCounters, SpaceKind};
 
 #[inline]
 pub(crate) fn duplicate(file: &File) -> Result<File> {
@@ -214,6 +214,10 @@ pub(crate) fn statvfs(path: &Path) -> Result<FilesystemCounters> {
             total_blocks: stat.f_blocks as u64,
         })
     }
+}
+
+pub(crate) fn space(path: &Path, kind: SpaceKind) -> Result<u64> {
+    statvfs(path)?.value(kind)
 }
 
 #[cfg(test)]

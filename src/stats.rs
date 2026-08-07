@@ -81,6 +81,23 @@ impl FsStats {
     pub fn allocation_granularity(&self) -> u64 {
         self.allocation_granularity
     }
+
+    fn value(&self, kind: SpaceKind) -> u64 {
+        match kind {
+            SpaceKind::Free => self.free_space,
+            SpaceKind::Available => self.available_space,
+            SpaceKind::Total => self.total_space,
+            SpaceKind::AllocationGranularity => self.allocation_granularity,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SpaceKind {
+    Free,
+    Available,
+    Total,
+    AllocationGranularity,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -100,6 +117,12 @@ pub(crate) struct FilesystemCounters {
     pub(crate) total_space: u64,
 }
 
+impl FilesystemCounters {
+    pub(crate) fn value(self, kind: SpaceKind) -> Result<u64> {
+        FsStats::from_counters(self).map(|stats| stats.value(kind))
+    }
+}
+
 /// Gets one statistics snapshot for the filesystem containing `path`.
 pub fn statvfs(path: impl AsRef<Path>) -> Result<FsStats> {
     sys::statvfs(path.as_ref()).and_then(FsStats::from_counters)
@@ -110,7 +133,7 @@ pub fn statvfs(path: impl AsRef<Path>) -> Result<FsStats> {
 /// Call [`statvfs`] once and use [`FsStats::free_space`] when multiple counters
 /// are needed.
 pub fn free_space(path: impl AsRef<Path>) -> Result<u64> {
-    statvfs(path).map(|stat| stat.free_space)
+    sys::space(path.as_ref(), SpaceKind::Free)
 }
 
 /// Returns available space from a newly acquired filesystem snapshot.
@@ -118,7 +141,7 @@ pub fn free_space(path: impl AsRef<Path>) -> Result<u64> {
 /// Call [`statvfs`] once and use [`FsStats::available_space`] when multiple
 /// counters are needed.
 pub fn available_space(path: impl AsRef<Path>) -> Result<u64> {
-    statvfs(path).map(|stat| stat.available_space)
+    sys::space(path.as_ref(), SpaceKind::Available)
 }
 
 /// Returns total space from a newly acquired filesystem snapshot.
@@ -126,7 +149,7 @@ pub fn available_space(path: impl AsRef<Path>) -> Result<u64> {
 /// Call [`statvfs`] once and use [`FsStats::total_space`] when multiple counters
 /// are needed.
 pub fn total_space(path: impl AsRef<Path>) -> Result<u64> {
-    statvfs(path).map(|stat| stat.total_space)
+    sys::space(path.as_ref(), SpaceKind::Total)
 }
 
 /// Returns allocation granularity from a newly acquired filesystem snapshot.
@@ -134,7 +157,7 @@ pub fn total_space(path: impl AsRef<Path>) -> Result<u64> {
 /// Call [`statvfs`] once and use [`FsStats::allocation_granularity`] when
 /// multiple counters are needed.
 pub fn allocation_granularity(path: impl AsRef<Path>) -> Result<u64> {
-    statvfs(path).map(|stat| stat.allocation_granularity)
+    sys::space(path.as_ref(), SpaceKind::AllocationGranularity)
 }
 
 #[cfg(unix)]
