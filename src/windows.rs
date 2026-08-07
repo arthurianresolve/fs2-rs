@@ -18,10 +18,39 @@ use windows_sys::core::BOOL;
 
 use crate::FsStats;
 use crate::lock::{LockMode, LockOperation};
+use crate::platform::Platform;
+
+pub(crate) struct PlatformAdapter;
+
+impl Platform for PlatformAdapter {
+    fn duplicate(file: &File) -> Result<File> {
+        duplicate(file)
+    }
+
+    fn allocated_size(file: &File) -> Result<u64> {
+        allocated_size(file)
+    }
+
+    fn allocate_space(file: &File, len: u64) -> Result<()> {
+        allocate_space(file, len)
+    }
+
+    fn lock(file: &File, operation: LockOperation) -> Result<()> {
+        lock(file, operation)
+    }
+
+    fn lock_error() -> Error {
+        lock_error()
+    }
+
+    fn statvfs(path: &Path) -> Result<FsStats> {
+        statvfs(path)
+    }
+}
 
 const VOLUME_PATH_CAPACITY: usize = 261;
 
-pub fn duplicate(file: &File) -> Result<File> {
+fn duplicate(file: &File) -> Result<File> {
     let mut handle = std::ptr::null_mut();
     let current_process = unsafe { GetCurrentProcess() };
     let ret = unsafe {
@@ -42,7 +71,7 @@ pub fn duplicate(file: &File) -> Result<File> {
     }
 }
 
-pub fn allocated_size(file: &File) -> Result<u64> {
+fn allocated_size(file: &File) -> Result<u64> {
     let mut info = FILE_STANDARD_INFO::default();
     let ret = unsafe {
         GetFileInformationByHandleEx(
@@ -60,7 +89,7 @@ pub fn allocated_size(file: &File) -> Result<u64> {
     }
 }
 
-pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
+fn allocate_space(file: &File, len: u64) -> Result<()> {
     if allocated_size(file)? < len {
         let info = FILE_ALLOCATION_INFO {
             AllocationSize: len as i64,
@@ -80,7 +109,7 @@ pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn lock(file: &File, operation: LockOperation) -> Result<()> {
+fn lock(file: &File, operation: LockOperation) -> Result<()> {
     match operation {
         LockOperation::Acquire { mode, nonblocking } => {
             let mut flags = match mode {
@@ -103,7 +132,7 @@ pub(crate) fn lock(file: &File, operation: LockOperation) -> Result<()> {
     }
 }
 
-pub fn lock_error() -> Error {
+fn lock_error() -> Error {
     Error::from_raw_os_error(ERROR_LOCK_VIOLATION as i32)
 }
 
@@ -142,7 +171,7 @@ fn volume_path(path: &Path, volume_path: &mut [u16]) -> Result<()> {
     }
 }
 
-pub fn statvfs(path: &Path) -> Result<FsStats> {
+fn statvfs(path: &Path) -> Result<FsStats> {
     let mut root_path = [0u16; VOLUME_PATH_CAPACITY];
     volume_path(path, &mut root_path)?;
 
@@ -163,14 +192,12 @@ pub fn statvfs(path: &Path) -> Result<FsStats> {
         Err(Error::last_os_error())
     } else {
         let bytes_per_cluster = sectors_per_cluster as u64 * bytes_per_sector as u64;
-        let free_space = bytes_per_cluster * number_of_free_clusters as u64;
-        let total_space = bytes_per_cluster * total_number_of_clusters as u64;
-        Ok(FsStats {
-            free_space,
-            available_space: free_space,
-            total_space,
-            allocation_granularity: bytes_per_cluster,
-        })
+        FsStats::from_block_counts(
+            bytes_per_cluster,
+            number_of_free_clusters as u64,
+            number_of_free_clusters as u64,
+            total_number_of_clusters as u64,
+        )
     }
 }
 

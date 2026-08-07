@@ -9,8 +9,37 @@ use std::path::Path;
 
 use crate::FsStats;
 use crate::lock::{LockMode, LockOperation};
+use crate::platform::Platform;
 
-pub fn duplicate(file: &File) -> Result<File> {
+pub(crate) struct PlatformAdapter;
+
+impl Platform for PlatformAdapter {
+    fn duplicate(file: &File) -> Result<File> {
+        duplicate(file)
+    }
+
+    fn allocated_size(file: &File) -> Result<u64> {
+        allocated_size(file)
+    }
+
+    fn allocate_space(file: &File, len: u64) -> Result<()> {
+        allocate_space(file, len)
+    }
+
+    fn lock(file: &File, operation: LockOperation) -> Result<()> {
+        lock(file, operation)
+    }
+
+    fn lock_error() -> Error {
+        lock_error()
+    }
+
+    fn statvfs(path: &Path) -> Result<FsStats> {
+        statvfs(path)
+    }
+}
+
+fn duplicate(file: &File) -> Result<File> {
     unsafe {
         let fd = libc::dup(file.as_raw_fd());
 
@@ -22,7 +51,7 @@ pub fn duplicate(file: &File) -> Result<File> {
     }
 }
 
-pub(crate) fn lock(file: &File, operation: LockOperation) -> Result<()> {
+fn lock(file: &File, operation: LockOperation) -> Result<()> {
     let flag = match operation {
         LockOperation::Acquire { mode, nonblocking } => {
             let mode_flag = match mode {
@@ -41,7 +70,7 @@ pub(crate) fn lock(file: &File, operation: LockOperation) -> Result<()> {
     flock(file, flag)
 }
 
-pub fn lock_error() -> Error {
+fn lock_error() -> Error {
     Error::from_raw_os_error(libc::EWOULDBLOCK)
 }
 
@@ -93,7 +122,7 @@ fn flock(file: &File, flag: libc::c_int) -> Result<()> {
     }
 }
 
-pub fn allocated_size(file: &File) -> Result<u64> {
+fn allocated_size(file: &File) -> Result<u64> {
     file.metadata().map(|m| m.blocks() * 512)
 }
 
@@ -151,7 +180,7 @@ pub(crate) fn allocate_space(_file: &File, _len: u64) -> Result<()> {
     Ok(())
 }
 
-pub fn statvfs(path: &Path) -> Result<FsStats> {
+fn statvfs(path: &Path) -> Result<FsStats> {
     let cstr = match CString::new(path.as_os_str().as_bytes()) {
         Ok(cstr) => cstr,
         Err(..) => return Err(Error::new(ErrorKind::InvalidInput, "path contained a null")),
@@ -163,12 +192,12 @@ pub fn statvfs(path: &Path) -> Result<FsStats> {
         if libc::statvfs(cstr.as_ptr() as *const _, &mut stat) != 0 {
             Err(Error::last_os_error())
         } else {
-            Ok(FsStats {
-                free_space: stat.f_frsize as u64 * stat.f_bfree as u64,
-                available_space: stat.f_frsize as u64 * stat.f_bavail as u64,
-                total_space: stat.f_frsize as u64 * stat.f_blocks as u64,
-                allocation_granularity: stat.f_frsize as u64,
-            })
+            FsStats::from_block_counts(
+                stat.f_frsize as u64,
+                stat.f_bfree as u64,
+                stat.f_bavail as u64,
+                stat.f_blocks as u64,
+            )
         }
     }
 }

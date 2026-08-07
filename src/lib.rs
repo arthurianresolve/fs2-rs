@@ -3,22 +3,26 @@
 #![doc(html_root_url = "https://docs.rs/fs2/0.5.0")]
 
 mod allocation;
+mod platform;
+mod stats;
 
 #[cfg(unix)]
 mod unix;
 #[cfg(unix)]
-use unix as sys;
+use unix::PlatformAdapter;
 
 #[cfg(windows)]
 mod windows;
 #[cfg(windows)]
-use windows as sys;
+use windows::PlatformAdapter;
 
 mod lock;
 
 use std::fs::File;
 use std::io::{Error, Result};
 use std::path::Path;
+
+pub use stats::FsStats;
 
 /// Extension trait for `std::fs::File` which provides allocation, duplication and locking methods.
 ///
@@ -128,73 +132,35 @@ pub trait FileExt {
 
 impl FileExt for File {
     fn duplicate(&self) -> Result<File> {
-        sys::duplicate(self)
+        <PlatformAdapter as platform::Platform>::duplicate(self)
     }
     fn allocated_size(&self) -> Result<u64> {
-        sys::allocated_size(self)
+        <PlatformAdapter as platform::Platform>::allocated_size(self)
     }
     fn allocate(&self, len: u64) -> Result<()> {
-        allocation::allocate(self, len, sys::allocated_size, sys::allocate_space)
+        allocation::allocate::<PlatformAdapter>(self, len)
     }
     fn lock_shared(&self) -> Result<()> {
-        lock::lock_shared(self)
+        lock::lock_shared::<PlatformAdapter>(self)
     }
     fn lock_exclusive(&self) -> Result<()> {
-        lock::lock_exclusive(self)
+        lock::lock_exclusive::<PlatformAdapter>(self)
     }
     fn try_lock_shared(&self) -> Result<()> {
-        lock::try_lock_shared(self)
+        lock::try_lock_shared::<PlatformAdapter>(self)
     }
     fn try_lock_exclusive(&self) -> Result<()> {
-        lock::try_lock_exclusive(self)
+        lock::try_lock_exclusive::<PlatformAdapter>(self)
     }
     fn unlock(&self) -> Result<()> {
-        lock::unlock(self)
+        lock::unlock::<PlatformAdapter>(self)
     }
 }
 
 /// Returns the error that a call to a try lock method on a contended file will
 /// return.
 pub fn lock_contended_error() -> Error {
-    lock::contended_error()
-}
-
-/// `FsStats` contains some common stats about a file system.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct FsStats {
-    free_space: u64,
-    available_space: u64,
-    total_space: u64,
-    allocation_granularity: u64,
-}
-
-impl FsStats {
-    /// Returns the number of free bytes in the file system containing the provided
-    /// path.
-    pub fn free_space(&self) -> u64 {
-        self.free_space
-    }
-
-    /// Returns the available space in bytes to non-priveleged users in the file
-    /// system containing the provided path.
-    pub fn available_space(&self) -> u64 {
-        self.available_space
-    }
-
-    /// Returns the total space in bytes in the file system containing the provided
-    /// path.
-    pub fn total_space(&self) -> u64 {
-        self.total_space
-    }
-
-    /// Returns the filesystem's disk space allocation granularity in bytes.
-    /// The provided path may be for any file in the filesystem.
-    ///
-    /// On Posix, this is equivalent to the filesystem's block size.
-    /// On Windows, this is equivalent to the filesystem's cluster size.
-    pub fn allocation_granularity(&self) -> u64 {
-        self.allocation_granularity
-    }
+    lock::contended_error::<PlatformAdapter>()
 }
 
 /// Get the stats of the file system containing the provided path.
@@ -202,7 +168,7 @@ pub fn statvfs<P>(path: P) -> Result<FsStats>
 where
     P: AsRef<Path>,
 {
-    sys::statvfs(path.as_ref())
+    <PlatformAdapter as platform::Platform>::statvfs(path.as_ref())
 }
 
 /// Returns the number of free bytes in the file system containing the provided
@@ -211,7 +177,7 @@ pub fn free_space<P>(path: P) -> Result<u64>
 where
     P: AsRef<Path>,
 {
-    statvfs(path).map(|stat| stat.free_space)
+    statvfs(path).map(|stat| stat.free_space())
 }
 
 /// Returns the available space in bytes to non-priveleged users in the file
@@ -220,7 +186,7 @@ pub fn available_space<P>(path: P) -> Result<u64>
 where
     P: AsRef<Path>,
 {
-    statvfs(path).map(|stat| stat.available_space)
+    statvfs(path).map(|stat| stat.available_space())
 }
 
 /// Returns the total space in bytes in the file system containing the provided
@@ -229,7 +195,7 @@ pub fn total_space<P>(path: P) -> Result<u64>
 where
     P: AsRef<Path>,
 {
-    statvfs(path).map(|stat| stat.total_space)
+    statvfs(path).map(|stat| stat.total_space())
 }
 
 /// Returns the filesystem's disk space allocation granularity in bytes.
@@ -241,7 +207,7 @@ pub fn allocation_granularity<P>(path: P) -> Result<u64>
 where
     P: AsRef<Path>,
 {
-    statvfs(path).map(|stat| stat.allocation_granularity)
+    statvfs(path).map(|stat| stat.allocation_granularity())
 }
 
 #[cfg(test)]

@@ -1,7 +1,7 @@
 use std::fs::File;
 use std::io::{Error, Result};
 
-use crate::sys;
+use crate::platform::Platform;
 
 #[derive(Clone, Copy)]
 pub(crate) enum LockMode {
@@ -15,8 +15,8 @@ pub(crate) enum LockOperation {
     Release,
 }
 
-pub(crate) fn lock_shared(file: &File) -> Result<()> {
-    apply(
+pub(crate) fn lock_shared<P: Platform>(file: &File) -> Result<()> {
+    apply::<P>(
         file,
         LockOperation::Acquire {
             mode: LockMode::Shared,
@@ -25,8 +25,8 @@ pub(crate) fn lock_shared(file: &File) -> Result<()> {
     )
 }
 
-pub(crate) fn lock_exclusive(file: &File) -> Result<()> {
-    apply(
+pub(crate) fn lock_exclusive<P: Platform>(file: &File) -> Result<()> {
+    apply::<P>(
         file,
         LockOperation::Acquire {
             mode: LockMode::Exclusive,
@@ -35,8 +35,8 @@ pub(crate) fn lock_exclusive(file: &File) -> Result<()> {
     )
 }
 
-pub(crate) fn try_lock_shared(file: &File) -> Result<()> {
-    apply(
+pub(crate) fn try_lock_shared<P: Platform>(file: &File) -> Result<()> {
+    apply::<P>(
         file,
         LockOperation::Acquire {
             mode: LockMode::Shared,
@@ -45,8 +45,8 @@ pub(crate) fn try_lock_shared(file: &File) -> Result<()> {
     )
 }
 
-pub(crate) fn try_lock_exclusive(file: &File) -> Result<()> {
-    apply(
+pub(crate) fn try_lock_exclusive<P: Platform>(file: &File) -> Result<()> {
+    apply::<P>(
         file,
         LockOperation::Acquire {
             mode: LockMode::Exclusive,
@@ -55,14 +55,14 @@ pub(crate) fn try_lock_exclusive(file: &File) -> Result<()> {
     )
 }
 
-pub(crate) fn unlock(file: &File) -> Result<()> {
-    apply(file, LockOperation::Release)
+pub(crate) fn unlock<P: Platform>(file: &File) -> Result<()> {
+    apply::<P>(file, LockOperation::Release)
 }
 
-pub(crate) fn contended_error() -> Error {
-    sys::lock_error()
+pub(crate) fn contended_error<P: Platform>() -> Error {
+    P::lock_error()
 }
 
-fn apply(file: &File, operation: LockOperation) -> Result<()> {
-    sys::lock(file, operation)
+fn apply<P: Platform>(file: &File, operation: LockOperation) -> Result<()> {
+    P::lock(file, operation)
 }
