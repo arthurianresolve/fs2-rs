@@ -4,21 +4,14 @@ use std::io::{Error, ErrorKind, Result};
 use std::mem;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::MetadataExt;
-use std::os::unix::io::{AsRawFd, FromRawFd};
+use std::os::unix::io::{AsFd, AsRawFd};
 use std::path::Path;
 
 use crate::{FsStats, LockMode, LockOperation};
 
 pub(crate) fn duplicate(file: &File) -> Result<File> {
-    unsafe {
-        let fd = libc::dup(file.as_raw_fd());
-
-        if fd < 0 {
-            Err(Error::last_os_error())
-        } else {
-            Ok(File::from_raw_fd(fd))
-        }
-    }
+    let owned = file.as_fd().try_clone_to_owned()?;
+    Ok(File::from(owned))
 }
 
 pub(crate) fn lock(file: &File, operation: LockOperation) -> Result<()> {
@@ -46,7 +39,10 @@ pub(crate) fn lock_error() -> Error {
 
 #[cfg(not(target_os = "solaris"))]
 fn flock(file: &File, flag: libc::c_int) -> Result<()> {
-    let ret = unsafe { libc::flock(file.as_raw_fd(), flag) };
+    let ret = unsafe {
+        // SAFETY: `file` owns a valid descriptor for the duration of this call.
+        libc::flock(file.as_raw_fd(), flag)
+    };
     if ret < 0 {
         Err(Error::last_os_error())
     } else {
@@ -81,7 +77,10 @@ fn flock(file: &File, flag: libc::c_int) -> Result<()> {
         _ => return Err(Error::from_raw_os_error(libc::EINVAL)),
     }
 
-    let ret = unsafe { libc::fcntl(file.as_raw_fd(), cmd, &fl) };
+    let ret = unsafe {
+        // SAFETY: `file` owns a valid descriptor and `fl` is a valid flock structure.
+        libc::fcntl(file.as_raw_fd(), cmd, &fl)
+    };
     match ret {
         // Translate EACCES to EWOULDBLOCK
         -1 => match Error::last_os_error().raw_os_error() {
@@ -107,7 +106,10 @@ pub(crate) fn allocated_size(file: &File) -> Result<u64> {
 pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
     let len = libc::off_t::try_from(len)
         .map_err(|_| Error::new(ErrorKind::InvalidInput, "allocation length is too large"))?;
-    let ret = unsafe { libc::posix_fallocate(file.as_raw_fd(), 0, len) };
+    let ret = unsafe {
+        // SAFETY: `file` owns a valid descriptor and `len` fits the platform ABI type.
+        libc::posix_fallocate(file.as_raw_fd(), 0, len)
+    };
     if ret == 0 {
         Ok(())
     } else {
@@ -120,7 +122,10 @@ pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
 pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
     let len = libc::off64_t::try_from(len)
         .map_err(|_| Error::new(ErrorKind::InvalidInput, "allocation length is too large"))?;
-    let ret = unsafe { libc::posix_fallocate64(file.as_raw_fd(), 0, len) };
+    let ret = unsafe {
+        // SAFETY: `file` owns a valid descriptor and `len` fits the platform ABI type.
+        libc::posix_fallocate64(file.as_raw_fd(), 0, len)
+    };
     if ret == 0 {
         Ok(())
     } else {
@@ -143,11 +148,17 @@ pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
             fst_bytesalloc: 0,
         };
 
-        let ret = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_PREALLOCATE, &fstore) };
+        let ret = unsafe {
+            // SAFETY: `file` owns a valid descriptor and `fstore` is a valid fstore structure.
+            libc::fcntl(file.as_raw_fd(), libc::F_PREALLOCATE, &fstore)
+        };
         if ret == -1 {
             // Unable to allocate contiguous disk space; attempt to allocate non-contiguously.
             fstore.fst_flags = libc::F_ALLOCATEALL;
-            let ret = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_PREALLOCATE, &fstore) };
+            let ret = unsafe {
+                // SAFETY: `file` owns a valid descriptor and `fstore` is a valid fstore structure.
+                libc::fcntl(file.as_raw_fd(), libc::F_PREALLOCATE, &fstore)
+            };
             if ret == -1 {
                 return Err(Error::last_os_error());
             }
@@ -173,24 +184,22 @@ pub(crate) fn allocate_space(_file: &File, _len: u64) -> Result<()> {
 }
 
 pub(crate) fn statvfs(path: &Path) -> Result<FsStats> {
-    let cstr = match CString::new(path.as_os_str().as_bytes()) {
-        Ok(cstr) => cstr,
-        Err(..) => return Err(Error::new(ErrorKind::InvalidInput, "path contained a null")),
-    };
+    let cstr = CString::new(path.as_os_str().as_bytes())
+        .map_err(|_| Error::new(ErrorKind::InvalidInput, "path contained a null"))?;
 
-    unsafe {
-        let mut stat: libc::statvfs = mem::zeroed();
-        // danburkert/fs2-rs#1: cast is necessary for platforms where c_char != u8.
-        if libc::statvfs(cstr.as_ptr() as *const _, &mut stat) != 0 {
-            Err(Error::last_os_error())
-        } else {
-            FsStats::from_block_counts(
-                stat.f_frsize as u64,
-                stat.f_bfree as u64,
-                stat.f_bavail as u64,
-                stat.f_blocks as u64,
-            )
-        }
+    // SAFETY: `libc::statvfs` initializes every field of this output structure.
+    let mut stat: libc::statvfs = unsafe { mem::zeroed() };
+    // SAFETY: `cstr` is null-terminated and `stat` is valid for the duration of the call.
+    let ret = unsafe { libc::statvfs(cstr.as_ptr() as *const _, &mut stat) };
+    if ret != 0 {
+        Err(Error::last_os_error())
+    } else {
+        FsStats::from_block_counts(
+            stat.f_frsize as u64,
+            stat.f_bfree as u64,
+            stat.f_bavail as u64,
+            stat.f_blocks as u64,
+        )
     }
 }
 
@@ -221,7 +230,10 @@ mod test {
     #[test]
     fn duplicate_cloexec() {
         fn flags(file: &File) -> libc::c_int {
-            unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETFL, 0) }
+            unsafe {
+                // SAFETY: `file` owns a valid descriptor for the duration of this call.
+                libc::fcntl(file.as_raw_fd(), libc::F_GETFL, 0)
+            }
         }
 
         let tempdir = tempdir().unwrap();

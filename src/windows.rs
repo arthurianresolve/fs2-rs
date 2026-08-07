@@ -1,49 +1,31 @@
 use std::fs::File;
 use std::io::{Error, ErrorKind, Result};
 use std::os::windows::ffi::OsStrExt;
-use std::os::windows::io::{AsRawHandle, FromRawHandle};
+use std::os::windows::io::{AsHandle, AsRawHandle};
 use std::path::Path;
 
-use windows_sys::Win32::Foundation::{
-    DUPLICATE_SAME_ACCESS, DuplicateHandle, ERROR_LOCK_VIOLATION,
-};
+use windows_sys::Win32::Foundation::ERROR_LOCK_VIOLATION;
 use windows_sys::Win32::Storage::FileSystem::{
     FILE_ALLOCATION_INFO, FILE_STANDARD_INFO, FileAllocationInfo, FileStandardInfo,
-    GetDiskFreeSpaceW, GetFileInformationByHandleEx, GetVolumePathNameW, LOCKFILE_EXCLUSIVE_LOCK,
-    LOCKFILE_FAIL_IMMEDIATELY, LockFileEx, SetFileInformationByHandle, UnlockFile,
+    GetDiskFreeSpaceExW, GetDiskFreeSpaceW, GetFileInformationByHandleEx, GetVolumePathNameW,
+    LOCKFILE_EXCLUSIVE_LOCK, LOCKFILE_FAIL_IMMEDIATELY, LockFileEx, SetFileInformationByHandle,
+    UnlockFile,
 };
 use windows_sys::Win32::System::IO::OVERLAPPED;
-use windows_sys::Win32::System::Threading::GetCurrentProcess;
-use windows_sys::core::BOOL;
 
 use crate::{FsStats, LockMode, LockOperation};
 
 const VOLUME_PATH_CAPACITY: usize = 261;
 
 pub(crate) fn duplicate(file: &File) -> Result<File> {
-    let mut handle = std::ptr::null_mut();
-    let current_process = unsafe { GetCurrentProcess() };
-    let ret = unsafe {
-        DuplicateHandle(
-            current_process,
-            file.as_raw_handle(),
-            current_process,
-            &mut handle,
-            0,
-            true as BOOL,
-            DUPLICATE_SAME_ACCESS,
-        )
-    };
-    if ret == 0 {
-        Err(Error::last_os_error())
-    } else {
-        Ok(unsafe { File::from_raw_handle(handle) })
-    }
+    let owned = file.as_handle().try_clone_to_owned()?;
+    Ok(File::from(owned))
 }
 
 pub(crate) fn allocated_size(file: &File) -> Result<u64> {
     let mut info = FILE_STANDARD_INFO::default();
     let ret = unsafe {
+        // SAFETY: `file` owns a valid handle and `info` is properly sized and aligned.
         GetFileInformationByHandleEx(
             file.as_raw_handle(),
             FileStandardInfo,
@@ -66,6 +48,7 @@ pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
         AllocationSize: len,
     };
     let ret = unsafe {
+        // SAFETY: `file` owns a valid handle and `info` is properly sized and aligned.
         SetFileInformationByHandle(
             file.as_raw_handle(),
             FileAllocationInfo,
@@ -92,7 +75,10 @@ pub(crate) fn lock(file: &File, operation: LockOperation) -> Result<()> {
             lock_file(file, flags)
         }
         LockOperation::Release => {
-            let ret = unsafe { UnlockFile(file.as_raw_handle(), 0, 0, u32::MAX, u32::MAX) };
+            let ret = unsafe {
+                // SAFETY: `file` owns a valid handle for the duration of this call.
+                UnlockFile(file.as_raw_handle(), 0, 0, u32::MAX, u32::MAX)
+            };
             if ret == 0 {
                 Err(Error::last_os_error())
             } else {
@@ -109,6 +95,7 @@ pub(crate) fn lock_error() -> Error {
 fn lock_file(file: &File, flags: u32) -> Result<()> {
     let mut overlapped = OVERLAPPED::default();
     let ret = unsafe {
+        // SAFETY: `file` owns a valid handle and `overlapped` is a valid zeroed structure.
         LockFileEx(
             file.as_raw_handle(),
             flags,
@@ -126,10 +113,11 @@ fn lock_file(file: &File, flags: u32) -> Result<()> {
 }
 
 fn volume_path(path: &Path, volume_path: &mut [u16]) -> Result<()> {
-    let path_utf8: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    let path_utf16: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
     let ret = unsafe {
+        // SAFETY: `path_utf16` is null-terminated and `volume_path` is valid output storage.
         GetVolumePathNameW(
-            path_utf8.as_ptr(),
+            path_utf16.as_ptr(),
             volume_path.as_mut_ptr(),
             volume_path.len() as u32,
         )
@@ -147,28 +135,48 @@ pub(crate) fn statvfs(path: &Path) -> Result<FsStats> {
 
     let mut sectors_per_cluster = 0;
     let mut bytes_per_sector = 0;
-    let mut number_of_free_clusters = 0;
-    let mut total_number_of_clusters = 0;
+    let mut free_clusters = 0;
+    let mut total_clusters = 0;
     let ret = unsafe {
+        // SAFETY: `root_path` is null-terminated UTF-16 and all output pointers are valid.
         GetDiskFreeSpaceW(
             root_path.as_ptr(),
             &mut sectors_per_cluster,
             &mut bytes_per_sector,
-            &mut number_of_free_clusters,
-            &mut total_number_of_clusters,
+            &mut free_clusters,
+            &mut total_clusters,
         )
     };
     if ret == 0 {
-        Err(Error::last_os_error())
-    } else {
-        let bytes_per_cluster = sectors_per_cluster as u64 * bytes_per_sector as u64;
-        FsStats::from_block_counts(
-            bytes_per_cluster,
-            number_of_free_clusters as u64,
-            number_of_free_clusters as u64,
-            total_number_of_clusters as u64,
-        )
+        return Err(Error::last_os_error());
     }
+
+    let allocation_granularity = (sectors_per_cluster as u64)
+        .checked_mul(bytes_per_sector as u64)
+        .ok_or_else(|| Error::new(ErrorKind::InvalidData, "filesystem cluster size overflowed"))?;
+
+    let mut free_bytes_available_to_caller = 0;
+    let mut total_number_of_bytes = 0;
+    let mut total_number_of_free_bytes = 0;
+    let ret = unsafe {
+        // SAFETY: `root_path` is null-terminated UTF-16 and all output pointers are valid.
+        GetDiskFreeSpaceExW(
+            root_path.as_ptr(),
+            &mut free_bytes_available_to_caller,
+            &mut total_number_of_bytes,
+            &mut total_number_of_free_bytes,
+        )
+    };
+    if ret == 0 {
+        return Err(Error::last_os_error());
+    }
+
+    FsStats::from_bytes(
+        allocation_granularity,
+        total_number_of_free_bytes,
+        free_bytes_available_to_caller,
+        total_number_of_bytes,
+    )
 }
 
 #[cfg(test)]
