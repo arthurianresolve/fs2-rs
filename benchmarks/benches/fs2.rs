@@ -203,6 +203,33 @@ fn bench_windows_file_space_fallback(c: &mut Criterion) {
     let _ = c;
 }
 
+fn bench_windows_root_stats(c: &mut Criterion) {
+    #[cfg(windows)]
+    {
+        let current = std::env::current_dir().unwrap();
+        let root = current.ancestors().last().unwrap().to_owned();
+        let query = FsStatsQuery::new(&root).unwrap();
+        let mut group = c.benchmark_group("windows_root_stats");
+
+        group.bench_function("one_top_level_snapshot", |b| {
+            b.iter(|| black_box(statvfs(&root).unwrap()));
+        });
+        group.bench_function("construct_and_snapshot", |b| {
+            b.iter(|| {
+                let query = FsStatsQuery::new(&root).unwrap();
+                black_box(query.snapshot().unwrap())
+            });
+        });
+        group.bench_function("one_prepared_snapshot", |b| {
+            b.iter(|| black_box(query.snapshot().unwrap()));
+        });
+        group.finish();
+    }
+
+    #[cfg(not(windows))]
+    let _ = c;
+}
+
 criterion_group!(
     benches,
     bench_file_create,
@@ -218,5 +245,6 @@ criterion_group!(
     bench_stats_snapshot,
     bench_prepared_stats,
     bench_windows_file_space_fallback,
+    bench_windows_root_stats,
 );
 criterion_main!(benches);

@@ -27,10 +27,12 @@ prepared `FsStatsQuery` interface for repeated fresh snapshots; Unix and Windows
 adapters acquire the raw counters. Convenience queries remain compatibility
 projections and each acquire a new snapshot. The Windows adapter uses a
 one-query full snapshot when the operating system supports it, retains the
-legacy fallback, and uses the narrowest correct query for scalar projections.
-On Windows, modern snapshots report physical total space while the legacy
-fallback may report a quota-limited total for the calling user; scalar queries
-use the same provider selected by the snapshot path.
+legacy fallback, uses the narrowest correct query for scalar projections, and
+recognizes exact drive roots without repeating volume-root discovery. All other
+Windows paths retain canonical volume-root resolution. On Windows, modern
+snapshots report physical total space while the legacy fallback may report a
+quota-limited total for the calling user; scalar queries use the same provider
+selected by the snapshot path.
 
 ## Support evidence
 

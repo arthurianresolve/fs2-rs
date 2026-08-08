@@ -25,6 +25,20 @@ pub struct FsStats {
 /// counter values are never cached. Recreate the query after changing the
 /// process working directory or the path's mount, junction, or symbolic-link
 /// mapping.
+///
+/// # Examples
+///
+/// ```
+/// # fn main() -> std::io::Result<()> {
+/// use fs2::FsStatsQuery;
+///
+/// let query = FsStatsQuery::new(".")?;
+/// let first = query.snapshot()?;
+/// let second = query.snapshot()?;
+/// # let _ = (first, second);
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug)]
 pub struct FsStatsQuery {
     inner: sys::StatsQuery,

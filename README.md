@@ -74,7 +74,8 @@ convenience functions, which each acquire a new snapshot.
 When an application needs fresh snapshots repeatedly for the same filesystem,
 construct `FsStatsQuery` once and call `snapshot`; it reuses platform path
 preparation without caching counter values. The `stats_snapshot` and
-`prepared_stats` benchmark groups measure both usage patterns.
+`prepared_stats` benchmark groups measure both usage patterns. On Windows, the
+`windows_root_stats` group also measures exact drive-root preparation.
 
 ## License
 

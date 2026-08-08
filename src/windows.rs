@@ -40,7 +40,9 @@ impl StatsQuery {
     pub(crate) fn new(path: &Path) -> Result<Self> {
         let path = wide_path(path);
         let mut root_path = [0; VOLUME_PATH_CAPACITY];
-        volume_path(&path, &mut root_path)?;
+        if !copy_exact_drive_root(&path, &mut root_path) {
+            volume_path(&path, &mut root_path)?;
+        }
         Ok(Self { root_path })
     }
 
@@ -154,6 +156,22 @@ fn lock_file(file: &File, flags: u32) -> Result<()> {
 
 fn wide_path(path: &Path) -> Vec<u16> {
     path.as_os_str().encode_wide().chain(Some(0)).collect()
+}
+
+fn copy_exact_drive_root(path: &[u16], root_path: &mut [u16; VOLUME_PATH_CAPACITY]) -> bool {
+    let [drive, colon, separator, terminator] = path else {
+        return false;
+    };
+    let is_drive_letter = (u16::from(b'A')..=u16::from(b'Z')).contains(drive)
+        || (u16::from(b'a')..=u16::from(b'z')).contains(drive);
+    let is_separator = *separator == u16::from(b'\\') || *separator == u16::from(b'/');
+    if !is_drive_letter || *colon != u16::from(b':') || !is_separator || *terminator != 0 {
+        return false;
+    }
+
+    root_path[..path.len()].copy_from_slice(path);
+    root_path[2] = u16::from(b'\\');
+    true
 }
 
 fn volume_path(path: &[u16], volume_path: &mut [u16]) -> Result<()> {
@@ -408,7 +426,7 @@ mod test {
     use windows_sys::Win32::Storage::FileSystem::DISK_SPACE_INFORMATION;
 
     use super::{
-        DirectSpace, E_NOTIMPL, VOLUME_PATH_CAPACITY, counter_value,
+        DirectSpace, E_NOTIMPL, VOLUME_PATH_CAPACITY, copy_exact_drive_root, counter_value,
         counters_from_disk_space_information, direct_space, legacy_statvfs, modern_statvfs,
         modern_statvfs_with, space, volume_path, wide_path,
     };
@@ -543,6 +561,38 @@ mod test {
             DirectSpace::Fallback
         );
         assert!(space(&path, SpaceKind::Free).is_ok());
+    }
+
+    #[test]
+    fn copies_only_exact_drive_roots() {
+        let mut root_path = [0; VOLUME_PATH_CAPACITY];
+        assert!(copy_exact_drive_root(
+            &wide_path(std::path::Path::new("c:/")),
+            &mut root_path
+        ));
+        assert_eq!(
+            &root_path[..4],
+            &[u16::from(b'c'), u16::from(b':'), u16::from(b'\\'), 0]
+        );
+
+        for path in ["C:", r"C:\directory", r"\", r"\\server\share\"] {
+            root_path.fill(0);
+            assert!(!copy_exact_drive_root(
+                &wide_path(std::path::Path::new(path)),
+                &mut root_path
+            ));
+        }
+    }
+
+    #[test]
+    fn exact_drive_root_matches_canonical_resolution() {
+        let current = std::env::current_dir().unwrap();
+        let root = current.ancestors().last().unwrap();
+        let query = super::StatsQuery::new(root).unwrap();
+        let mut canonical = [0; VOLUME_PATH_CAPACITY];
+        volume_path(&wide_path(root), &mut canonical).unwrap();
+
+        assert_eq!(query.root_path, canonical);
     }
 
     #[test]
