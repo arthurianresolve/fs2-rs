@@ -154,14 +154,14 @@ pub(crate) fn statvfs(path: &Path) -> Result<FilesystemCounters> {
     let mut root_path = [0u16; VOLUME_PATH_CAPACITY];
     volume_path(path, &mut root_path)?;
 
-    if let Some(result) = modern_statvfs(&root_path) {
-        return result;
+    if let Some(counters) = modern_statvfs(&root_path)? {
+        return Ok(counters);
     }
 
     legacy_statvfs(&root_path)
 }
 
-fn modern_statvfs(root_path: &[u16]) -> Option<Result<FilesystemCounters>> {
+fn modern_statvfs(root_path: &[u16]) -> Result<Option<FilesystemCounters>> {
     let get_disk_space_information = *GET_DISK_SPACE_INFORMATION.get_or_init(|| unsafe {
         // SAFETY: kernel32 is loaded in every Windows process and both string literals are
         // null-terminated. The resolved symbol is cast to its documented Windows ABI.
@@ -179,8 +179,10 @@ fn modern_statvfs(root_path: &[u16]) -> Option<Result<FilesystemCounters>> {
 fn modern_statvfs_with(
     root_path: &[u16],
     get_disk_space_information: Option<GetDiskSpaceInformation>,
-) -> Option<Result<FilesystemCounters>> {
-    let get_disk_space_information = get_disk_space_information?;
+) -> Result<Option<FilesystemCounters>> {
+    let Some(get_disk_space_information) = get_disk_space_information else {
+        return Ok(None);
+    };
     let mut info = DISK_SPACE_INFORMATION::default();
     let result = unsafe {
         // SAFETY: `root_path` is null-terminated UTF-16 and `info` is valid output storage.
@@ -188,12 +190,12 @@ fn modern_statvfs_with(
     };
     if result != S_OK {
         if modern_statvfs_unavailable(result) {
-            return None;
+            return Ok(None);
         }
-        return Some(Err(Error::last_os_error()));
+        return Err(Error::last_os_error());
     }
 
-    Some(counters_from_disk_space_information(info))
+    counters_from_disk_space_information(info).map(Some)
 }
 
 const fn hresult_from_win32(error: u32) -> windows_sys::core::HRESULT {
@@ -228,11 +230,11 @@ fn counters_from_disk_space_information(
 }
 
 fn legacy_statvfs(root_path: &[u16]) -> Result<FilesystemCounters> {
-    let caller = caller_space(root_path)?;
+    let geometry = cluster_geometry(root_path)?;
     let bytes = byte_space(root_path)?;
 
     Ok(FilesystemCounters {
-        allocation_granularity: caller.allocation_granularity,
+        allocation_granularity: geometry.allocation_granularity,
         free_space: bytes.actual_free,
         available_space: bytes.caller_available,
         total_space: bytes.caller_total,
@@ -243,23 +245,38 @@ pub(crate) fn space(path: &Path, kind: SpaceKind) -> Result<u64> {
     let mut root_path = [0u16; VOLUME_PATH_CAPACITY];
     volume_path(path, &mut root_path)?;
 
+    if let Some(counters) = modern_statvfs(&root_path)? {
+        return Ok(counter_value(counters, kind));
+    }
+
+    legacy_space(&root_path, kind)
+}
+
+fn counter_value(counters: FilesystemCounters, kind: SpaceKind) -> u64 {
     match kind {
-        SpaceKind::Free => byte_space(&root_path).map(|space| space.actual_free),
-        SpaceKind::Available => caller_space(&root_path).map(|space| space.available),
-        SpaceKind::Total => caller_space(&root_path).map(|space| space.total),
+        SpaceKind::Free => counters.free_space,
+        SpaceKind::Available => counters.available_space,
+        SpaceKind::Total => counters.total_space,
+        SpaceKind::AllocationGranularity => counters.allocation_granularity,
+    }
+}
+
+fn legacy_space(root_path: &[u16], kind: SpaceKind) -> Result<u64> {
+    match kind {
+        SpaceKind::Free => byte_space(root_path).map(|space| space.actual_free),
+        SpaceKind::Available => byte_space(root_path).map(|space| space.caller_available),
+        SpaceKind::Total => byte_space(root_path).map(|space| space.caller_total),
         SpaceKind::AllocationGranularity => {
-            caller_space(&root_path).map(|space| space.allocation_granularity)
+            cluster_geometry(root_path).map(|geometry| geometry.allocation_granularity)
         }
     }
 }
 
-struct CallerSpace {
+struct ClusterGeometry {
     allocation_granularity: u64,
-    available: u64,
-    total: u64,
 }
 
-fn caller_space(root_path: &[u16]) -> Result<CallerSpace> {
+fn cluster_geometry(root_path: &[u16]) -> Result<ClusterGeometry> {
     let mut sectors_per_cluster = 0;
     let mut bytes_per_sector = 0;
     let mut free_clusters = 0;
@@ -282,14 +299,8 @@ fn caller_space(root_path: &[u16]) -> Result<CallerSpace> {
         .checked_mul(bytes_per_sector as u64)
         .ok_or_else(|| Error::new(ErrorKind::InvalidData, "filesystem cluster size overflowed"))?;
 
-    Ok(CallerSpace {
+    Ok(ClusterGeometry {
         allocation_granularity,
-        available: allocation_granularity
-            .checked_mul(free_clusters as u64)
-            .ok_or_else(|| Error::new(ErrorKind::InvalidData, "filesystem space overflowed"))?,
-        total: allocation_granularity
-            .checked_mul(total_clusters as u64)
-            .ok_or_else(|| Error::new(ErrorKind::InvalidData, "filesystem space overflowed"))?,
     })
 }
 
@@ -334,9 +345,9 @@ mod test {
 
     use super::{
         E_NOTIMPL, VOLUME_PATH_CAPACITY, counters_from_disk_space_information, legacy_statvfs,
-        modern_statvfs, modern_statvfs_with, volume_path,
+        modern_statvfs, modern_statvfs_with, space, volume_path,
     };
-    use crate::{FileExt, lock_contended_error};
+    use crate::{FileExt, SpaceKind, lock_contended_error};
     use tempfile::tempdir;
 
     #[test]
@@ -388,11 +399,27 @@ mod test {
         assert!(legacy.available_space <= legacy.free_space);
         assert!(legacy.total_space > 0);
 
-        if let Some(modern) = modern_statvfs(&root_path) {
-            let modern = modern.unwrap();
+        if let Some(modern) = modern_statvfs(&root_path).unwrap() {
             assert_eq!(modern.allocation_granularity, legacy.allocation_granularity);
             assert!(modern.available_space <= modern.free_space);
             assert!(modern.free_space <= modern.total_space);
+
+            assert_eq!(
+                space(tempdir.path(), SpaceKind::Free).unwrap(),
+                modern.free_space
+            );
+            assert_eq!(
+                space(tempdir.path(), SpaceKind::Available).unwrap(),
+                modern.available_space
+            );
+            assert_eq!(
+                space(tempdir.path(), SpaceKind::Total).unwrap(),
+                modern.total_space
+            );
+            assert_eq!(
+                space(tempdir.path(), SpaceKind::AllocationGranularity).unwrap(),
+                modern.allocation_granularity
+            );
         }
     }
 
@@ -413,13 +440,13 @@ mod test {
         }
 
         let root_path = [0u16; VOLUME_PATH_CAPACITY];
-        assert!(modern_statvfs_with(&root_path, None).is_none());
-        assert!(modern_statvfs_with(&root_path, Some(unavailable_api)).is_none());
+        assert!(modern_statvfs_with(&root_path, None).unwrap().is_none());
         assert!(
-            modern_statvfs_with(&root_path, Some(failed_api))
-                .expect("failed API should not trigger fallback")
-                .is_err()
+            modern_statvfs_with(&root_path, Some(unavailable_api))
+                .unwrap()
+                .is_none()
         );
+        assert!(modern_statvfs_with(&root_path, Some(failed_api)).is_err());
     }
 
     /// The duplicate method returns a file with a new file handle.
