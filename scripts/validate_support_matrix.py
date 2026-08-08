@@ -15,8 +15,8 @@ MATRIX_PATH = ROOT / "support-matrix.json"
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "ci.yml"
 EVIDENCE_LEVELS = {"runtime", "compile", "not-covered"}
 ALLOCATION_CAPABILITIES = {"physical-reservation", "unsupported", "unknown"}
-MATRIX_EXPRESSION_PREFIX = "${{ fromJSON(needs.support-matrix.outputs.matrices)."
-MATRIX_EXPRESSION_SUFFIX = " }}"
+MATRIX_EXPRESSION_PREFIX = "${{fromJSON(needs.support-matrix.outputs.matrices)."
+MATRIX_EXPRESSION_SUFFIX = "}}"
 
 
 def is_ci_job_name(value: object) -> bool:
@@ -31,6 +31,22 @@ def is_ci_job_name(value: object) -> bool:
 
 def fail(message: str) -> None:
     raise SystemExit(f"support matrix is invalid: {message}")
+
+
+def matrix_reference(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+
+    normalized = "".join(value.split())
+    if not normalized.startswith(MATRIX_EXPRESSION_PREFIX) or not normalized.endswith(
+        MATRIX_EXPRESSION_SUFFIX
+    ):
+        return None
+
+    referenced = normalized[
+        len(MATRIX_EXPRESSION_PREFIX) : -len(MATRIX_EXPRESSION_SUFFIX)
+    ]
+    return referenced if is_ci_job_name(referenced) else None
 
 
 def validate_matrix(data: dict) -> dict:
@@ -123,19 +139,14 @@ def validate_workflow(data: dict, workflow: dict) -> None:
     consumed = set()
     for job_name, job in jobs.items():
         if not isinstance(job, dict):
-            continue
+            fail(f"workflow job {job_name} must be an object")
         strategy = job.get("strategy")
-        matrix = strategy.get("matrix") if isinstance(strategy, dict) else None
-        if not isinstance(matrix, str):
-            continue
-        if not matrix.startswith(MATRIX_EXPRESSION_PREFIX) or not matrix.endswith(
-            MATRIX_EXPRESSION_SUFFIX
-        ):
+        if not isinstance(strategy, dict) or "matrix" not in strategy:
             continue
 
-        referenced = matrix[
-            len(MATRIX_EXPRESSION_PREFIX) : -len(MATRIX_EXPRESSION_SUFFIX)
-        ]
+        referenced = matrix_reference(strategy["matrix"])
+        if referenced is None:
+            fail(f"workflow job {job_name} must consume a generated support matrix")
         if referenced != job_name:
             fail(f"workflow job {job_name} consumes matrix {referenced!r}")
         if referenced not in declared:

@@ -20,6 +20,7 @@ use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress
 
 use crate::allocation::AllocationState;
 use crate::lock::{LockMode, LockOperation};
+use crate::stats::{FsStats, validate_granularity, value_from_bytes};
 use crate::{FilesystemCounters, SpaceKind};
 
 const VOLUME_PATH_CAPACITY: usize = 261;
@@ -246,26 +247,27 @@ pub(crate) fn space(path: &Path, kind: SpaceKind) -> Result<u64> {
     volume_path(path, &mut root_path)?;
 
     if let Some(counters) = modern_statvfs(&root_path)? {
-        return Ok(counter_value(counters, kind));
+        return counter_value(counters, kind);
     }
 
     legacy_space(&root_path, kind)
 }
 
-fn counter_value(counters: FilesystemCounters, kind: SpaceKind) -> u64 {
-    match kind {
-        SpaceKind::Free => counters.free_space,
-        SpaceKind::Available => counters.available_space,
-        SpaceKind::Total => counters.total_space,
-        SpaceKind::AllocationGranularity => counters.allocation_granularity,
-    }
+fn counter_value(counters: FilesystemCounters, kind: SpaceKind) -> Result<u64> {
+    FsStats::from_counters(counters).map(|stats| stats.value(kind))
 }
 
 fn legacy_space(root_path: &[u16], kind: SpaceKind) -> Result<u64> {
     match kind {
-        SpaceKind::Free => byte_space(root_path).map(|space| space.actual_free),
-        SpaceKind::Available => byte_space(root_path).map(|space| space.caller_available),
-        SpaceKind::Total => byte_space(root_path).map(|space| space.caller_total),
+        SpaceKind::Free | SpaceKind::Available | SpaceKind::Total => {
+            let bytes = byte_space(root_path)?;
+            value_from_bytes(
+                bytes.actual_free,
+                bytes.caller_available,
+                bytes.caller_total,
+                kind,
+            )
+        }
         SpaceKind::AllocationGranularity => {
             cluster_geometry(root_path).map(|geometry| geometry.allocation_granularity)
         }
@@ -298,6 +300,7 @@ fn cluster_geometry(root_path: &[u16]) -> Result<ClusterGeometry> {
     let allocation_granularity = (sectors_per_cluster as u64)
         .checked_mul(bytes_per_sector as u64)
         .ok_or_else(|| Error::new(ErrorKind::InvalidData, "filesystem cluster size overflowed"))?;
+    let allocation_granularity = validate_granularity(allocation_granularity)?;
 
     Ok(ClusterGeometry {
         allocation_granularity,
@@ -344,10 +347,10 @@ mod test {
     use windows_sys::Win32::Storage::FileSystem::DISK_SPACE_INFORMATION;
 
     use super::{
-        E_NOTIMPL, VOLUME_PATH_CAPACITY, counters_from_disk_space_information, legacy_statvfs,
-        modern_statvfs, modern_statvfs_with, space, volume_path,
+        E_NOTIMPL, VOLUME_PATH_CAPACITY, counter_value, counters_from_disk_space_information,
+        legacy_statvfs, modern_statvfs, modern_statvfs_with, space, volume_path,
     };
-    use crate::{FileExt, SpaceKind, lock_contended_error};
+    use crate::{FileExt, FilesystemCounters, SpaceKind, lock_contended_error};
     use tempfile::tempdir;
 
     #[test]
@@ -355,7 +358,7 @@ mod test {
         let info = DISK_SPACE_INFORMATION {
             ActualAvailableAllocationUnits: 8,
             ActualTotalAllocationUnits: 10,
-            CallerTotalAllocationUnits: 10,
+            CallerTotalAllocationUnits: 6,
             CallerAvailableAllocationUnits: 6,
             SectorsPerAllocationUnit: 2,
             BytesPerSector: 512,
@@ -367,6 +370,21 @@ mod test {
         assert_eq!(counters.free_space, 8192);
         assert_eq!(counters.available_space, 6144);
         assert_eq!(counters.total_space, 10_240);
+    }
+
+    #[test]
+    fn rejects_invalid_modern_scalar_stats() {
+        let counters = FilesystemCounters {
+            allocation_granularity: 4096,
+            free_space: 100,
+            available_space: 101,
+            total_space: 100,
+        };
+
+        assert_eq!(
+            counter_value(counters, SpaceKind::Free).unwrap_err().kind(),
+            ErrorKind::InvalidData
+        );
     }
 
     #[test]

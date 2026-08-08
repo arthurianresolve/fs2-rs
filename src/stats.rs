@@ -7,6 +7,9 @@ use crate::sys;
 ///
 /// Obtain one snapshot with [`statvfs`] when more than one counter is needed.
 /// The individual convenience functions each acquire their own snapshot.
+/// On Windows, `total_space` reports physical volume capacity when the modern
+/// provider is available; the legacy fallback may report a quota-limited total
+/// for the calling user.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct FsStats {
     free_space: u64,
@@ -17,6 +20,7 @@ pub struct FsStats {
 
 impl FsStats {
     pub(crate) fn from_counters(counters: FilesystemCounters) -> Result<Self> {
+        let allocation_granularity = validate_granularity(counters.allocation_granularity)?;
         #[cfg(unix)]
         let (free_space, available_space, total_space) = (
             checked_space(counters.allocation_granularity, counters.free_blocks)?,
@@ -32,25 +36,13 @@ impl FsStats {
             counters.total_space,
         );
 
-        if counters.allocation_granularity == 0 {
-            return Err(invalid_stats("filesystem allocation granularity is zero"));
-        }
-
-        if available_space > free_space {
-            return Err(invalid_stats(
-                "filesystem available space exceeds free space",
-            ));
-        }
-        #[cfg(unix)]
-        if free_space > total_space {
-            return Err(invalid_stats("filesystem free space exceeds total space"));
-        }
+        validate_space_values(free_space, available_space, total_space)?;
 
         Ok(Self {
             free_space,
             available_space,
             total_space,
-            allocation_granularity: counters.allocation_granularity,
+            allocation_granularity,
         })
     }
 
@@ -70,6 +62,9 @@ impl FsStats {
 
     /// Returns the total space in bytes in the file system containing the provided
     /// path.
+    ///
+    /// On Windows, this is the physical volume capacity when the modern
+    /// provider is available; the legacy fallback may be quota-limited.
     #[inline]
     pub fn total_space(&self) -> u64 {
         self.total_space
@@ -85,7 +80,6 @@ impl FsStats {
         self.allocation_granularity
     }
 
-    #[cfg(unix)]
     pub(crate) fn value(&self, kind: SpaceKind) -> u64 {
         match kind {
             SpaceKind::Free => self.free_space,
@@ -93,6 +87,51 @@ impl FsStats {
             SpaceKind::Total => self.total_space,
             SpaceKind::AllocationGranularity => self.allocation_granularity,
         }
+    }
+}
+
+pub(crate) fn validate_granularity(allocation_granularity: u64) -> Result<u64> {
+    if allocation_granularity == 0 {
+        Err(invalid_stats("filesystem allocation granularity is zero"))
+    } else {
+        Ok(allocation_granularity)
+    }
+}
+
+pub(crate) fn validate_space_values(
+    free_space: u64,
+    available_space: u64,
+    total_space: u64,
+) -> Result<()> {
+    if available_space > free_space {
+        return Err(invalid_stats(
+            "filesystem available space exceeds free space",
+        ));
+    }
+    #[cfg(not(unix))]
+    let _ = total_space;
+    #[cfg(unix)]
+    if free_space > total_space {
+        return Err(invalid_stats("filesystem free space exceeds total space"));
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+pub(crate) fn value_from_bytes(
+    free_space: u64,
+    available_space: u64,
+    total_space: u64,
+    kind: SpaceKind,
+) -> Result<u64> {
+    validate_space_values(free_space, available_space, total_space)?;
+    match kind {
+        SpaceKind::Free => Ok(free_space),
+        SpaceKind::Available => Ok(available_space),
+        SpaceKind::Total => Ok(total_space),
+        SpaceKind::AllocationGranularity => Err(invalid_stats(
+            "allocation granularity is not a byte-space value",
+        )),
     }
 }
 
@@ -273,7 +312,7 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn accepts_quota_limited_total_space() {
+    fn accepts_quota_limited_legacy_total_space() {
         let stats = FsStats::from_counters(counters(4096, 50_000, 10_000, 40_000)).unwrap();
 
         assert_eq!(stats.free_space(), 50_000);

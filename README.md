@@ -38,6 +38,10 @@ adapters in this repository. Unix support uses
 [`libc`](https://github.com/rust-lang/libc); Windows support uses
 [`windows-sys`](https://github.com/microsoft/windows-rs).
 
+On Windows, filesystem snapshots report physical total capacity when the
+modern disk-space provider is available. On systems that require the legacy
+fallback, the reported total may be limited by the calling user's disk quota.
+
 The CI matrix continuously tests the native `x86_64` targets on Linux, macOS,
 and Windows with Rust 1.97.1 and stable. The historical 32-bit and GNU
 Windows targets are not currently covered by the native test matrix. The
