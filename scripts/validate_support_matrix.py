@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -15,6 +17,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 MATRIX_PATH = ROOT / "support-matrix.json"
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "ci.yml"
+CARGO = os.environ.get("CARGO", "cargo")
 EVIDENCE_LEVELS = {"runtime", "compile", "not-covered"}
 ALLOCATION_CAPABILITIES = {"physical-reservation", "unsupported", "unknown"}
 MATRIX_EXPRESSION = re.compile(
@@ -24,6 +27,7 @@ MATRIX_EXPRESSION = re.compile(
 
 @dataclass(frozen=True, slots=True)
 class CiSpec:
+    job: str
     runner: str
     toolchains: tuple[str, ...]
 
@@ -34,7 +38,6 @@ class TargetSpec:
     platform: str
     evidence: str
     allocation: str
-    ci_job: str | None
     ci: CiSpec | None
 
 
@@ -46,9 +49,7 @@ class SupportRegistry:
 
     @property
     def ci_jobs(self) -> frozenset[str]:
-        return frozenset(
-            target.ci_job for target in self.targets if target.ci_job is not None
-        )
+        return frozenset(target.ci.job for target in self.targets if target.ci is not None)
 
 
 def is_ci_job_name(value: object) -> bool:
@@ -130,7 +131,7 @@ def parse_registry(data: object) -> SupportRegistry:
             if ci is not None:
                 fail(f"not-covered target {target} must not have CI metadata")
             parsed_targets.append(
-                TargetSpec(target, platform, evidence, allocation, None, None)
+                TargetSpec(target, platform, evidence, allocation, None)
             )
             continue
         if not is_ci_job_name(job):
@@ -148,14 +149,9 @@ def parse_registry(data: object) -> SupportRegistry:
             fail(f"CI metadata for {target} must define toolchains")
 
         jobs.add(job)
-        if evidence == "runtime" and toolchains != ["1.97.1", "stable"]:
-            fail(f"runtime target {target} must use Rust 1.97.1 and stable")
-        if evidence == "compile" and toolchains not in (["1.97.1"], ["nightly"]):
-            fail(f"compile target {target} must use Rust 1.97.1 or nightly")
-
-        parsed_ci = CiSpec(runner, tuple(toolchains))
+        parsed_ci = CiSpec(job, runner, tuple(toolchains))
         parsed_targets.append(
-            TargetSpec(target, platform, evidence, allocation, job, parsed_ci)
+            TargetSpec(target, platform, evidence, allocation, parsed_ci)
         )
 
     if not jobs:
@@ -166,8 +162,45 @@ def parse_registry(data: object) -> SupportRegistry:
 
 def load_matrix(matrix_path: Path = MATRIX_PATH) -> SupportRegistry:
     registry = parse_registry(json.loads(matrix_path.read_text(encoding="utf-8")))
+    validate_toolchain_policy(registry, package_rust_version())
     validate_workflow(registry, load_workflow())
     return registry
+
+
+def package_rust_version() -> str:
+    result = subprocess.run(
+        [CARGO, "metadata", "--manifest-path", str(ROOT / "Cargo.toml"),
+         "--no-deps", "--format-version", "1", "--locked"],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip()
+        fail(f"cargo metadata failed while reading rust-version: {detail}")
+    try:
+        metadata = json.loads(result.stdout)
+        package = next(package for package in metadata["packages"] if package["name"] == "fs2")
+        rust_version = package["rust_version"]
+    except (KeyError, StopIteration, TypeError, json.JSONDecodeError):
+        fail("cargo metadata did not provide fs2 rust-version")
+    if not isinstance(rust_version, str) or not rust_version:
+        fail("fs2 rust-version must be a non-empty string")
+    return rust_version
+
+
+def validate_toolchain_policy(registry: SupportRegistry, rust_version: str) -> None:
+    for target in registry.targets:
+        if target.ci is None:
+            continue
+        toolchains = list(target.ci.toolchains)
+        if target.evidence == "runtime" and toolchains != [rust_version, "stable"]:
+            fail(
+                f"runtime target {target.target} must use Rust {rust_version} and stable"
+            )
+        if target.evidence == "compile" and toolchains not in ([rust_version], ["nightly"]):
+            fail(f"compile target {target.target} must use Rust {rust_version} or nightly")
 
 
 def load_workflow(workflow_path: Path = WORKFLOW_PATH) -> dict:
@@ -194,28 +227,26 @@ def validate_workflow(registry: SupportRegistry, workflow: dict) -> None:
             continue
 
         referenced = matrix_reference(strategy["matrix"])
-        if referenced is None:
+        if job_name in declared and referenced is None:
             fail(f"workflow job {job_name} must consume a generated support matrix")
-        if referenced != job_name:
+        if job_name in declared and referenced != job_name:
             fail(f"workflow job {job_name} consumes matrix {referenced!r}")
-        if referenced not in declared:
+        if job_name not in declared and referenced is not None:
             fail(f"workflow consumes undeclared matrix {referenced!r}")
-        consumed.add(referenced)
+        if referenced is not None:
+            consumed.add(referenced)
 
     if consumed != declared:
         missing = sorted(declared - consumed)
-        unused = sorted(consumed - declared)
-        fail(f"workflow matrix consumption drift: missing={missing}, unused={unused}")
+        fail(f"workflow matrix consumption drift: missing={missing}")
 
 
 def matrices(registry: SupportRegistry) -> dict[str, dict[str, list[dict[str, str]]]]:
     generated: dict[str, dict[str, list[dict[str, str]]]] = {}
     for target in registry.targets:
-        if target.ci_job is None:
-            continue
         if target.ci is None:
-            fail(f"CI target {target.target} has no validated CI metadata")
-        matrix_name = target.ci_job
+            continue
+        matrix_name = target.ci.job
         matrix = generated.setdefault(matrix_name, {"include": []})
         for toolchain in target.ci.toolchains:
             matrix["include"].append(

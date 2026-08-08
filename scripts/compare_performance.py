@@ -124,29 +124,6 @@ def run_benchmarks(
     return collect_estimates(criterion_root)
 
 
-def optimized_object(repository: Path, target: Path) -> bytes:
-    cargo(
-        [
-            "rustc",
-            "--manifest-path",
-            str(repository / "Cargo.toml"),
-            "--package",
-            "fs2",
-            "--release",
-            "--lib",
-            "--locked",
-            "--target-dir",
-            str(target),
-            "--",
-            "--emit=obj",
-        ]
-    )
-    objects = sorted((target / "release" / "deps").glob("fs2-*.o"))
-    if len(objects) != 1:
-        fail(f"expected one optimized fs2 object under {target}, found {len(objects)}")
-    return objects[0].read_bytes()
-
-
 def bootstrap_upper_bound(ratios: list[float], resamples: int) -> float:
     rng = random.Random(0)
     count = len(ratios)
@@ -191,22 +168,6 @@ def compare(args: argparse.Namespace) -> None:
         if baseline_lock != candidate_lock:
             fail("baseline and candidate resolved different dependency lockfiles")
         print(f"dependency lock sha256={hashlib.sha256(baseline_lock).hexdigest()}")
-
-        if args.accept_identical_object:
-            baseline_object = optimized_object(
-                baseline, temporary_root / "object-baseline"
-            )
-            candidate_object = optimized_object(
-                candidate, temporary_root / "object-candidate"
-            )
-            baseline_digest = hashlib.sha256(baseline_object).hexdigest()
-            candidate_digest = hashlib.sha256(candidate_object).hexdigest()
-            print(f"baseline optimized object sha256={baseline_digest}")
-            print(f"candidate optimized object sha256={candidate_digest}")
-            if baseline_object == candidate_object:
-                print("optimized fs2 objects are byte-identical: pass")
-                return
-            print("optimized fs2 objects differ; continuing with paired timing")
 
         for manifest, target in (
             (baseline_manifest, baseline_target),
@@ -272,7 +233,6 @@ def main() -> None:
     parser.add_argument("--warm-up-time", type=float, default=0.5)
     parser.add_argument("--measurement-time", type=float, default=1.0)
     parser.add_argument("--bootstrap-resamples", type=int, default=10_000)
-    parser.add_argument("--accept-identical-object", action="store_true")
     args = parser.parse_args()
 
     if args.pairs < 2:

@@ -2,8 +2,8 @@
 name = "fs2"
 # NB: When modifying, also modify html_root_url in lib.rs
 version = "0.5.0"
-edition = "2024"
-rust-version = "1.97.1"
+edition.workspace = true
+rust-version.workspace = true
 authors = ["Dan Burkert <dan@danburkert.com>"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/arthurianresolve/fs2-rs"
@@ -11,11 +11,23 @@ documentation = "https://docs.rs/fs2"
 description = "Cross-platform file locks, allocation, duplication and filesystem statistics."
 keywords = ["file", "file-system", "lock", "duplicate", "flock"]
 categories = ["filesystem"]
+exclude = [
+    ".github/",
+    "benchmarks/",
+    "compatibility/",
+    "deny.toml",
+    "scripts/",
+    "support-matrix.json",
+]
 
 [workspace]
 members = ["benchmarks"]
 exclude = ["compatibility"]
 resolver = "3"
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.97.1"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.189"

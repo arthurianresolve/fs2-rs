@@ -8,6 +8,8 @@ from validate_support_matrix import (
     load_workflow,
     matrices,
     parse_registry,
+    package_rust_version,
+    validate_toolchain_policy,
     validate_workflow,
 )
 
@@ -38,8 +40,8 @@ class SupportMatrixTests(unittest.TestCase):
         self.assertEqual(declared, set(generated))
         expected_counts = {}
         for target in self.data.targets:
-            if target.ci_job is not None:
-                expected_counts[target.ci_job] = expected_counts.get(target.ci_job, 0) + len(
+            if target.ci is not None:
+                expected_counts[target.ci.job] = expected_counts.get(target.ci.job, 0) + len(
                     target.ci.toolchains
                 )
 
@@ -104,6 +106,9 @@ class SupportMatrixTests(unittest.TestCase):
     def test_declared_matrices_are_consumed_by_workflow_jobs(self):
         validate_workflow(self.data, load_workflow())
 
+    def test_registry_toolchains_match_package_rust_version(self):
+        validate_toolchain_policy(self.data, package_rust_version())
+
     def test_accepts_whitespace_in_matrix_expression(self):
         workflow = copy.deepcopy(load_workflow())
         workflow["jobs"]["check"]["strategy"]["matrix"] = (
@@ -130,10 +135,20 @@ class SupportMatrixTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             validate_workflow(self.data, invalid)
 
-    def test_rejects_unregistered_matrix_job(self):
+    def test_allows_unregistered_literal_matrix_job(self):
         invalid = copy.deepcopy(load_workflow())
         invalid["jobs"]["unregistered"] = {
             "strategy": {"matrix": {"include": [{"target": "manual"}]}}
+        }
+
+        validate_workflow(self.data, invalid)
+
+    def test_rejects_unregistered_generated_matrix_job(self):
+        invalid = copy.deepcopy(load_workflow())
+        invalid["jobs"]["unregistered"] = {
+            "strategy": {
+                "matrix": "${{ fromJSON(needs.support-matrix.outputs.matrices).check }}"
+            }
         }
 
         with self.assertRaises(SystemExit):

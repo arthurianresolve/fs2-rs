@@ -12,6 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 COMPATIBILITY = ROOT / "compatibility"
 CONSUMER = COMPATIBILITY / "v04_consumer.rs"
+EXPECTED_CONSUMER_SHA256 = "c7d199ef39998e884f4dcdacaf9a5546d8dba926376eb0fae8bff75c9a1fb1e9"
 EDITIONS = ("2015", "2018", "2021", "2024")
 SUBJECTS = ("legacy", "current")
 CARGO = os.environ.get("CARGO", "cargo")
@@ -23,8 +24,24 @@ def run(*arguments: str) -> None:
     subprocess.run(command, cwd=ROOT, check=True)
 
 
+def consumer_digest(path: Path) -> str:
+    with path.open("r", encoding="utf-8", newline=None) as consumer:
+        contents = consumer.read()
+    return hashlib.sha256(contents.encode("utf-8")).hexdigest()
+
+
+def validate_frozen_consumer(path: Path = CONSUMER) -> str:
+    digest = consumer_digest(path)
+    if digest != EXPECTED_CONSUMER_SHA256:
+        raise SystemExit(
+            "frozen v0.4 consumer changed; update the expected digest only with "
+            "an intentional compatibility-fixture review"
+        )
+    return digest
+
+
 def main() -> None:
-    digest = hashlib.sha256(CONSUMER.read_bytes()).hexdigest()
+    digest = validate_frozen_consumer()
     print(f"v0.4 consumer sha256={digest}")
 
     run("fmt", "--manifest-path", str(COMPATIBILITY / "Cargo.toml"), "--all", "--", "--check")

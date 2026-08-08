@@ -152,7 +152,7 @@ pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
 pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
     let stat = file.metadata()?;
 
-    if len > stat.blocks() as u64 * 512 {
+    if len > stat.blocks() * 512 {
         let len = libc::off_t::try_from(len)
             .map_err(|_| Error::new(ErrorKind::InvalidInput, "allocation length is too large"))?;
         let mut fstore = libc::fstore_t {
