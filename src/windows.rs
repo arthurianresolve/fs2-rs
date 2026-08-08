@@ -293,13 +293,24 @@ pub(crate) fn space(path: &Path, kind: SpaceKind) -> Result<u64> {
     }
 
     let mut root_path = [0u16; VOLUME_PATH_CAPACITY];
+    if copy_exact_drive_root(&path_utf16, &mut root_path)
+        && let Ok(value) = root_space(&root_path, kind)
+    {
+        return Ok(value);
+    }
+
+    root_path.fill(0);
     volume_path(&path_utf16, &mut root_path)?;
 
-    if let Some(counters) = modern_statvfs(&root_path)? {
+    root_space(&root_path, kind)
+}
+
+fn root_space(root_path: &[u16], kind: SpaceKind) -> Result<u64> {
+    if let Some(counters) = modern_statvfs(root_path)? {
         return counter_value(counters, kind);
     }
 
-    legacy_space(&root_path, kind)
+    legacy_space(root_path, kind)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -422,6 +433,7 @@ mod test {
     use std::fs;
     use std::io::ErrorKind;
     use std::os::windows::io::AsRawHandle;
+    use std::path::PathBuf;
 
     use windows_sys::Win32::Storage::FileSystem::DISK_SPACE_INFORMATION;
 
@@ -593,6 +605,44 @@ mod test {
         volume_path(&wide_path(root), &mut canonical).unwrap();
 
         assert_eq!(query.root_path, canonical);
+    }
+
+    #[test]
+    fn exact_drive_root_scalars_match_snapshot() {
+        let current = std::env::current_dir().unwrap();
+        let root = current.ancestors().last().unwrap();
+        let stats = crate::statvfs(root).unwrap();
+
+        assert_eq!(space(root, SpaceKind::Total).unwrap(), stats.total_space());
+        assert_eq!(
+            space(root, SpaceKind::AllocationGranularity).unwrap(),
+            stats.allocation_granularity()
+        );
+    }
+
+    #[test]
+    fn exact_drive_root_scalar_errors_match_canonical_resolution() {
+        let missing_root = (b'A'..=b'Z').find_map(|drive| {
+            let root = PathBuf::from(format!("{}:\\", char::from(drive)));
+            let mut canonical = [0; VOLUME_PATH_CAPACITY];
+            volume_path(&wide_path(&root), &mut canonical)
+                .err()
+                .map(|error| (root, error))
+        });
+        let Some((root, expected)) = missing_root else {
+            return;
+        };
+
+        for kind in [
+            SpaceKind::Free,
+            SpaceKind::Available,
+            SpaceKind::Total,
+            SpaceKind::AllocationGranularity,
+        ] {
+            let actual = space(&root, kind).unwrap_err();
+            assert_eq!(actual.kind(), expected.kind(), "{kind:?}");
+            assert_eq!(actual.raw_os_error(), expected.raw_os_error(), "{kind:?}");
+        }
     }
 
     #[test]
