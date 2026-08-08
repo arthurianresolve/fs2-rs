@@ -20,7 +20,7 @@ use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress
 
 use crate::allocation::AllocationState;
 use crate::lock::{LockMode, LockOperation};
-use crate::stats::{FsStats, validate_granularity, value_from_bytes};
+use crate::stats::{WindowsCounterSource, validate_granularity};
 use crate::{FilesystemCounters, SpaceKind};
 
 const VOLUME_PATH_CAPACITY: usize = 261;
@@ -227,6 +227,7 @@ fn counters_from_disk_space_information(
         free_space: checked_bytes(info.ActualAvailableAllocationUnits)?,
         available_space: checked_bytes(info.CallerAvailableAllocationUnits)?,
         total_space: checked_bytes(info.ActualTotalAllocationUnits)?,
+        source: WindowsCounterSource::Modern,
     })
 }
 
@@ -239,6 +240,7 @@ fn legacy_statvfs(root_path: &[u16]) -> Result<FilesystemCounters> {
         free_space: bytes.actual_free,
         available_space: bytes.caller_available,
         total_space: bytes.caller_total,
+        source: WindowsCounterSource::Legacy,
     })
 }
 
@@ -254,20 +256,19 @@ pub(crate) fn space(path: &Path, kind: SpaceKind) -> Result<u64> {
 }
 
 fn counter_value(counters: FilesystemCounters, kind: SpaceKind) -> Result<u64> {
-    FsStats::from_counters(counters).map(|stats| stats.value(kind))
+    match kind {
+        SpaceKind::Free => Ok(counters.free_space),
+        SpaceKind::Available => Ok(counters.available_space),
+        SpaceKind::Total => Ok(counters.total_space),
+        SpaceKind::AllocationGranularity => validate_granularity(counters.allocation_granularity),
+    }
 }
 
 fn legacy_space(root_path: &[u16], kind: SpaceKind) -> Result<u64> {
     match kind {
-        SpaceKind::Free | SpaceKind::Available | SpaceKind::Total => {
-            let bytes = byte_space(root_path)?;
-            value_from_bytes(
-                bytes.actual_free,
-                bytes.caller_available,
-                bytes.caller_total,
-                kind,
-            )
-        }
+        SpaceKind::Free => byte_space(root_path).map(|space| space.actual_free),
+        SpaceKind::Available => byte_space(root_path).map(|space| space.caller_available),
+        SpaceKind::Total => byte_space(root_path).map(|space| space.caller_total),
         SpaceKind::AllocationGranularity => {
             cluster_geometry(root_path).map(|geometry| geometry.allocation_granularity)
         }
@@ -350,6 +351,7 @@ mod test {
         E_NOTIMPL, VOLUME_PATH_CAPACITY, counter_value, counters_from_disk_space_information,
         legacy_statvfs, modern_statvfs, modern_statvfs_with, space, volume_path,
     };
+    use crate::stats::WindowsCounterSource;
     use crate::{FileExt, FilesystemCounters, SpaceKind, lock_contended_error};
     use tempfile::tempdir;
 
@@ -373,16 +375,30 @@ mod test {
     }
 
     #[test]
-    fn rejects_invalid_modern_scalar_stats() {
+    fn projects_modern_scalar_without_full_snapshot_validation() {
         let counters = FilesystemCounters {
             allocation_granularity: 4096,
             free_space: 100,
             available_space: 101,
             total_space: 100,
+            source: WindowsCounterSource::Modern,
+        };
+
+        assert_eq!(counter_value(counters, SpaceKind::Free).unwrap(), 100);
+    }
+
+    #[test]
+    fn rejects_invalid_modern_snapshot_stats() {
+        let counters = FilesystemCounters {
+            allocation_granularity: 4096,
+            free_space: 101,
+            available_space: 100,
+            total_space: 100,
+            source: WindowsCounterSource::Modern,
         };
 
         assert_eq!(
-            counter_value(counters, SpaceKind::Free).unwrap_err().kind(),
+            crate::FsStats::from_counters(counters).unwrap_err().kind(),
             ErrorKind::InvalidData
         );
     }
@@ -407,7 +423,7 @@ mod test {
     }
 
     #[test]
-    fn modern_and_legacy_stats_are_consistent() {
+    fn modern_and_legacy_stats_have_valid_domains() {
         let tempdir = tempdir().unwrap();
         let mut root_path = [0u16; VOLUME_PATH_CAPACITY];
         volume_path(tempdir.path(), &mut root_path).unwrap();
@@ -422,22 +438,19 @@ mod test {
             assert!(modern.available_space <= modern.free_space);
             assert!(modern.free_space <= modern.total_space);
 
-            assert_eq!(
-                space(tempdir.path(), SpaceKind::Free).unwrap(),
-                modern.free_space
-            );
-            assert_eq!(
-                space(tempdir.path(), SpaceKind::Available).unwrap(),
-                modern.available_space
-            );
-            assert_eq!(
-                space(tempdir.path(), SpaceKind::Total).unwrap(),
-                modern.total_space
-            );
-            assert_eq!(
-                space(tempdir.path(), SpaceKind::AllocationGranularity).unwrap(),
-                modern.allocation_granularity
-            );
+            // Each scalar query acquires a fresh snapshot; space counters can
+            // change between calls while the test is running.
+            for kind in [
+                SpaceKind::Free,
+                SpaceKind::Available,
+                SpaceKind::Total,
+                SpaceKind::AllocationGranularity,
+            ] {
+                assert!(
+                    space(tempdir.path(), kind).is_ok(),
+                    "scalar query failed for {kind:?}"
+                );
+            }
         }
     }
 

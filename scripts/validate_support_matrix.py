@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 import yaml
@@ -15,8 +16,9 @@ MATRIX_PATH = ROOT / "support-matrix.json"
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "ci.yml"
 EVIDENCE_LEVELS = {"runtime", "compile", "not-covered"}
 ALLOCATION_CAPABILITIES = {"physical-reservation", "unsupported", "unknown"}
-MATRIX_EXPRESSION_PREFIX = "${{fromJSON(needs.support-matrix.outputs.matrices)."
-MATRIX_EXPRESSION_SUFFIX = "}}"
+MATRIX_EXPRESSION = re.compile(
+    r"fromJSON\s*\(\s*needs\s*\.\s*support-matrix\s*\.\s*outputs\s*\.\s*matrices\s*\)\s*\.\s*([A-Za-z0-9_]+)"
+)
 
 
 def is_ci_job_name(value: object) -> bool:
@@ -37,22 +39,27 @@ def matrix_reference(value: object) -> str | None:
     if not isinstance(value, str):
         return None
 
-    normalized = "".join(value.split())
-    if not normalized.startswith(MATRIX_EXPRESSION_PREFIX) or not normalized.endswith(
-        MATRIX_EXPRESSION_SUFFIX
-    ):
+    expression = value.strip()
+    if not expression.startswith("${{") or not expression.endswith("}}"):
         return None
 
-    referenced = normalized[
-        len(MATRIX_EXPRESSION_PREFIX) : -len(MATRIX_EXPRESSION_SUFFIX)
-    ]
+    match = MATRIX_EXPRESSION.fullmatch(expression[3:-2].strip())
+    if match is None:
+        return None
+
+    referenced = match.group(1)
     return referenced if is_ci_job_name(referenced) else None
 
 
-def validate_matrix(data: dict) -> dict:
+def validate_matrix(data: object) -> dict:
+    if not isinstance(data, dict):
+        fail("matrix must be a JSON object")
     if data.get("version") != 4:
         fail("version must be 4")
-    if set(data.get("evidence_levels", [])) != EVIDENCE_LEVELS:
+    evidence_levels = data.get("evidence_levels")
+    if not isinstance(evidence_levels, list) or not all(
+        isinstance(level, str) for level in evidence_levels
+    ) or set(evidence_levels) != EVIDENCE_LEVELS:
         fail("evidence_levels must contain runtime, compile, and not-covered")
 
     targets = data.get("targets")
@@ -127,6 +134,8 @@ def load_workflow(workflow_path: Path = WORKFLOW_PATH) -> dict:
 
 
 def validate_workflow(data: dict, workflow: dict) -> None:
+    if not isinstance(workflow, dict):
+        fail("workflow must be a YAML object")
     jobs = workflow.get("jobs")
     if not isinstance(jobs, dict):
         fail("workflow must define a jobs object")

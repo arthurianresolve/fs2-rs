@@ -36,7 +36,17 @@ impl FsStats {
             counters.total_space,
         );
 
+        #[cfg(unix)]
         validate_space_values(free_space, available_space, total_space)?;
+        #[cfg(windows)]
+        match counters.source {
+            WindowsCounterSource::Modern => {
+                validate_modern_space_values(free_space, available_space, total_space)?;
+            }
+            WindowsCounterSource::Legacy => {
+                validate_space_values(free_space, available_space, total_space)?;
+            }
+        }
 
         Ok(Self {
             free_space,
@@ -80,6 +90,7 @@ impl FsStats {
         self.allocation_granularity
     }
 
+    #[cfg(unix)]
     pub(crate) fn value(&self, kind: SpaceKind) -> u64 {
         match kind {
             SpaceKind::Free => self.free_space,
@@ -103,12 +114,8 @@ pub(crate) fn validate_space_values(
     available_space: u64,
     total_space: u64,
 ) -> Result<()> {
-    if available_space > free_space {
-        return Err(invalid_stats(
-            "filesystem available space exceeds free space",
-        ));
-    }
-    #[cfg(not(unix))]
+    validate_available_space_values(free_space, available_space)?;
+    #[cfg(windows)]
     let _ = total_space;
     #[cfg(unix)]
     if free_space > total_space {
@@ -117,22 +124,26 @@ pub(crate) fn validate_space_values(
     Ok(())
 }
 
+fn validate_available_space_values(free_space: u64, available_space: u64) -> Result<()> {
+    if available_space > free_space {
+        return Err(invalid_stats(
+            "filesystem available space exceeds free space",
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(windows)]
-pub(crate) fn value_from_bytes(
+fn validate_modern_space_values(
     free_space: u64,
     available_space: u64,
     total_space: u64,
-    kind: SpaceKind,
-) -> Result<u64> {
-    validate_space_values(free_space, available_space, total_space)?;
-    match kind {
-        SpaceKind::Free => Ok(free_space),
-        SpaceKind::Available => Ok(available_space),
-        SpaceKind::Total => Ok(total_space),
-        SpaceKind::AllocationGranularity => Err(invalid_stats(
-            "allocation granularity is not a byte-space value",
-        )),
+) -> Result<()> {
+    validate_available_space_values(free_space, available_space)?;
+    if free_space > total_space {
+        return Err(invalid_stats("filesystem free space exceeds total space"));
     }
+    Ok(())
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -141,6 +152,14 @@ pub(crate) enum SpaceKind {
     Available,
     Total,
     AllocationGranularity,
+}
+
+#[cfg(windows)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Identifies the quota domain used by a Windows statistics provider.
+pub(crate) enum WindowsCounterSource {
+    Modern,
+    Legacy,
 }
 
 /// Platform-native filesystem counters before conversion to [`FsStats`].
@@ -163,6 +182,9 @@ pub(crate) struct FilesystemCounters {
     pub(crate) available_space: u64,
     #[cfg(windows)]
     pub(crate) total_space: u64,
+    #[cfg(windows)]
+    /// Modern physical or legacy quota-aware Windows counters.
+    pub(crate) source: WindowsCounterSource,
 }
 
 /// Gets one statistics snapshot for the filesystem containing `path`.
@@ -243,7 +265,24 @@ mod tests {
                 free_space,
                 available_space,
                 total_space,
+                source: super::WindowsCounterSource::Modern,
             }
+        }
+    }
+
+    #[cfg(windows)]
+    fn legacy_counters(
+        allocation_granularity: u64,
+        free_space: u64,
+        available_space: u64,
+        total_space: u64,
+    ) -> FilesystemCounters {
+        FilesystemCounters {
+            allocation_granularity,
+            free_space,
+            available_space,
+            total_space,
+            source: super::WindowsCounterSource::Legacy,
         }
     }
 
@@ -312,8 +351,16 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
+    fn rejects_modern_free_space_above_physical_total() {
+        let error = FsStats::from_counters(counters(4096, 50_000, 10_000, 40_000)).unwrap_err();
+
+        assert_eq!(error.kind(), ErrorKind::InvalidData);
+    }
+
+    #[cfg(windows)]
+    #[test]
     fn accepts_quota_limited_legacy_total_space() {
-        let stats = FsStats::from_counters(counters(4096, 50_000, 10_000, 40_000)).unwrap();
+        let stats = FsStats::from_counters(legacy_counters(4096, 50_000, 10_000, 40_000)).unwrap();
 
         assert_eq!(stats.free_space(), 50_000);
         assert_eq!(stats.available_space(), 10_000);

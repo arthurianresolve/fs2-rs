@@ -56,6 +56,17 @@ class SupportMatrixTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             validate_matrix(invalid)
 
+    def test_rejects_non_object_matrix(self):
+        with self.assertRaises(SystemExit):
+            validate_matrix([])
+
+    def test_rejects_malformed_evidence_levels(self):
+        invalid = copy.deepcopy(self.data)
+        invalid["evidence_levels"] = None
+
+        with self.assertRaises(SystemExit):
+            validate_matrix(invalid)
+
     def test_declared_matrices_are_consumed_by_workflow_jobs(self):
         validate_workflow(self.data, load_workflow())
 
@@ -66,6 +77,15 @@ class SupportMatrixTests(unittest.TestCase):
         )
 
         validate_workflow(self.data, workflow)
+
+    def test_rejects_whitespace_inside_matrix_job_name(self):
+        workflow = copy.deepcopy(load_workflow())
+        workflow["jobs"]["check"]["strategy"]["matrix"] = (
+            "${{ fromJSON(needs.support-matrix.outputs.matrices).c h e c k }}"
+        )
+
+        with self.assertRaises(SystemExit):
+            validate_workflow(self.data, workflow)
 
     def test_rejects_workflow_matrix_consumption_drift(self):
         invalid = copy.deepcopy(load_workflow())
@@ -84,6 +104,17 @@ class SupportMatrixTests(unittest.TestCase):
 
         with self.assertRaises(SystemExit):
             validate_workflow(self.data, invalid)
+
+    def test_dependency_resolving_cargo_commands_are_locked(self):
+        workflow = load_workflow()
+        for job_name, job in workflow["jobs"].items():
+            for step in job.get("steps", []):
+                command = step.get("run") if isinstance(step, dict) else None
+                if not isinstance(command, str) or not command.lstrip().startswith("cargo "):
+                    continue
+                if command.lstrip().startswith("cargo fmt "):
+                    continue
+                self.assertIn("--locked", command, msg=f"{job_name}: {command}")
 
 if __name__ == "__main__":
     unittest.main()
