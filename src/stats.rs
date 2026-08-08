@@ -197,7 +197,7 @@ pub(crate) enum SpaceKind {
 #[cfg(windows)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 /// Identifies the quota domain used by a Windows statistics provider.
-pub(crate) enum WindowsCounterSource {
+enum WindowsCounterSource {
     Modern,
     Legacy,
 }
@@ -209,26 +209,89 @@ pub(crate) enum WindowsCounterSource {
 /// total_space` for that snapshot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct FilesystemCounters {
-    pub(crate) allocation_granularity: u64,
+    allocation_granularity: u64,
     #[cfg(unix)]
-    pub(crate) free_blocks: u64,
+    free_blocks: u64,
     #[cfg(unix)]
-    pub(crate) available_blocks: u64,
+    available_blocks: u64,
     #[cfg(unix)]
-    pub(crate) total_blocks: u64,
+    total_blocks: u64,
     #[cfg(windows)]
-    pub(crate) free_space: u64,
+    free_space: u64,
     #[cfg(windows)]
-    pub(crate) available_space: u64,
+    available_space: u64,
     #[cfg(windows)]
-    pub(crate) total_space: u64,
+    total_space: u64,
     #[cfg(windows)]
     /// Modern physical or legacy quota-aware Windows counters.
-    pub(crate) source: WindowsCounterSource,
+    source: WindowsCounterSource,
+}
+
+impl FilesystemCounters {
+    #[cfg(unix)]
+    #[inline(always)]
+    pub(crate) const fn unix_blocks(
+        allocation_granularity: u64,
+        free_blocks: u64,
+        available_blocks: u64,
+        total_blocks: u64,
+    ) -> Self {
+        Self {
+            allocation_granularity,
+            free_blocks,
+            available_blocks,
+            total_blocks,
+        }
+    }
+
+    #[cfg(windows)]
+    #[inline(always)]
+    pub(crate) const fn windows_modern_bytes(
+        allocation_granularity: u64,
+        free_space: u64,
+        available_space: u64,
+        total_space: u64,
+    ) -> Self {
+        Self {
+            allocation_granularity,
+            free_space,
+            available_space,
+            total_space,
+            source: WindowsCounterSource::Modern,
+        }
+    }
+
+    #[cfg(windows)]
+    #[inline(always)]
+    pub(crate) const fn windows_legacy_bytes(
+        allocation_granularity: u64,
+        actual_free_space: u64,
+        caller_available_space: u64,
+        caller_total_space: u64,
+    ) -> Self {
+        Self {
+            allocation_granularity,
+            free_space: actual_free_space,
+            available_space: caller_available_space,
+            total_space: caller_total_space,
+            source: WindowsCounterSource::Legacy,
+        }
+    }
+
+    #[cfg(windows)]
+    #[inline(always)]
+    pub(crate) fn project(self, kind: SpaceKind) -> Result<u64> {
+        match kind {
+            SpaceKind::Free => Ok(self.free_space),
+            SpaceKind::Available => Ok(self.available_space),
+            SpaceKind::Total => Ok(self.total_space),
+            SpaceKind::AllocationGranularity => validate_granularity(self.allocation_granularity),
+        }
+    }
 }
 
 /// Gets one statistics snapshot for the filesystem containing `path`.
-pub fn statvfs(path: impl AsRef<Path>) -> Result<FsStats> {
+pub fn statvfs<P: AsRef<Path>>(path: P) -> Result<FsStats> {
     sys::statvfs(path.as_ref()).and_then(FsStats::from_counters)
 }
 
@@ -236,7 +299,7 @@ pub fn statvfs(path: impl AsRef<Path>) -> Result<FsStats> {
 ///
 /// Call [`statvfs`] once and use [`FsStats::free_space`] when multiple counters
 /// are needed.
-pub fn free_space(path: impl AsRef<Path>) -> Result<u64> {
+pub fn free_space<P: AsRef<Path>>(path: P) -> Result<u64> {
     sys::space(path.as_ref(), SpaceKind::Free)
 }
 
@@ -244,7 +307,7 @@ pub fn free_space(path: impl AsRef<Path>) -> Result<u64> {
 ///
 /// Call [`statvfs`] once and use [`FsStats::available_space`] when multiple
 /// counters are needed.
-pub fn available_space(path: impl AsRef<Path>) -> Result<u64> {
+pub fn available_space<P: AsRef<Path>>(path: P) -> Result<u64> {
     sys::space(path.as_ref(), SpaceKind::Available)
 }
 
@@ -252,7 +315,7 @@ pub fn available_space(path: impl AsRef<Path>) -> Result<u64> {
 ///
 /// Call [`statvfs`] once and use [`FsStats::total_space`] when multiple counters
 /// are needed.
-pub fn total_space(path: impl AsRef<Path>) -> Result<u64> {
+pub fn total_space<P: AsRef<Path>>(path: P) -> Result<u64> {
     sys::space(path.as_ref(), SpaceKind::Total)
 }
 
@@ -260,7 +323,7 @@ pub fn total_space(path: impl AsRef<Path>) -> Result<u64> {
 ///
 /// Call [`statvfs`] once and use [`FsStats::allocation_granularity`] when
 /// multiple counters are needed.
-pub fn allocation_granularity(path: impl AsRef<Path>) -> Result<u64> {
+pub fn allocation_granularity<P: AsRef<Path>>(path: P) -> Result<u64> {
     sys::space(path.as_ref(), SpaceKind::AllocationGranularity)
 }
 
@@ -291,22 +354,21 @@ mod tests {
     ) -> FilesystemCounters {
         #[cfg(unix)]
         {
-            FilesystemCounters {
-                allocation_granularity,
-                free_blocks: free_space,
-                available_blocks: available_space,
-                total_blocks: total_space,
-            }
-        }
-        #[cfg(windows)]
-        {
-            FilesystemCounters {
+            FilesystemCounters::unix_blocks(
                 allocation_granularity,
                 free_space,
                 available_space,
                 total_space,
-                source: super::WindowsCounterSource::Modern,
-            }
+            )
+        }
+        #[cfg(windows)]
+        {
+            FilesystemCounters::windows_modern_bytes(
+                allocation_granularity,
+                free_space,
+                available_space,
+                total_space,
+            )
         }
     }
 
@@ -317,13 +379,12 @@ mod tests {
         available_space: u64,
         total_space: u64,
     ) -> FilesystemCounters {
-        FilesystemCounters {
+        FilesystemCounters::windows_legacy_bytes(
             allocation_granularity,
             free_space,
             available_space,
             total_space,
-            source: super::WindowsCounterSource::Legacy,
-        }
+        )
     }
 
     #[cfg(unix)]

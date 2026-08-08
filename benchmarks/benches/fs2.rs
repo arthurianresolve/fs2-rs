@@ -223,6 +223,12 @@ fn bench_windows_root_stats(c: &mut Criterion) {
         group.bench_function("one_prepared_snapshot", |b| {
             b.iter(|| black_box(query.snapshot().unwrap()));
         });
+        group.bench_function("total_space", |b| {
+            b.iter(|| black_box(total_space(&root).unwrap()));
+        });
+        group.bench_function("allocation_granularity", |b| {
+            b.iter(|| black_box(allocation_granularity(&root).unwrap()));
+        });
         group.finish();
     }
 

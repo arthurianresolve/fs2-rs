@@ -20,7 +20,7 @@ use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress
 
 use crate::allocation::AllocationState;
 use crate::lock::{LockMode, LockOperation};
-use crate::stats::{WindowsCounterSource, validate_granularity};
+use crate::stats::validate_granularity;
 use crate::{FilesystemCounters, SpaceKind};
 
 const VOLUME_PATH_CAPACITY: usize = 261;
@@ -57,12 +57,14 @@ pub(crate) fn duplicate(file: &File) -> Result<File> {
     Ok(File::from(owned))
 }
 
+#[inline(always)]
 pub(crate) fn allocation_state(file: &File) -> Result<AllocationState> {
+    let handle = file.as_raw_handle();
     let mut info = FILE_STANDARD_INFO::default();
     let ret = unsafe {
         // SAFETY: `file` owns a valid handle and `info` is properly sized and aligned.
         GetFileInformationByHandleEx(
-            file.as_raw_handle(),
+            handle,
             FileStandardInfo,
             std::ptr::from_mut(&mut info).cast(),
             std::mem::size_of::<FILE_STANDARD_INFO>() as u32,
@@ -77,10 +79,6 @@ pub(crate) fn allocation_state(file: &File) -> Result<AllocationState> {
             file_size: info.EndOfFile as u64,
         })
     }
-}
-
-pub(crate) fn allocated_size(file: &File) -> Result<u64> {
-    allocation_state(file).map(|state| state.allocated_size)
 }
 
 pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
@@ -262,26 +260,24 @@ fn counters_from_disk_space_information(
             .ok_or_else(|| Error::new(ErrorKind::InvalidData, "filesystem space overflowed"))
     };
 
-    Ok(FilesystemCounters {
+    Ok(FilesystemCounters::windows_modern_bytes(
         allocation_granularity,
-        free_space: checked_bytes(info.ActualAvailableAllocationUnits)?,
-        available_space: checked_bytes(info.CallerAvailableAllocationUnits)?,
-        total_space: checked_bytes(info.ActualTotalAllocationUnits)?,
-        source: WindowsCounterSource::Modern,
-    })
+        checked_bytes(info.ActualAvailableAllocationUnits)?,
+        checked_bytes(info.CallerAvailableAllocationUnits)?,
+        checked_bytes(info.ActualTotalAllocationUnits)?,
+    ))
 }
 
 fn legacy_statvfs(root_path: &[u16]) -> Result<FilesystemCounters> {
     let geometry = cluster_geometry(root_path)?;
     let bytes = byte_space(root_path)?;
 
-    Ok(FilesystemCounters {
-        allocation_granularity: geometry.allocation_granularity,
-        free_space: bytes.actual_free,
-        available_space: bytes.caller_available,
-        total_space: bytes.caller_total,
-        source: WindowsCounterSource::Legacy,
-    })
+    Ok(FilesystemCounters::windows_legacy_bytes(
+        geometry.allocation_granularity,
+        bytes.actual_free,
+        bytes.caller_available,
+        bytes.caller_total,
+    ))
 }
 
 pub(crate) fn space(path: &Path, kind: SpaceKind) -> Result<u64> {
@@ -307,7 +303,7 @@ pub(crate) fn space(path: &Path, kind: SpaceKind) -> Result<u64> {
 
 fn root_space(root_path: &[u16], kind: SpaceKind) -> Result<u64> {
     if let Some(counters) = modern_statvfs(root_path)? {
-        return counter_value(counters, kind);
+        return counters.project(kind);
     }
 
     legacy_space(root_path, kind)
@@ -341,15 +337,6 @@ fn direct_space(path: &[u16], kind: SpaceKind) -> DirectSpace {
         DirectSpace::Fallback
     } else {
         DirectSpace::Hit(value)
-    }
-}
-
-fn counter_value(counters: FilesystemCounters, kind: SpaceKind) -> Result<u64> {
-    match kind {
-        SpaceKind::Free => Ok(counters.free_space),
-        SpaceKind::Available => Ok(counters.available_space),
-        SpaceKind::Total => Ok(counters.total_space),
-        SpaceKind::AllocationGranularity => validate_granularity(counters.allocation_granularity),
     }
 }
 
@@ -438,11 +425,10 @@ mod test {
     use windows_sys::Win32::Storage::FileSystem::DISK_SPACE_INFORMATION;
 
     use super::{
-        DirectSpace, E_NOTIMPL, VOLUME_PATH_CAPACITY, copy_exact_drive_root, counter_value,
+        DirectSpace, E_NOTIMPL, VOLUME_PATH_CAPACITY, copy_exact_drive_root,
         counters_from_disk_space_information, direct_space, legacy_statvfs, modern_statvfs,
         modern_statvfs_with, space, volume_path, wide_path,
     };
-    use crate::stats::WindowsCounterSource;
     use crate::{FileExt, FilesystemCounters, SpaceKind, lock_contended_error};
     use tempfile::tempdir;
 
@@ -459,34 +445,23 @@ mod test {
         };
 
         let counters = counters_from_disk_space_information(info).unwrap();
-        assert_eq!(counters.allocation_granularity, 1024);
-        assert_eq!(counters.free_space, 8192);
-        assert_eq!(counters.available_space, 6144);
-        assert_eq!(counters.total_space, 10_240);
+        let stats = crate::FsStats::from_counters(counters).unwrap();
+        assert_eq!(stats.allocation_granularity(), 1024);
+        assert_eq!(stats.free_space(), 8192);
+        assert_eq!(stats.available_space(), 6144);
+        assert_eq!(stats.total_space(), 10_240);
     }
 
     #[test]
     fn projects_modern_scalar_without_full_snapshot_validation() {
-        let counters = FilesystemCounters {
-            allocation_granularity: 4096,
-            free_space: 100,
-            available_space: 101,
-            total_space: 100,
-            source: WindowsCounterSource::Modern,
-        };
+        let counters = FilesystemCounters::windows_modern_bytes(4096, 100, 101, 100);
 
-        assert_eq!(counter_value(counters, SpaceKind::Free).unwrap(), 100);
+        assert_eq!(counters.project(SpaceKind::Free).unwrap(), 100);
     }
 
     #[test]
     fn rejects_invalid_modern_snapshot_stats() {
-        let counters = FilesystemCounters {
-            allocation_granularity: 4096,
-            free_space: 101,
-            available_space: 100,
-            total_space: 100,
-            source: WindowsCounterSource::Modern,
-        };
+        let counters = FilesystemCounters::windows_modern_bytes(4096, 101, 100, 100);
 
         assert_eq!(
             crate::FsStats::from_counters(counters).unwrap_err().kind(),
@@ -519,15 +494,19 @@ mod test {
         let mut root_path = [0u16; VOLUME_PATH_CAPACITY];
         volume_path(&wide_path(tempdir.path()), &mut root_path).unwrap();
 
-        let legacy = legacy_statvfs(&root_path).unwrap();
-        assert!(legacy.allocation_granularity > 0);
-        assert!(legacy.available_space <= legacy.free_space);
-        assert!(legacy.total_space > 0);
+        let legacy = crate::FsStats::from_counters(legacy_statvfs(&root_path).unwrap()).unwrap();
+        assert!(legacy.allocation_granularity() > 0);
+        assert!(legacy.available_space() <= legacy.free_space());
+        assert!(legacy.total_space() > 0);
 
         if let Some(modern) = modern_statvfs(&root_path).unwrap() {
-            assert_eq!(modern.allocation_granularity, legacy.allocation_granularity);
-            assert!(modern.available_space <= modern.free_space);
-            assert!(modern.free_space <= modern.total_space);
+            let modern = crate::FsStats::from_counters(modern).unwrap();
+            assert_eq!(
+                modern.allocation_granularity(),
+                legacy.allocation_granularity()
+            );
+            assert!(modern.available_space() <= modern.free_space());
+            assert!(modern.free_space() <= modern.total_space());
 
             // Each scalar query acquires a fresh snapshot; space counters can
             // change between calls while the test is running.
@@ -543,6 +522,14 @@ mod test {
                 );
             }
         }
+    }
+
+    #[test]
+    fn filesystem_counters_retain_compact_layout() {
+        assert_eq!(
+            std::mem::size_of::<FilesystemCounters>(),
+            std::mem::size_of::<[u64; 5]>()
+        );
     }
 
     #[test]

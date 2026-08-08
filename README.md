@@ -75,7 +75,20 @@ When an application needs fresh snapshots repeatedly for the same filesystem,
 construct `FsStatsQuery` once and call `snapshot`; it reuses platform path
 preparation without caching counter values. The `stats_snapshot` and
 `prepared_stats` benchmark groups measure both usage patterns. On Windows, the
-`windows_root_stats` group also measures exact drive-root preparation.
+`windows_root_stats` group also measures exact drive-root preparation and scalar
+queries.
+
+The compatibility oracle compiles one frozen v0.4 consumer against both fs2
+0.4.3 and the current checkout across Rust editions 2015 through 2024, then runs
+the shared behavior fixture against both. Run it with
+`python scripts/validate_compatibility.py`. Performance comparisons use the
+same benchmark source for both subjects through
+`python scripts/compare_performance.py --baseline <path> --candidate <path>`.
+The performance command defaults to twenty alternating pairs and exits
+unsuccessfully unless every selected workload proves non-regression; use a
+benchmark-name filter to keep targeted comparisons practical. For private
+refactors, `--accept-identical-object` accepts byte-identical optimized crate
+objects before noisy timing measurements.
 
 ## License
 

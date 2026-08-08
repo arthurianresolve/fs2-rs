@@ -1,33 +1,46 @@
 import copy
+import json
 import unittest
 
 from validate_support_matrix import (
+    MATRIX_PATH,
     load_matrix,
     load_workflow,
     matrices,
-    validate_matrix,
+    parse_registry,
     validate_workflow,
+)
+
+
+EXPECTED_MATRICES = (
+    '{"check":{"include":[{"os":"ubuntu-latest","target":"x86_64-unknown-linux-gnu","toolchain":"1.97.1"},'
+    '{"os":"ubuntu-latest","target":"x86_64-unknown-linux-gnu","toolchain":"stable"},'
+    '{"os":"macos-latest","target":"x86_64-apple-darwin","toolchain":"1.97.1"},'
+    '{"os":"macos-latest","target":"x86_64-apple-darwin","toolchain":"stable"},'
+    '{"os":"windows-latest","target":"x86_64-pc-windows-msvc","toolchain":"1.97.1"},'
+    '{"os":"windows-latest","target":"x86_64-pc-windows-msvc","toolchain":"stable"}]},'
+    '"cross_check":{"include":[{"os":"ubuntu-latest","target":"i686-unknown-linux-gnu","toolchain":"1.97.1"},'
+    '{"os":"ubuntu-latest","target":"x86_64-unknown-illumos","toolchain":"1.97.1"},'
+    '{"os":"ubuntu-latest","target":"x86_64-unknown-redox","toolchain":"1.97.1"}]},'
+    '"uclibc":{"include":[{"os":"ubuntu-latest","target":"armv7-unknown-linux-uclibceabihf","toolchain":"nightly"}]}}'
 )
 
 
 class SupportMatrixTests(unittest.TestCase):
     def setUp(self):
         self.data = load_matrix()
+        self.raw = json.loads(MATRIX_PATH.read_text(encoding="utf-8"))
 
     def test_generates_every_declared_matrix(self):
         generated = matrices(self.data)
-        declared = {
-            entry["ci_job"]
-            for entry in self.data["targets"]
-            if entry["ci_job"] is not None
-        }
+        declared = self.data.ci_jobs
 
         self.assertEqual(declared, set(generated))
         expected_counts = {}
-        for entry in self.data["targets"]:
-            if entry["ci_job"] is not None:
-                expected_counts[entry["ci_job"]] = expected_counts.get(entry["ci_job"], 0) + len(
-                    entry["ci"]["toolchains"]
+        for target in self.data.targets:
+            if target.ci_job is not None:
+                expected_counts[target.ci_job] = expected_counts.get(target.ci_job, 0) + len(
+                    target.ci.toolchains
                 )
 
         actual_counts = {
@@ -35,37 +48,58 @@ class SupportMatrixTests(unittest.TestCase):
         }
         self.assertEqual(actual_counts, expected_counts)
 
+    def test_generated_matrix_is_byte_stable(self):
+        generated = json.dumps(matrices(self.data), separators=(",", ":"))
+
+        self.assertEqual(generated, EXPECTED_MATRICES)
+
     def test_rejects_duplicate_targets(self):
-        invalid = copy.deepcopy(self.data)
+        invalid = copy.deepcopy(self.raw)
         invalid["targets"][1]["target"] = invalid["targets"][0]["target"]
 
         with self.assertRaises(SystemExit):
-            validate_matrix(invalid)
+            parse_registry(invalid)
 
     def test_rejects_uncovered_ci_metadata(self):
-        invalid = copy.deepcopy(self.data)
+        invalid = copy.deepcopy(self.raw)
         invalid["targets"][-1]["ci"] = {"runner": "ubuntu-latest", "toolchains": ["stable"]}
 
         with self.assertRaises(SystemExit):
-            validate_matrix(invalid)
+            parse_registry(invalid)
 
     def test_rejects_unknown_allocation_capability(self):
-        invalid = copy.deepcopy(self.data)
+        invalid = copy.deepcopy(self.raw)
         invalid["targets"][0]["allocation"] = "not-a-real-capability"
 
         with self.assertRaises(SystemExit):
-            validate_matrix(invalid)
+            parse_registry(invalid)
+
+    def test_rejects_non_string_capabilities(self):
+        for field in ("evidence", "allocation"):
+            with self.subTest(field=field):
+                invalid = copy.deepcopy(self.raw)
+                invalid["targets"][0][field] = []
+
+                with self.assertRaises(SystemExit):
+                    parse_registry(invalid)
+
+    def test_rejects_invalid_platform(self):
+        invalid = copy.deepcopy(self.raw)
+        invalid["targets"][0]["platform"] = ""
+
+        with self.assertRaises(SystemExit):
+            parse_registry(invalid)
 
     def test_rejects_non_object_matrix(self):
         with self.assertRaises(SystemExit):
-            validate_matrix([])
+            parse_registry([])
 
     def test_rejects_malformed_evidence_levels(self):
-        invalid = copy.deepcopy(self.data)
+        invalid = copy.deepcopy(self.raw)
         invalid["evidence_levels"] = None
 
         with self.assertRaises(SystemExit):
-            validate_matrix(invalid)
+            parse_registry(invalid)
 
     def test_declared_matrices_are_consumed_by_workflow_jobs(self):
         validate_workflow(self.data, load_workflow())

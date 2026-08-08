@@ -9,6 +9,11 @@ pub(crate) struct AllocationState {
     pub(crate) file_size: u64,
 }
 
+#[inline(always)]
+pub(crate) fn allocated_size(file: &File) -> Result<u64> {
+    sys::allocation_state(file).map(|state| state.allocated_size)
+}
+
 pub(crate) fn allocate(file: &File, len: u64) -> Result<()> {
     let state = sys::allocation_state(file)?;
     if state.allocated_size < len {

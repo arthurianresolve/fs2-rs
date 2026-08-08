@@ -1,18 +1,18 @@
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Result, Seek, SeekFrom, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use fs2::{
-    FileExt, allocation_granularity, available_space, free_space, lock_contended_error, statvfs,
-    total_space,
+    FileExt, FsStats, allocation_granularity, available_space, free_space, lock_contended_error,
+    statvfs, total_space,
 };
 use tempfile::tempdir;
 
 // Compile the complete upstream method surface in a downstream crate. The
 // function is intentionally not called because several lock operations block
 // when performed sequentially on one file.
-#[allow(dead_code, unstable_name_collisions)]
-fn upstream_method_syntax(file: &File) -> Result<()> {
+#[allow(dead_code)]
+fn upstream_method_syntax<T: FileExt>(file: &T) -> Result<()> {
     let _ = file.duplicate()?;
     let _ = file.allocated_size()?;
     file.allocate(0)?;
@@ -21,6 +21,15 @@ fn upstream_method_syntax(file: &File) -> Result<()> {
     let _ = file.try_lock_shared();
     let _ = file.try_lock_exclusive();
     file.unlock()
+}
+
+#[test]
+fn upstream_named_generic_function_items() {
+    let _: fn(PathBuf) -> Result<FsStats> = statvfs::<PathBuf>;
+    let _: fn(PathBuf) -> Result<u64> = free_space::<PathBuf>;
+    let _: fn(PathBuf) -> Result<u64> = available_space::<PathBuf>;
+    let _: fn(PathBuf) -> Result<u64> = total_space::<PathBuf>;
+    let _: fn(PathBuf) -> Result<u64> = allocation_granularity::<PathBuf>;
 }
 
 #[test]

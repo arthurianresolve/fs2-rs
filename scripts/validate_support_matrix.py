@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
@@ -19,6 +20,35 @@ ALLOCATION_CAPABILITIES = {"physical-reservation", "unsupported", "unknown"}
 MATRIX_EXPRESSION = re.compile(
     r"fromJSON\s*\(\s*needs\s*\.\s*support-matrix\s*\.\s*outputs\s*\.\s*matrices\s*\)\s*\.\s*([A-Za-z0-9_]+)"
 )
+
+
+@dataclass(frozen=True, slots=True)
+class CiSpec:
+    runner: str
+    toolchains: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class TargetSpec:
+    target: str
+    platform: str
+    evidence: str
+    allocation: str
+    ci_job: str | None
+    ci: CiSpec | None
+
+
+@dataclass(frozen=True, slots=True)
+class SupportRegistry:
+    version: int
+    evidence_levels: frozenset[str]
+    targets: tuple[TargetSpec, ...]
+
+    @property
+    def ci_jobs(self) -> frozenset[str]:
+        return frozenset(
+            target.ci_job for target in self.targets if target.ci_job is not None
+        )
 
 
 def is_ci_job_name(value: object) -> bool:
@@ -51,7 +81,7 @@ def matrix_reference(value: object) -> str | None:
     return referenced if is_ci_job_name(referenced) else None
 
 
-def validate_matrix(data: object) -> dict:
+def parse_registry(data: object) -> SupportRegistry:
     if not isinstance(data, dict):
         fail("matrix must be a JSON object")
     if data.get("version") != 4:
@@ -66,6 +96,7 @@ def validate_matrix(data: object) -> dict:
     if not isinstance(targets, list) or not targets:
         fail("targets must be a non-empty list")
 
+    parsed_targets: list[TargetSpec] = []
     seen_targets: set[str] = set()
     jobs: set[str] = set()
     for entry in targets:
@@ -79,13 +110,18 @@ def validate_matrix(data: object) -> dict:
         if not isinstance(target, str) or not target or target in seen_targets:
             fail(f"target must be a unique non-empty string: {target!r}")
         seen_targets.add(target)
-        if entry["evidence"] not in EVIDENCE_LEVELS:
+        platform = entry["platform"]
+        if not isinstance(platform, str) or not platform:
+            fail(f"platform must be a non-empty string for {target}")
+        evidence = entry["evidence"]
+        allocation = entry["allocation"]
+        if not isinstance(evidence, str) or evidence not in EVIDENCE_LEVELS:
             fail(f"unknown evidence level for {target}")
-        if entry["allocation"] not in ALLOCATION_CAPABILITIES:
+        if not isinstance(allocation, str) or allocation not in ALLOCATION_CAPABILITIES:
             fail(f"unknown allocation capability for {target}")
-        if entry["evidence"] == "not-covered" and entry["allocation"] != "unknown":
+        if evidence == "not-covered" and allocation != "unknown":
             fail(f"not-covered target {target} must have unknown allocation capability")
-        if entry["evidence"] != "not-covered" and entry["allocation"] == "unknown":
+        if evidence != "not-covered" and allocation == "unknown":
             fail(f"covered target {target} must declare an allocation capability")
 
         job = entry["ci_job"]
@@ -93,6 +129,9 @@ def validate_matrix(data: object) -> dict:
         if job is None:
             if ci is not None:
                 fail(f"not-covered target {target} must not have CI metadata")
+            parsed_targets.append(
+                TargetSpec(target, platform, evidence, allocation, None, None)
+            )
             continue
         if not is_ci_job_name(job):
             fail(f"invalid CI job name for {target}: {job!r}")
@@ -109,21 +148,26 @@ def validate_matrix(data: object) -> dict:
             fail(f"CI metadata for {target} must define toolchains")
 
         jobs.add(job)
-        if entry["evidence"] == "runtime" and toolchains != ["1.97.1", "stable"]:
+        if evidence == "runtime" and toolchains != ["1.97.1", "stable"]:
             fail(f"runtime target {target} must use Rust 1.97.1 and stable")
-        if entry["evidence"] == "compile" and toolchains not in (["1.97.1"], ["nightly"]):
+        if evidence == "compile" and toolchains not in (["1.97.1"], ["nightly"]):
             fail(f"compile target {target} must use Rust 1.97.1 or nightly")
+
+        parsed_ci = CiSpec(runner, tuple(toolchains))
+        parsed_targets.append(
+            TargetSpec(target, platform, evidence, allocation, job, parsed_ci)
+        )
 
     if not jobs:
         fail("at least one CI job is required")
 
-    return data
+    return SupportRegistry(4, frozenset(evidence_levels), tuple(parsed_targets))
 
 
-def load_matrix(matrix_path: Path = MATRIX_PATH) -> dict:
-    data = validate_matrix(json.loads(matrix_path.read_text(encoding="utf-8")))
-    validate_workflow(data, load_workflow())
-    return data
+def load_matrix(matrix_path: Path = MATRIX_PATH) -> SupportRegistry:
+    registry = parse_registry(json.loads(matrix_path.read_text(encoding="utf-8")))
+    validate_workflow(registry, load_workflow())
+    return registry
 
 
 def load_workflow(workflow_path: Path = WORKFLOW_PATH) -> dict:
@@ -133,18 +177,14 @@ def load_workflow(workflow_path: Path = WORKFLOW_PATH) -> dict:
     return workflow
 
 
-def validate_workflow(data: dict, workflow: dict) -> None:
+def validate_workflow(registry: SupportRegistry, workflow: dict) -> None:
     if not isinstance(workflow, dict):
         fail("workflow must be a YAML object")
     jobs = workflow.get("jobs")
     if not isinstance(jobs, dict):
         fail("workflow must define a jobs object")
 
-    declared = {
-        entry["ci_job"]
-        for entry in data["targets"]
-        if entry["ci_job"] is not None
-    }
+    declared = registry.ci_jobs
     consumed = set()
     for job_name, job in jobs.items():
         if not isinstance(job, dict):
@@ -168,18 +208,20 @@ def validate_workflow(data: dict, workflow: dict) -> None:
         fail(f"workflow matrix consumption drift: missing={missing}, unused={unused}")
 
 
-def matrices(data: dict) -> dict[str, dict[str, list[dict[str, str]]]]:
+def matrices(registry: SupportRegistry) -> dict[str, dict[str, list[dict[str, str]]]]:
     generated: dict[str, dict[str, list[dict[str, str]]]] = {}
-    for entry in data["targets"]:
-        if entry["ci_job"] is None:
+    for target in registry.targets:
+        if target.ci_job is None:
             continue
-        matrix_name = entry["ci_job"]
+        if target.ci is None:
+            fail(f"CI target {target.target} has no validated CI metadata")
+        matrix_name = target.ci_job
         matrix = generated.setdefault(matrix_name, {"include": []})
-        for toolchain in entry["ci"]["toolchains"]:
+        for toolchain in target.ci.toolchains:
             matrix["include"].append(
                 {
-                    "os": entry["ci"]["runner"],
-                    "target": entry["target"],
+                    "os": target.ci.runner,
+                    "target": target.target,
                     "toolchain": toolchain,
                 }
             )

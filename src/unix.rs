@@ -102,15 +102,12 @@ fn flock(file: &File, flag: libc::c_int) -> Result<()> {
     }
 }
 
+#[inline(always)]
 pub(crate) fn allocation_state(file: &File) -> Result<AllocationState> {
     file.metadata().map(|metadata| AllocationState {
         allocated_size: metadata.blocks() * 512,
         file_size: metadata.len(),
     })
-}
-
-pub(crate) fn allocated_size(file: &File) -> Result<u64> {
-    allocation_state(file).map(|state| state.allocated_size)
 }
 
 #[cfg(any(
@@ -233,12 +230,12 @@ fn statvfs_cstr(path: &CStr) -> Result<FilesystemCounters> {
     if ret != 0 {
         Err(Error::last_os_error())
     } else {
-        Ok(FilesystemCounters {
-            allocation_granularity: stat.f_frsize as u64,
-            free_blocks: stat.f_bfree as u64,
-            available_blocks: stat.f_bavail as u64,
-            total_blocks: stat.f_blocks as u64,
-        })
+        Ok(FilesystemCounters::unix_blocks(
+            stat.f_frsize as u64,
+            stat.f_bfree as u64,
+            stat.f_bavail as u64,
+            stat.f_blocks as u64,
+        ))
     }
 }
 
