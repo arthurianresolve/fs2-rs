@@ -18,6 +18,32 @@ pub struct FsStats {
     allocation_granularity: u64,
 }
 
+/// A prepared filesystem-statistics query for repeated snapshots.
+///
+/// Construction resolves and validates the platform path representation once.
+/// Each call to [`FsStatsQuery::snapshot`] acquires fresh filesystem counters;
+/// counter values are never cached. Recreate the query after changing the
+/// process working directory or the path's mount, junction, or symbolic-link
+/// mapping.
+#[derive(Debug)]
+pub struct FsStatsQuery {
+    inner: sys::StatsQuery,
+}
+
+impl FsStatsQuery {
+    /// Prepares repeated statistics queries for the filesystem containing
+    /// `path`.
+    pub fn new(path: impl AsRef<Path>) -> Result<Self> {
+        let path = std::path::absolute(path)?;
+        sys::StatsQuery::new(&path).map(|inner| Self { inner })
+    }
+
+    /// Acquires a fresh statistics snapshot.
+    pub fn snapshot(&self) -> Result<FsStats> {
+        self.inner.counters().and_then(FsStats::from_counters)
+    }
+}
+
 impl FsStats {
     pub(crate) fn from_counters(counters: FilesystemCounters) -> Result<Self> {
         let allocation_granularity = validate_granularity(counters.allocation_granularity)?;
@@ -241,7 +267,7 @@ mod tests {
 
     use std::io::ErrorKind;
 
-    use super::{FilesystemCounters, FsStats, statvfs};
+    use super::{FilesystemCounters, FsStats, FsStatsQuery, statvfs};
 
     fn counters(
         allocation_granularity: u64,
@@ -347,6 +373,18 @@ mod tests {
         assert!(stats.available_space() <= stats.free_space());
         #[cfg(unix)]
         assert!(stats.total_space() > stats.free_space());
+    }
+
+    #[test]
+    fn prepared_query_returns_fresh_valid_snapshots() {
+        let tempdir = tempdir().unwrap();
+        let query = FsStatsQuery::new(tempdir.path()).unwrap();
+
+        for stats in [query.snapshot().unwrap(), query.snapshot().unwrap()] {
+            assert!(stats.total_space() > 0);
+            assert!(stats.available_space() <= stats.free_space());
+            assert!(stats.allocation_granularity() > 0);
+        }
     }
 
     #[cfg(windows)]

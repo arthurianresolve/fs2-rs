@@ -22,7 +22,8 @@ use std::fs::File;
 use std::io::{Error, Result};
 
 pub use stats::{
-    FsStats, allocation_granularity, available_space, free_space, statvfs, total_space,
+    FsStats, FsStatsQuery, allocation_granularity, available_space, free_space, statvfs,
+    total_space,
 };
 
 pub(crate) use stats::{FilesystemCounters, SpaceKind};
@@ -69,8 +70,10 @@ pub trait FileExt {
     ///
     /// # Notes
     ///
-    /// This uses the platform's safe standard-library file descriptor or handle
-    /// cloning implementation.
+    /// On Unix this retains the historical `dup(2)` behavior, including an
+    /// inheritable descriptor. Use [`File::try_clone`] when close-on-exec
+    /// behavior is required. Windows uses the standard-library handle cloning
+    /// implementation.
     fn duplicate(&self) -> Result<File>;
 
     /// Returns the amount of physical space allocated for a file.

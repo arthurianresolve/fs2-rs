@@ -1,10 +1,10 @@
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 use std::fs::File;
 use std::io::{Error, ErrorKind, Result};
 use std::mem;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::MetadataExt;
-use std::os::unix::io::{AsFd, AsRawFd};
+use std::os::unix::io::{AsRawFd, FromRawFd};
 use std::path::Path;
 
 use crate::allocation::AllocationState;
@@ -13,8 +13,16 @@ use crate::{FilesystemCounters, FsStats, SpaceKind};
 
 #[inline]
 pub(crate) fn duplicate(file: &File) -> Result<File> {
-    let owned = file.as_fd().try_clone_to_owned()?;
-    Ok(File::from(owned))
+    let fd = unsafe {
+        // SAFETY: `file` owns a valid descriptor for the duration of this call.
+        libc::dup(file.as_raw_fd())
+    };
+    if fd < 0 {
+        Err(Error::last_os_error())
+    } else {
+        // SAFETY: a successful `dup` returns a new descriptor owned by the caller.
+        Ok(unsafe { File::from_raw_fd(fd) })
+    }
 }
 
 pub(crate) fn lock(file: &File, operation: LockOperation) -> Result<()> {
@@ -196,14 +204,32 @@ pub(crate) fn allocate_space(_file: &File, _len: u64) -> Result<()> {
     ))
 }
 
-pub(crate) fn statvfs(path: &Path) -> Result<FilesystemCounters> {
-    let cstr = CString::new(path.as_os_str().as_bytes())
-        .map_err(|_| Error::new(ErrorKind::InvalidInput, "path contained a null"))?;
+#[derive(Debug)]
+pub(crate) struct StatsQuery {
+    path: CString,
+}
 
+impl StatsQuery {
+    pub(crate) fn new(path: &Path) -> Result<Self> {
+        CString::new(path.as_os_str().as_bytes())
+            .map(|path| Self { path })
+            .map_err(|_| Error::new(ErrorKind::InvalidInput, "path contained a null"))
+    }
+
+    pub(crate) fn counters(&self) -> Result<FilesystemCounters> {
+        statvfs_cstr(&self.path)
+    }
+}
+
+pub(crate) fn statvfs(path: &Path) -> Result<FilesystemCounters> {
+    StatsQuery::new(path)?.counters()
+}
+
+fn statvfs_cstr(path: &CStr) -> Result<FilesystemCounters> {
     // SAFETY: `libc::statvfs` initializes every field of this output structure.
     let mut stat: libc::statvfs = unsafe { mem::zeroed() };
-    // SAFETY: `cstr` is null-terminated and `stat` is valid for the duration of the call.
-    let ret = unsafe { libc::statvfs(cstr.as_ptr() as *const _, &mut stat) };
+    // SAFETY: `path` is null-terminated and `stat` is valid for the duration of the call.
+    let ret = unsafe { libc::statvfs(path.as_ptr() as *const _, &mut stat) };
     if ret != 0 {
         Err(Error::last_os_error())
     } else {
@@ -243,9 +269,9 @@ mod test {
         assert!(file1.as_raw_fd() != file2.as_raw_fd());
     }
 
-    /// The duplicate method should preservesthe close on exec flag.
+    /// The duplicate method preserves file status flags.
     #[test]
-    fn duplicate_cloexec() {
+    fn duplicate_status_flags() {
         fn flags(file: &File) -> libc::c_int {
             unsafe {
                 // SAFETY: `file` owns a valid descriptor for the duration of this call.
@@ -264,6 +290,28 @@ mod test {
         let file2 = file1.duplicate().unwrap();
 
         assert_eq!(flags(&file1), flags(&file2));
+    }
+
+    /// The duplicate method retains upstream `dup` descriptor inheritance.
+    #[test]
+    fn duplicate_is_inheritable() {
+        let tempdir = tempdir().unwrap();
+        let path = tempdir.path().join("fs2");
+        let file = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&path)
+            .unwrap()
+            .duplicate()
+            .unwrap();
+
+        let flags = unsafe {
+            // SAFETY: `file` owns a valid descriptor for the duration of this call.
+            libc::fcntl(file.as_raw_fd(), libc::F_GETFD)
+        };
+        assert_ne!(flags, -1);
+        assert_eq!(flags & libc::FD_CLOEXEC, 0);
     }
 
     /// Tests that locking a file descriptor will replace any existing locks

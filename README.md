@@ -31,6 +31,10 @@ requires Rust stable 1.97.1 or greater.
 - [x] file allocation information.
 - [x] filesystem space usage information.
 
+On Unix, `FileExt::duplicate` retains the original crate's `dup(2)` semantics,
+including an inheritable descriptor. Use `File::try_clone` when the duplicate
+must be close-on-exec.
+
 ## Platforms
 
 `fs2` supports the Unix and Windows targets implemented by the platform
@@ -67,9 +71,10 @@ account for the filesystem backing the temporary directory; `/tmp` is often a
 consistent set of filesystem counters. When several counters are needed, prefer
 one `statvfs` snapshot and read its accessors rather than calling the individual
 convenience functions, which each acquire a new snapshot.
-The `stats_snapshot` benchmark measures that choice without adding another
-public abstraction; the existing `FsStats` type is already the appropriate
-snapshot boundary.
+When an application needs fresh snapshots repeatedly for the same filesystem,
+construct `FsStatsQuery` once and call `snapshot`; it reuses platform path
+preparation without caching counter values. The `stats_snapshot` and
+`prepared_stats` benchmark groups measure both usage patterns.
 
 ## License
 

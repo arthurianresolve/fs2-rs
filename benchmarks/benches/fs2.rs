@@ -3,7 +3,10 @@ use std::hint::black_box;
 use std::path::Path;
 
 use criterion::{Criterion, criterion_group, criterion_main};
-use fs2::{FileExt, allocation_granularity, available_space, free_space, statvfs, total_space};
+use fs2::{
+    FileExt, FsStatsQuery, allocation_granularity, available_space, free_space, statvfs,
+    total_space,
+};
 use tempfile::tempdir;
 
 fn open_file(path: &Path) -> File {
@@ -151,6 +154,55 @@ fn bench_stats_snapshot(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_prepared_stats(c: &mut Criterion) {
+    let tempdir = tempdir().unwrap();
+    let path = tempdir.path();
+    let query = FsStatsQuery::new(path).unwrap();
+    let mut group = c.benchmark_group("prepared_stats");
+
+    group.bench_function("one_prepared_snapshot", |b| {
+        b.iter(|| black_box(query.snapshot().unwrap()));
+    });
+    group.bench_function("four_top_level_snapshots", |b| {
+        b.iter(|| {
+            black_box((
+                statvfs(path).unwrap(),
+                statvfs(path).unwrap(),
+                statvfs(path).unwrap(),
+                statvfs(path).unwrap(),
+            ))
+        });
+    });
+    group.bench_function("construct_and_four_prepared_snapshots", |b| {
+        b.iter(|| {
+            let query = FsStatsQuery::new(path).unwrap();
+            black_box((
+                query.snapshot().unwrap(),
+                query.snapshot().unwrap(),
+                query.snapshot().unwrap(),
+                query.snapshot().unwrap(),
+            ))
+        });
+    });
+    group.finish();
+}
+
+fn bench_windows_file_space_fallback(c: &mut Criterion) {
+    #[cfg(windows)]
+    {
+        let tempdir = tempdir().unwrap();
+        let path = tempdir.path().join("file");
+        open_file(&path);
+
+        c.bench_function("free_space_file_fallback", |b| {
+            b.iter(|| black_box(free_space(&path).unwrap()));
+        });
+    }
+
+    #[cfg(not(windows))]
+    let _ = c;
+}
+
 criterion_group!(
     benches,
     bench_file_create,
@@ -164,5 +216,7 @@ criterion_group!(
     bench_available_space,
     bench_total_space,
     bench_stats_snapshot,
+    bench_prepared_stats,
+    bench_windows_file_space_fallback,
 );
 criterion_main!(benches);

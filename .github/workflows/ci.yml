@@ -34,7 +34,7 @@ jobs:
           targets: ${{ matrix.target }}
       - run: cargo fmt --all -- --check
       - run: cargo clippy --package fs2 --all-targets --target ${{ matrix.target }} --locked -- -D warnings
-      - run: cargo test --package fs2 --lib --target ${{ matrix.target }} --locked
+      - run: cargo test --package fs2 --target ${{ matrix.target }} --locked
       - run: cargo bench --manifest-path benchmarks/Cargo.toml --bench fs2 --no-run --locked --target ${{ matrix.target }}
 
   cross_check:

@@ -22,11 +22,12 @@ cross-platform interface; adapter tests retain OS-specific semantics.
 
 Filesystem statistics report free, available, and total space plus allocation
 granularity. The stats module owns the named `FilesystemCounters` seam, checked
-counter conversion, invariants, and the snapshot-first `FsStats` interface;
-Unix and Windows adapters acquire the raw counters. Convenience queries remain
-compatibility projections and each acquire a new snapshot. The Windows adapter
-uses a one-query full snapshot when the operating system supports it, retains
-the legacy fallback, and uses the narrowest correct query for scalar projections.
+counter conversion, invariants, the snapshot-first `FsStats` interface, and the
+prepared `FsStatsQuery` interface for repeated fresh snapshots; Unix and Windows
+adapters acquire the raw counters. Convenience queries remain compatibility
+projections and each acquire a new snapshot. The Windows adapter uses a
+one-query full snapshot when the operating system supports it, retains the
+legacy fallback, and uses the narrowest correct query for scalar projections.
 On Windows, modern snapshots report physical total space while the legacy
 fallback may report a quota-limited total for the calling user; scalar queries
 use the same provider selected by the snapshot path.

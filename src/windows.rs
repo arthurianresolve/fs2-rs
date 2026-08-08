@@ -31,6 +31,24 @@ type GetDiskSpaceInformation = unsafe extern "system" fn(
 
 static GET_DISK_SPACE_INFORMATION: OnceLock<Option<GetDiskSpaceInformation>> = OnceLock::new();
 
+#[derive(Debug)]
+pub(crate) struct StatsQuery {
+    root_path: [u16; VOLUME_PATH_CAPACITY],
+}
+
+impl StatsQuery {
+    pub(crate) fn new(path: &Path) -> Result<Self> {
+        let path = wide_path(path);
+        let mut root_path = [0; VOLUME_PATH_CAPACITY];
+        volume_path(&path, &mut root_path)?;
+        Ok(Self { root_path })
+    }
+
+    pub(crate) fn counters(&self) -> Result<FilesystemCounters> {
+        statvfs_root(&self.root_path)
+    }
+}
+
 #[inline]
 pub(crate) fn duplicate(file: &File) -> Result<File> {
     let owned = file.as_handle().try_clone_to_owned()?;
@@ -134,12 +152,15 @@ fn lock_file(file: &File, flags: u32) -> Result<()> {
     }
 }
 
-fn volume_path(path: &Path, volume_path: &mut [u16]) -> Result<()> {
-    let path_utf16: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+fn wide_path(path: &Path) -> Vec<u16> {
+    path.as_os_str().encode_wide().chain(Some(0)).collect()
+}
+
+fn volume_path(path: &[u16], volume_path: &mut [u16]) -> Result<()> {
     let ret = unsafe {
-        // SAFETY: `path_utf16` is null-terminated and `volume_path` is valid output storage.
+        // SAFETY: `path` is null-terminated and `volume_path` is valid output storage.
         GetVolumePathNameW(
-            path_utf16.as_ptr(),
+            path.as_ptr(),
             volume_path.as_mut_ptr(),
             volume_path.len() as u32,
         )
@@ -152,14 +173,15 @@ fn volume_path(path: &Path, volume_path: &mut [u16]) -> Result<()> {
 }
 
 pub(crate) fn statvfs(path: &Path) -> Result<FilesystemCounters> {
-    let mut root_path = [0u16; VOLUME_PATH_CAPACITY];
-    volume_path(path, &mut root_path)?;
+    StatsQuery::new(path)?.counters()
+}
 
-    if let Some(counters) = modern_statvfs(&root_path)? {
+fn statvfs_root(root_path: &[u16]) -> Result<FilesystemCounters> {
+    if let Some(counters) = modern_statvfs(root_path)? {
         return Ok(counters);
     }
 
-    legacy_statvfs(&root_path)
+    legacy_statvfs(root_path)
 }
 
 fn modern_statvfs(root_path: &[u16]) -> Result<Option<FilesystemCounters>> {
@@ -245,14 +267,52 @@ fn legacy_statvfs(root_path: &[u16]) -> Result<FilesystemCounters> {
 }
 
 pub(crate) fn space(path: &Path, kind: SpaceKind) -> Result<u64> {
+    let path_utf16 = wide_path(path);
+    if path.is_absolute()
+        && let DirectSpace::Hit(value) = direct_space(&path_utf16, kind)
+    {
+        return Ok(value);
+    }
+
     let mut root_path = [0u16; VOLUME_PATH_CAPACITY];
-    volume_path(path, &mut root_path)?;
+    volume_path(&path_utf16, &mut root_path)?;
 
     if let Some(counters) = modern_statvfs(&root_path)? {
         return counter_value(counters, kind);
     }
 
     legacy_space(&root_path, kind)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DirectSpace {
+    Hit(u64),
+    Fallback,
+}
+
+fn direct_space(path: &[u16], kind: SpaceKind) -> DirectSpace {
+    let mut value: u64 = 0;
+    let value_ptr = std::ptr::from_mut(&mut value);
+    let (caller_available, actual_free) = match kind {
+        SpaceKind::Free => (std::ptr::null_mut(), value_ptr),
+        SpaceKind::Available => (value_ptr, std::ptr::null_mut()),
+        SpaceKind::Total | SpaceKind::AllocationGranularity => return DirectSpace::Fallback,
+    };
+    let ret = unsafe {
+        // SAFETY: `path` is null-terminated; output pointers are either null or point to
+        // `value`, and null is documented for unrequested outputs.
+        GetDiskFreeSpaceExW(
+            path.as_ptr(),
+            caller_available,
+            std::ptr::null_mut(),
+            actual_free,
+        )
+    };
+    if ret == 0 {
+        DirectSpace::Fallback
+    } else {
+        DirectSpace::Hit(value)
+    }
 }
 
 fn counter_value(counters: FilesystemCounters, kind: SpaceKind) -> Result<u64> {
@@ -348,8 +408,9 @@ mod test {
     use windows_sys::Win32::Storage::FileSystem::DISK_SPACE_INFORMATION;
 
     use super::{
-        E_NOTIMPL, VOLUME_PATH_CAPACITY, counter_value, counters_from_disk_space_information,
-        legacy_statvfs, modern_statvfs, modern_statvfs_with, space, volume_path,
+        DirectSpace, E_NOTIMPL, VOLUME_PATH_CAPACITY, counter_value,
+        counters_from_disk_space_information, direct_space, legacy_statvfs, modern_statvfs,
+        modern_statvfs_with, space, volume_path, wide_path,
     };
     use crate::stats::WindowsCounterSource;
     use crate::{FileExt, FilesystemCounters, SpaceKind, lock_contended_error};
@@ -426,7 +487,7 @@ mod test {
     fn modern_and_legacy_stats_have_valid_domains() {
         let tempdir = tempdir().unwrap();
         let mut root_path = [0u16; VOLUME_PATH_CAPACITY];
-        volume_path(tempdir.path(), &mut root_path).unwrap();
+        volume_path(&wide_path(tempdir.path()), &mut root_path).unwrap();
 
         let legacy = legacy_statvfs(&root_path).unwrap();
         assert!(legacy.allocation_granularity > 0);
@@ -452,6 +513,36 @@ mod test {
                 );
             }
         }
+    }
+
+    #[test]
+    fn direct_directory_space_uses_narrow_queries() {
+        let tempdir = tempdir().unwrap();
+        let path = wide_path(tempdir.path());
+
+        let DirectSpace::Hit(free) = direct_space(&path, SpaceKind::Free) else {
+            panic!("direct free-space query unexpectedly required fallback");
+        };
+        let DirectSpace::Hit(available) = direct_space(&path, SpaceKind::Available) else {
+            panic!("direct available-space query unexpectedly required fallback");
+        };
+
+        assert!(free > 0);
+        assert!(available <= free);
+        assert_eq!(direct_space(&path, SpaceKind::Total), DirectSpace::Fallback);
+    }
+
+    #[test]
+    fn direct_file_space_falls_back_to_canonical_provider() {
+        let tempdir = tempdir().unwrap();
+        let path = tempdir.path().join("fs2");
+        fs::write(&path, []).unwrap();
+
+        assert_eq!(
+            direct_space(&wide_path(&path), SpaceKind::Free),
+            DirectSpace::Fallback
+        );
+        assert!(space(&path, SpaceKind::Free).is_ok());
     }
 
     #[test]
