@@ -20,7 +20,7 @@ use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress
 
 use crate::allocation::AllocationState;
 use crate::lock::{LockMode, LockOperation};
-use crate::stats::validate_granularity;
+use crate::stats::{FsStats, validate_granularity};
 use crate::{FilesystemCounters, SpaceKind};
 
 const VOLUME_PATH_CAPACITY: usize = 261;
@@ -231,7 +231,7 @@ fn modern_statvfs_with(
         if modern_statvfs_unavailable(result) {
             return Ok(None);
         }
-        return Err(Error::last_os_error());
+        return Err(Error::from_raw_os_error(result));
     }
 
     counters_from_disk_space_information(info).map(Some)
@@ -303,7 +303,7 @@ pub(crate) fn space(path: &Path, kind: SpaceKind) -> Result<u64> {
 
 fn root_space(root_path: &[u16], kind: SpaceKind) -> Result<u64> {
     if let Some(counters) = modern_statvfs(root_path)? {
-        return counters.project(kind);
+        return FsStats::from_counters(counters).map(|stats| stats.value(kind));
     }
 
     legacy_space(root_path, kind)
@@ -316,27 +316,28 @@ enum DirectSpace {
 }
 
 fn direct_space(path: &[u16], kind: SpaceKind) -> DirectSpace {
-    let mut value: u64 = 0;
-    let value_ptr = std::ptr::from_mut(&mut value);
-    let (caller_available, actual_free) = match kind {
-        SpaceKind::Free => (std::ptr::null_mut(), value_ptr),
-        SpaceKind::Available => (value_ptr, std::ptr::null_mut()),
-        SpaceKind::Total | SpaceKind::AllocationGranularity => return DirectSpace::Fallback,
-    };
+    if matches!(kind, SpaceKind::Total | SpaceKind::AllocationGranularity) {
+        return DirectSpace::Fallback;
+    }
+    let mut caller_available = 0;
+    let mut actual_free = 0;
     let ret = unsafe {
-        // SAFETY: `path` is null-terminated; output pointers are either null or point to
-        // `value`, and null is documented for unrequested outputs.
+        // SAFETY: `path` is null-terminated and both output pointers are valid.
         GetDiskFreeSpaceExW(
             path.as_ptr(),
-            caller_available,
+            &mut caller_available,
             std::ptr::null_mut(),
-            actual_free,
+            &mut actual_free,
         )
     };
-    if ret == 0 {
+    if ret == 0 || caller_available > actual_free {
         DirectSpace::Fallback
     } else {
-        DirectSpace::Hit(value)
+        match kind {
+            SpaceKind::Free => DirectSpace::Hit(actual_free),
+            SpaceKind::Available => DirectSpace::Hit(caller_available),
+            SpaceKind::Total | SpaceKind::AllocationGranularity => DirectSpace::Fallback,
+        }
     }
 }
 
@@ -453,10 +454,13 @@ mod test {
     }
 
     #[test]
-    fn projects_modern_scalar_without_full_snapshot_validation() {
+    fn rejects_invalid_modern_scalar_snapshot() {
         let counters = FilesystemCounters::windows_modern_bytes(4096, 100, 101, 100);
 
-        assert_eq!(counters.project(SpaceKind::Free).unwrap(), 100);
+        assert_eq!(
+            crate::FsStats::from_counters(counters).unwrap_err().kind(),
+            ErrorKind::InvalidData
+        );
     }
 
     #[test]
@@ -655,7 +659,12 @@ mod test {
                 .unwrap()
                 .is_none()
         );
-        assert!(modern_statvfs_with(&root_path, Some(failed_api)).is_err());
+        assert_eq!(
+            modern_statvfs_with(&root_path, Some(failed_api))
+                .unwrap_err()
+                .raw_os_error(),
+            Some(-1)
+        );
     }
 
     /// The duplicate method returns a file with a new file handle.

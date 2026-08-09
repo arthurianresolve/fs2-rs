@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run byte-identical Criterion workloads against two fs2 checkouts."""
+"""Run byte-identical Criterion workloads against two filesystem crates."""
 
 from __future__ import annotations
 
@@ -19,20 +19,38 @@ ROOT = Path(__file__).resolve().parents[1]
 BENCHMARKS = ROOT / "benchmarks"
 LOCKFILE = ROOT / "Cargo.lock"
 CARGO = os.environ.get("CARGO", "cargo")
+BENCHMARKS_BY_NAME = {
+    "fs2": BENCHMARKS / "benches" / "fs2.rs",
+    "fs2_legacy": BENCHMARKS / "benches" / "fs2_legacy.rs",
+    "fs_compat": BENCHMARKS / "benches" / "fs_compat.rs",
+}
+SUBJECT_PACKAGES = ("fs2", "fs4")
 
 
 def fail(message: str) -> None:
     raise SystemExit(f"performance comparison failed: {message}")
 
 
+def benchmark_workload(name: str) -> Path:
+    try:
+        return BENCHMARKS_BY_NAME[name]
+    except KeyError:
+        fail(f"unknown benchmark: {name}")
+
+
 def checked_repository(path: Path, label: str) -> Path:
     path = path.resolve()
     if not (path / "Cargo.toml").is_file():
-        fail(f"{label} is not an fs2 checkout: {path}")
+        fail(f"{label} is not a crate checkout: {path}")
     return path
 
 
-def prepare_subject(root: Path, name: str, repository: Path) -> tuple[Path, Path]:
+def prepare_subject(
+    root: Path,
+    name: str,
+    repository: Path,
+    package_name: str = "fs2",
+) -> tuple[Path, Path]:
     package = root / name
     shutil.copytree(
         BENCHMARKS,
@@ -46,13 +64,30 @@ def prepare_subject(root: Path, name: str, repository: Path) -> tuple[Path, Path
     dependency = 'fs2 = { path = ".." }'
     if text.count(dependency) != 1:
         fail("benchmark manifest no longer has the expected fs2 path dependency")
-    replacement = f"fs2 = {{ path = {json.dumps(repository.as_posix())} }}"
+    repository_path = json.dumps(repository.as_posix())
+    if package_name == "fs2":
+        replacement = f"fs2 = {{ path = {repository_path} }}"
+    elif package_name == "fs4":
+        replacement = (
+            'fs2 = { package = "fs4", '
+            f"path = {repository_path}, default-features = false, features = [\"sync\"] }}"
+        )
+    else:
+        fail(f"unsupported subject package: {package_name}")
     manifest.write_text(
         text.replace(dependency, replacement) + "\n[workspace]\n",
         encoding="utf-8",
         newline="\n",
     )
     return manifest, package / "target"
+
+
+def subject_arguments(benchmark: str, package_name: str) -> list[str]:
+    if benchmark == "fs_compat":
+        return ["--no-default-features", "--features", f"subject-{package_name}"]
+    if package_name != "fs2":
+        fail(f"benchmark {benchmark} does not support package {package_name}")
+    return []
 
 
 def cargo(arguments: list[str], *, capture: bool = False) -> str:
@@ -91,14 +126,16 @@ def collect_estimates(criterion_root: Path) -> dict[str, float]:
 def run_benchmarks(
     manifest: Path,
     target: Path,
+    benchmark: str,
+    cargo_features: list[str],
     benchmark_filter: str | None,
     sample_size: int,
     warm_up_time: float,
     measurement_time: float,
 ) -> dict[str, float]:
-    criterion_root = target / "criterion"
+    criterion_root = manifest.parent / "target" / "criterion"
     if criterion_root.exists():
-        criterion_root.resolve().relative_to(target.resolve())
+        criterion_root.resolve().relative_to(manifest.parent.resolve())
         shutil.rmtree(criterion_root)
 
     arguments = [
@@ -106,10 +143,11 @@ def run_benchmarks(
         "--manifest-path",
         str(manifest),
         "--bench",
-        "fs2",
+        benchmark,
         "--locked",
         "--target-dir",
         str(target),
+        *cargo_features,
         "--",
     ]
     if benchmark_filter:
@@ -145,17 +183,23 @@ def compare(args: argparse.Namespace) -> None:
     if baseline == candidate:
         fail("baseline and candidate must be different checkouts")
 
-    workload = BENCHMARKS / "benches" / "fs2.rs"
+    workload = benchmark_workload(args.bench)
+    baseline_arguments = subject_arguments(args.bench, args.baseline_package)
+    candidate_arguments = subject_arguments(args.bench, args.candidate_package)
     digest = hashlib.sha256(workload.read_bytes()).hexdigest()
     print(f"benchmark workload sha256={digest}")
+    print(
+        f"subjects: baseline={args.baseline_package} "
+        f"candidate={args.candidate_package}"
+    )
 
     with tempfile.TemporaryDirectory(prefix="fs2-performance-") as temporary:
         temporary_root = Path(temporary)
         baseline_manifest, baseline_target = prepare_subject(
-            temporary_root, "baseline", baseline
+            temporary_root, "baseline", baseline, args.baseline_package
         )
         candidate_manifest, candidate_target = prepare_subject(
-            temporary_root, "candidate", candidate
+            temporary_root, "candidate", candidate, args.candidate_package
         )
 
         for manifest in (baseline_manifest, candidate_manifest):
@@ -169,13 +213,20 @@ def compare(args: argparse.Namespace) -> None:
             )
         baseline_lock = (baseline_manifest.parent / "Cargo.lock").read_bytes()
         candidate_lock = (candidate_manifest.parent / "Cargo.lock").read_bytes()
-        if baseline_lock != candidate_lock:
+        if baseline_lock != candidate_lock and not args.allow_different_locks:
             fail("baseline and candidate resolved different dependency lockfiles")
-        print(f"dependency lock sha256={hashlib.sha256(baseline_lock).hexdigest()}")
+        if baseline_lock == candidate_lock:
+            print(f"dependency lock sha256={hashlib.sha256(baseline_lock).hexdigest()}")
+        else:
+            print(
+                "dependency lock differs (explicitly allowed): "
+                f"baseline={hashlib.sha256(baseline_lock).hexdigest()} "
+                f"candidate={hashlib.sha256(candidate_lock).hexdigest()}"
+            )
 
-        for manifest, target in (
-            (baseline_manifest, baseline_target),
-            (candidate_manifest, candidate_target),
+        for manifest, target, cargo_features in (
+            (baseline_manifest, baseline_target, baseline_arguments),
+            (candidate_manifest, candidate_target, candidate_arguments),
         ):
             cargo(
                 [
@@ -183,11 +234,12 @@ def compare(args: argparse.Namespace) -> None:
                     "--manifest-path",
                     str(manifest),
                     "--bench",
-                    "fs2",
+                    args.bench,
                     "--no-run",
                     "--locked",
                     "--target-dir",
                     str(target),
+                    *cargo_features,
                 ]
             )
 
@@ -198,12 +250,22 @@ def compare(args: argparse.Namespace) -> None:
             results: dict[str, dict[str, float]] = {}
             for subject in order:
                 if subject == "baseline":
-                    manifest, target = baseline_manifest, baseline_target
+                    manifest, target, cargo_features = (
+                        baseline_manifest,
+                        baseline_target,
+                        baseline_arguments,
+                    )
                 else:
-                    manifest, target = candidate_manifest, candidate_target
+                    manifest, target, cargo_features = (
+                        candidate_manifest,
+                        candidate_target,
+                        candidate_arguments,
+                    )
                 results[subject] = run_benchmarks(
                     manifest,
                     target,
+                    args.bench,
+                    cargo_features,
                     args.filter,
                     args.sample_size,
                     args.warm_up_time,
@@ -231,6 +293,27 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--baseline", type=Path, required=True)
     parser.add_argument("--candidate", type=Path, required=True)
+    parser.add_argument(
+        "--baseline-package",
+        choices=SUBJECT_PACKAGES,
+        default="fs2",
+    )
+    parser.add_argument(
+        "--candidate-package",
+        choices=SUBJECT_PACKAGES,
+        default="fs2",
+    )
+    parser.add_argument(
+        "--bench",
+        choices=tuple(BENCHMARKS_BY_NAME),
+        default="fs2_legacy",
+        help="benchmark workload; fs_compat also supports fs4 subjects",
+    )
+    parser.add_argument(
+        "--allow-different-locks",
+        action="store_true",
+        help="allow subject dependency locks to differ for cross-version comparisons",
+    )
     parser.add_argument("--filter")
     parser.add_argument("--pairs", type=int, default=20)
     parser.add_argument("--sample-size", type=int, default=10)

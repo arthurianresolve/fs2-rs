@@ -130,7 +130,6 @@ impl FsStats {
         self.allocation_granularity
     }
 
-    #[cfg(unix)]
     pub(crate) fn value(&self, kind: SpaceKind) -> u64 {
         match kind {
             SpaceKind::Free => self.free_space,
@@ -275,17 +274,6 @@ impl FilesystemCounters {
             available_space: caller_available_space,
             total_space: caller_total_space,
             source: WindowsCounterSource::Legacy,
-        }
-    }
-
-    #[cfg(windows)]
-    #[inline(always)]
-    pub(crate) fn project(self, kind: SpaceKind) -> Result<u64> {
-        match kind {
-            SpaceKind::Free => Ok(self.free_space),
-            SpaceKind::Available => Ok(self.available_space),
-            SpaceKind::Total => Ok(self.total_space),
-            SpaceKind::AllocationGranularity => validate_granularity(self.allocation_granularity),
         }
     }
 }

@@ -84,12 +84,19 @@ consumer against both fs2 0.4.3 and the current checkout across Rust editions
 `python scripts/validate_compatibility.py`. Performance comparisons use the
 same benchmark source for both subjects through
 `python scripts/compare_performance.py --baseline <path> --candidate <path>`.
-The performance command defaults to twenty alternating pairs and exits
-unsuccessfully unless every selected workload proves non-regression; use a
-benchmark-name filter to keep targeted comparisons practical. For private
-refactors, every comparison still requires paired timing; object-file equality
-is not used as a substitute because public generic code is generated in the
-consumer crate.
+The default `fs2_legacy` workload uses only the v0.4-compatible API surface.
+Use `--bench fs2` for v0.5-only APIs. The `fs_compat` workload covers the API
+intersection with fs4; select it with `--bench fs_compat` and identify an fs4
+subject with `--baseline-package fs4` or `--candidate-package fs4`. It excludes
+file duplication because fs4 does not expose an equivalent operation. Same-lock
+comparisons are required by default; use `--allow-different-locks` explicitly
+when comparing releases with different dependency graphs, such as upstream
+v0.4.3, v0.5, and fs4. The performance command defaults to twenty alternating
+pairs and exits unsuccessfully unless every selected workload proves
+non-regression; use a benchmark-name filter to keep targeted comparisons
+practical. For private refactors, every comparison still requires paired
+timing; object-file equality is not used as a substitute because public generic
+code is generated in the consumer crate.
 
 ## License
 
