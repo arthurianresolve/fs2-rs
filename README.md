@@ -53,16 +53,16 @@ Windows targets are not currently covered by the native test matrix. The
 nightly `build-std`; runtime tests require a target-specific emulator and
 uClibc sysroot.
 
-The target evidence and allocation capability claims are recorded in
-[`support-matrix.json`](support-matrix.json). CI validates the matrix and
-generates its native and cross-target job matrices from the registry, then runs
-native runtime tests and compile-checks the listed cross targets. Compile-only
-evidence does not imply runtime support.
+The target evidence and allocation capability claims are recorded in the
+repository's [`support-matrix.json`](https://github.com/arthurianresolve/fs2-rs/blob/v0.5/support-matrix.json).
+CI validates the matrix and generates its native and cross-target job matrices
+from the registry, then runs native runtime tests and compile-checks the listed
+cross targets. Compile-only evidence does not imply runtime support.
 
 ## Benchmarking
 
 Stable Criterion benchmarks are provided for the public APIs in the separate
-`fs2-benchmarks` workspace member. Run them with
+`fs2-benchmarks` workspace member. From a repository checkout, run them with
 `cargo bench --manifest-path benchmarks/Cargo.toml`. When benchmarking files,
 account for the filesystem backing the temporary directory; `/tmp` is often a
 `tmpfs` mount.

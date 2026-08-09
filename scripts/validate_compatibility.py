@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -13,9 +15,14 @@ ROOT = Path(__file__).resolve().parents[1]
 COMPATIBILITY = ROOT / "compatibility"
 CONSUMER = COMPATIBILITY / "v04_consumer.rs"
 EXPECTED_CONSUMER_SHA256 = "c7d199ef39998e884f4dcdacaf9a5546d8dba926376eb0fae8bff75c9a1fb1e9"
-EDITIONS = ("2015", "2018", "2021", "2024")
 SUBJECTS = ("legacy", "current")
 CARGO = os.environ.get("CARGO", "cargo")
+
+
+@dataclass(frozen=True, slots=True)
+class CompatibilityPackage:
+    name: str
+    edition: str
 
 
 def run(*arguments: str) -> None:
@@ -40,25 +47,80 @@ def validate_frozen_consumer(path: Path = CONSUMER) -> str:
     return digest
 
 
+def compatibility_packages() -> tuple[CompatibilityPackage, ...]:
+    result = subprocess.run(
+        [
+            CARGO,
+            "metadata",
+            "--manifest-path",
+            str(COMPATIBILITY / "Cargo.toml"),
+            "--no-deps",
+            "--format-version",
+            "1",
+            "--locked",
+        ],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip()
+        raise SystemExit(f"cargo metadata failed for compatibility workspace: {detail}")
+
+    try:
+        packages = json.loads(result.stdout)["packages"]
+    except (KeyError, TypeError, json.JSONDecodeError):
+        raise SystemExit("cargo metadata did not describe compatibility packages")
+
+    if not isinstance(packages, list):
+        raise SystemExit("cargo metadata did not describe compatibility packages")
+
+    discovered_list: list[CompatibilityPackage] = []
+    for package in packages:
+        if not isinstance(package, dict):
+            raise SystemExit("cargo metadata contained an invalid package entry")
+        name = package.get("name")
+        if not isinstance(name, str) or not name.startswith("fs2-compat-edition-"):
+            continue
+        edition = package.get("edition")
+        if not isinstance(edition, str) or not edition:
+            raise SystemExit(f"compatibility package {name} is missing an edition")
+        discovered_list.append(CompatibilityPackage(name, edition))
+
+    discovered = tuple(discovered_list)
+    if not discovered:
+        raise SystemExit("compatibility workspace has no edition packages")
+    editions = [package.edition for package in discovered]
+    if len(editions) != len(set(editions)):
+        raise SystemExit("compatibility workspace has duplicate Rust editions")
+
+    return tuple(sorted(discovered, key=lambda package: package.edition))
+
+
 def main() -> None:
     digest = validate_frozen_consumer()
     print(f"v0.4 consumer sha256={digest}")
 
     run("fmt", "--manifest-path", str(COMPATIBILITY / "Cargo.toml"), "--all", "--", "--check")
-    for edition in EDITIONS:
-        package = f"fs2-compat-edition-{edition}"
+    packages = compatibility_packages()
+    for package in packages:
         for subject in SUBJECTS:
             run(
                 "check",
                 "--manifest-path",
                 str(COMPATIBILITY / "Cargo.toml"),
                 "--package",
-                package,
+                package.name,
                 "--no-default-features",
                 "--features",
                 subject,
                 "--locked",
             )
+
+    runtime_packages = [package for package in packages if package.edition == "2015"]
+    if len(runtime_packages) != 1:
+        raise SystemExit("compatibility workspace must define exactly one Rust 2015 package")
 
     for subject in SUBJECTS:
         run(
@@ -66,7 +128,7 @@ def main() -> None:
             "--manifest-path",
             str(COMPATIBILITY / "Cargo.toml"),
             "--package",
-            "fs2-compat-edition-2015",
+            runtime_packages[0].name,
             "--no-default-features",
             "--features",
             subject,

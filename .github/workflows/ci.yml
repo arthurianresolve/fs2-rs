@@ -9,6 +9,7 @@ jobs:
     name: Validate support matrix
     outputs:
       matrices: ${{ steps.matrix.outputs.matrices }}
+      rust_version: ${{ steps.matrix.outputs.rust_version }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -35,7 +36,7 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo clippy --package fs2 --all-targets --target ${{ matrix.target }} --locked -- -D warnings
       - run: cargo test --package fs2 --target ${{ matrix.target }} --locked
-      - if: matrix.toolchain == '1.97.1'
+      - if: matrix.toolchain == needs.support-matrix.outputs.rust_version
         run: python scripts/validate_compatibility.py
       - run: cargo bench --manifest-path benchmarks/Cargo.toml --bench fs2 --no-run --locked --target ${{ matrix.target }}
 

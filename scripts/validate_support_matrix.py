@@ -85,8 +85,8 @@ def matrix_reference(value: object) -> str | None:
 def parse_registry(data: object) -> SupportRegistry:
     if not isinstance(data, dict):
         fail("matrix must be a JSON object")
-    if data.get("version") != 4:
-        fail("version must be 4")
+    if data.get("version") != 5:
+        fail("version must be 5")
     evidence_levels = data.get("evidence_levels")
     if not isinstance(evidence_levels, list) or not all(
         isinstance(level, str) for level in evidence_levels
@@ -101,11 +101,14 @@ def parse_registry(data: object) -> SupportRegistry:
     seen_targets: set[str] = set()
     jobs: set[str] = set()
     for entry in targets:
-        required = {"target", "platform", "evidence", "allocation", "ci_job", "ci"}
         if not isinstance(entry, dict):
             fail(f"target entry must be an object: {entry!r}")
+        required = {"target", "platform", "evidence", "allocation", "ci"}
         if not required <= entry.keys():
             fail(f"target entry is missing fields: {sorted(required - entry.keys())}")
+        unexpected = set(entry) - required
+        if unexpected:
+            fail(f"target entry has unknown fields: {sorted(unexpected)}")
 
         target = entry["target"]
         if not isinstance(target, str) or not target or target in seen_targets:
@@ -125,19 +128,25 @@ def parse_registry(data: object) -> SupportRegistry:
         if evidence != "not-covered" and allocation == "unknown":
             fail(f"covered target {target} must declare an allocation capability")
 
-        job = entry["ci_job"]
         ci = entry["ci"]
-        if job is None:
+        if evidence == "not-covered":
             if ci is not None:
                 fail(f"not-covered target {target} must not have CI metadata")
             parsed_targets.append(
                 TargetSpec(target, platform, evidence, allocation, None)
             )
             continue
-        if not is_ci_job_name(job):
-            fail(f"invalid CI job name for {target}: {job!r}")
         if not isinstance(ci, dict):
             fail(f"CI metadata for {target} must be an object")
+        ci_required = {"job", "runner", "toolchains"}
+        if not ci_required <= ci.keys():
+            fail(f"CI metadata for {target} is missing fields: {sorted(ci_required - ci.keys())}")
+        ci_unexpected = set(ci) - ci_required
+        if ci_unexpected:
+            fail(f"CI metadata for {target} has unknown fields: {sorted(ci_unexpected)}")
+        job = ci.get("job")
+        if not is_ci_job_name(job):
+            fail(f"invalid CI job name for {target}: {job!r}")
 
         runner = ci.get("runner")
         toolchains = ci.get("toolchains")
@@ -157,12 +166,16 @@ def parse_registry(data: object) -> SupportRegistry:
     if not jobs:
         fail("at least one CI job is required")
 
-    return SupportRegistry(4, frozenset(evidence_levels), tuple(parsed_targets))
+    return SupportRegistry(5, frozenset(evidence_levels), tuple(parsed_targets))
 
 
-def load_matrix(matrix_path: Path = MATRIX_PATH) -> SupportRegistry:
+def load_matrix(
+    matrix_path: Path = MATRIX_PATH, *, rust_version: str | None = None
+) -> SupportRegistry:
     registry = parse_registry(json.loads(matrix_path.read_text(encoding="utf-8")))
-    validate_toolchain_policy(registry, package_rust_version())
+    validate_toolchain_policy(
+        registry, rust_version if rust_version is not None else package_rust_version()
+    )
     validate_workflow(registry, load_workflow())
     return registry
 
@@ -259,10 +272,11 @@ def matrices(registry: SupportRegistry) -> dict[str, dict[str, list[dict[str, st
     return generated
 
 
-def write_github_output(path: Path, generated: dict) -> None:
+def write_github_output(path: Path, generated: dict, rust_version: str) -> None:
     with path.open("a", encoding="utf-8", newline="\n") as output:
         value = json.dumps(generated, separators=(",", ":"))
         output.write(f"matrices={value}\n")
+        output.write(f"rust_version={rust_version}\n")
 
 
 def main() -> None:
@@ -270,9 +284,10 @@ def main() -> None:
     parser.add_argument("--github-output", type=Path)
     args = parser.parse_args()
 
-    generated = matrices(load_matrix())
+    rust_version = package_rust_version()
+    generated = matrices(load_matrix(rust_version=rust_version))
     if args.github_output:
-        write_github_output(args.github_output, generated)
+        write_github_output(args.github_output, generated, rust_version)
     else:
         print(json.dumps(generated, indent=2))
 

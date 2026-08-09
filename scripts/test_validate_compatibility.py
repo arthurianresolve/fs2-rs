@@ -5,6 +5,7 @@ from pathlib import Path
 from validate_compatibility import (
     CONSUMER,
     EXPECTED_CONSUMER_SHA256,
+    compatibility_packages,
     consumer_digest,
     validate_frozen_consumer,
 )
@@ -22,6 +23,19 @@ class CompatibilityValidationTests(unittest.TestCase):
 
             with self.assertRaises(SystemExit):
                 validate_frozen_consumer(path)
+
+    def test_discovers_compatibility_packages_from_workspace_metadata(self):
+        packages = compatibility_packages()
+
+        self.assertEqual(
+            [(package.name, package.edition) for package in packages],
+            [
+                ("fs2-compat-edition-2015", "2015"),
+                ("fs2-compat-edition-2018", "2018"),
+                ("fs2-compat-edition-2021", "2021"),
+                ("fs2-compat-edition-2024", "2024"),
+            ],
+        )
 
 
 if __name__ == "__main__":

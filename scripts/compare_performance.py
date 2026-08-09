@@ -34,7 +34,11 @@ def checked_repository(path: Path, label: str) -> Path:
 
 def prepare_subject(root: Path, name: str, repository: Path) -> tuple[Path, Path]:
     package = root / name
-    shutil.copytree(BENCHMARKS, package)
+    shutil.copytree(
+        BENCHMARKS,
+        package,
+        ignore=shutil.ignore_patterns("target", "__pycache__", "*.pyc"),
+    )
     shutil.copy2(LOCKFILE, package / "Cargo.lock")
 
     manifest = package / "Cargo.toml"

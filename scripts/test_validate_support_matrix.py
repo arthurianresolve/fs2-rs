@@ -1,6 +1,8 @@
 import copy
 import json
+import tempfile
 import unittest
+from pathlib import Path
 
 from validate_support_matrix import (
     MATRIX_PATH,
@@ -11,6 +13,7 @@ from validate_support_matrix import (
     package_rust_version,
     validate_toolchain_policy,
     validate_workflow,
+    write_github_output,
 )
 
 
@@ -69,6 +72,13 @@ class SupportMatrixTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             parse_registry(invalid)
 
+    def test_rejects_duplicated_ci_job_field(self):
+        invalid = copy.deepcopy(self.raw)
+        invalid["targets"][0]["ci_job"] = "check"
+
+        with self.assertRaises(SystemExit):
+            parse_registry(invalid)
+
     def test_rejects_unknown_allocation_capability(self):
         invalid = copy.deepcopy(self.raw)
         invalid["targets"][0]["allocation"] = "not-a-real-capability"
@@ -108,6 +118,25 @@ class SupportMatrixTests(unittest.TestCase):
 
     def test_registry_toolchains_match_package_rust_version(self):
         validate_toolchain_policy(self.data, package_rust_version())
+
+    def test_compatibility_gate_uses_generated_rust_version(self):
+        compatibility_step = next(
+            step
+            for step in load_workflow()["jobs"]["check"]["steps"]
+            if step.get("run") == "python scripts/validate_compatibility.py"
+        )
+        self.assertEqual(
+            compatibility_step["if"],
+            "matrix.toolchain == needs.support-matrix.outputs.rust_version",
+        )
+
+    def test_github_output_includes_canonical_rust_version(self):
+        with tempfile.TemporaryDirectory(prefix="fs2-support-matrix-test-") as temporary:
+            output = Path(temporary) / "github-output"
+            write_github_output(output, matrices(self.data), "1.97.1")
+            self.assertTrue(
+                output.read_text(encoding="utf-8").endswith("rust_version=1.97.1\n")
+            )
 
     def test_accepts_whitespace_in_matrix_expression(self):
         workflow = copy.deepcopy(load_workflow())
