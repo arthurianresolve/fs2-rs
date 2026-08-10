@@ -45,6 +45,17 @@ def checked_repository(path: Path, label: str) -> Path:
     return path
 
 
+def stage_repository(root: Path, name: str, repository: Path) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    destination = root / name
+    shutil.copytree(
+        repository,
+        destination,
+        ignore=shutil.ignore_patterns(".git", "target", "__pycache__", "*.pyc"),
+    )
+    return destination
+
+
 def prepare_subject(
     root: Path,
     name: str,
@@ -195,11 +206,14 @@ def compare(args: argparse.Namespace) -> None:
 
     with tempfile.TemporaryDirectory(prefix="fs2-performance-") as temporary:
         temporary_root = Path(temporary)
+        subjects_root = temporary_root / "subjects"
+        baseline = stage_repository(subjects_root, "subject-a", baseline)
+        candidate = stage_repository(subjects_root, "subject-b", candidate)
         baseline_manifest, baseline_target = prepare_subject(
-            temporary_root, "baseline", baseline, args.baseline_package
+            temporary_root, "harness-a", baseline, args.baseline_package
         )
         candidate_manifest, candidate_target = prepare_subject(
-            temporary_root, "candidate", candidate, args.candidate_package
+            temporary_root, "harness-b", candidate, args.candidate_package
         )
 
         for manifest in (baseline_manifest, candidate_manifest):

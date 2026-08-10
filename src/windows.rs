@@ -18,7 +18,7 @@ use windows_sys::Win32::Storage::FileSystem::{
 use windows_sys::Win32::System::IO::OVERLAPPED;
 use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
 
-use crate::allocation::AllocationState;
+use crate::allocation::{AllocationState, ReservationEffect};
 use crate::lock::{LockMode, LockOperation};
 use crate::stats::{FsStats, validate_granularity};
 use crate::{FilesystemCounters, SpaceKind};
@@ -80,6 +80,9 @@ pub(crate) fn allocation_state(file: &File) -> Result<AllocationState> {
         })
     }
 }
+
+pub(crate) const ALLOCATE_SPACE_EFFECT: ReservationEffect =
+    ReservationEffect::from_length_guarantee(false);
 
 pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
     let len = i64::try_from(len)

@@ -30,6 +30,7 @@ class CiSpec:
     job: str
     runner: str
     toolchains: tuple[str, ...]
+    coverage: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +51,10 @@ class SupportRegistry:
     @property
     def ci_jobs(self) -> frozenset[str]:
         return frozenset(target.ci.job for target in self.targets if target.ci is not None)
+
+    @property
+    def matrix_jobs(self) -> frozenset[str]:
+        return self.ci_jobs | {"coverage"}
 
 
 def is_ci_job_name(value: object) -> bool:
@@ -141,7 +146,7 @@ def parse_registry(data: object) -> SupportRegistry:
         ci_required = {"job", "runner", "toolchains"}
         if not ci_required <= ci.keys():
             fail(f"CI metadata for {target} is missing fields: {sorted(ci_required - ci.keys())}")
-        ci_unexpected = set(ci) - ci_required
+        ci_unexpected = set(ci) - ci_required - {"coverage"}
         if ci_unexpected:
             fail(f"CI metadata for {target} has unknown fields: {sorted(ci_unexpected)}")
         job = ci.get("job")
@@ -156,15 +161,24 @@ def parse_registry(data: object) -> SupportRegistry:
             isinstance(toolchain, str) for toolchain in toolchains
         ):
             fail(f"CI metadata for {target} must define toolchains")
+        coverage = ci.get("coverage", False)
+        if not isinstance(coverage, bool):
+            fail(f"CI coverage selection for {target} must be a boolean")
+        if coverage and evidence != "runtime":
+            fail(f"compile target {target} cannot provide native coverage")
 
         jobs.add(job)
-        parsed_ci = CiSpec(job, runner, tuple(toolchains))
+        parsed_ci = CiSpec(job, runner, tuple(toolchains), coverage)
         parsed_targets.append(
             TargetSpec(target, platform, evidence, allocation, parsed_ci)
         )
 
     if not jobs:
         fail("at least one CI job is required")
+    if not any(target.evidence == "runtime" for target in parsed_targets):
+        fail("at least one runtime target is required")
+    if not any(target.ci is not None and target.ci.coverage for target in parsed_targets):
+        fail("at least one native coverage target is required")
 
     return SupportRegistry(5, frozenset(evidence_levels), tuple(parsed_targets))
 
@@ -230,7 +244,7 @@ def validate_workflow(registry: SupportRegistry, workflow: dict) -> None:
     if not isinstance(jobs, dict):
         fail("workflow must define a jobs object")
 
-    declared = registry.ci_jobs
+    declared = registry.matrix_jobs
     consumed = set()
     for job_name, job in jobs.items():
         if not isinstance(job, dict):
@@ -269,6 +283,18 @@ def matrices(registry: SupportRegistry) -> dict[str, dict[str, list[dict[str, st
                     "toolchain": toolchain,
                 }
             )
+
+    generated["coverage"] = {
+        "include": [
+            {
+                "os": target.ci.runner,
+                "target": target.target,
+                "toolchain": target.ci.toolchains[0],
+            }
+            for target in registry.targets
+            if target.ci is not None and target.ci.coverage
+        ]
+    }
     return generated
 
 

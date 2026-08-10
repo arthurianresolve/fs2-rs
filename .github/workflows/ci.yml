@@ -1,8 +1,11 @@
 name: CI
 
-on:
+"on":
   push:
   pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 1 1 * *"
 
 jobs:
   support-matrix:
@@ -56,6 +59,26 @@ jobs:
           targets: ${{ matrix.target }}
       - run: cargo check --package fs2 --tests --target ${{ matrix.target }} --locked
 
+  mingw:
+    needs: support-matrix
+    name: ${{ matrix.target }} / Rust ${{ matrix.toolchain }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.support-matrix.outputs.matrices).mingw }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install MinGW import-library tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binutils-mingw-w64
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+        with:
+          toolchain: ${{ matrix.toolchain }}
+          targets: ${{ matrix.target }}
+      - run: cargo build --package fs2 --lib --target ${{ matrix.target }} --locked
+
   uclibc:
     needs: support-matrix
     name: ${{ matrix.target }} / Rust ${{ matrix.toolchain }}
@@ -70,3 +93,29 @@ jobs:
           toolchain: ${{ matrix.toolchain }}
           components: rust-src
       - run: cargo check -Z build-std=std,panic_abort --package fs2 --target ${{ matrix.target }} --lib --locked
+
+  coverage:
+    needs: support-matrix
+    name: Coverage / ${{ matrix.target }} / Rust ${{ matrix.toolchain }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.support-matrix.outputs.matrices).coverage }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+        with:
+          toolchain: ${{ matrix.toolchain }}
+          components: llvm-tools-preview
+          targets: ${{ matrix.target }}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov@0.8.7
+          fallback: none
+      - run: cargo llvm-cov --package fs2 --lib --tests --target ${{ matrix.target }} --locked --lcov --output-path coverage-${{ matrix.target }}.lcov -- --test-threads=1
+      - uses: actions/upload-artifact@v7
+        with:
+          name: coverage-${{ matrix.target }}
+          path: coverage-${{ matrix.target }}.lcov
+          if-no-files-found: error

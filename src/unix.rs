@@ -7,7 +7,7 @@ use std::os::unix::fs::MetadataExt;
 use std::os::unix::io::{AsRawFd, FromRawFd};
 use std::path::Path;
 
-use crate::allocation::AllocationState;
+use crate::allocation::{AllocationState, ReservationEffect};
 use crate::lock::{LockMode, LockOperation};
 use crate::{FilesystemCounters, FsStats, SpaceKind};
 
@@ -118,6 +118,17 @@ pub(crate) fn allocation_state(file: &File) -> Result<AllocationState> {
 ))]
 #[cfg(not(all(target_os = "linux", target_env = "uclibc")))]
 #[cfg(not(all(target_os = "linux", target_pointer_width = "32")))]
+pub(crate) const ALLOCATE_SPACE_EFFECT: ReservationEffect =
+    ReservationEffect::from_length_guarantee(true);
+
+#[cfg(any(
+    target_os = "linux",
+    target_os = "freebsd",
+    target_os = "android",
+    target_os = "emscripten"
+))]
+#[cfg(not(all(target_os = "linux", target_env = "uclibc")))]
+#[cfg(not(all(target_os = "linux", target_pointer_width = "32")))]
 pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
     let len = libc::off_t::try_from(len)
         .map_err(|_| Error::new(ErrorKind::InvalidInput, "allocation length is too large"))?;
@@ -134,6 +145,11 @@ pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
 
 #[cfg(all(target_os = "linux", target_pointer_width = "32"))]
 #[cfg(not(target_env = "uclibc"))]
+pub(crate) const ALLOCATE_SPACE_EFFECT: ReservationEffect =
+    ReservationEffect::from_length_guarantee(true);
+
+#[cfg(all(target_os = "linux", target_pointer_width = "32"))]
+#[cfg(not(target_env = "uclibc"))]
 pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
     let len = libc::off64_t::try_from(len)
         .map_err(|_| Error::new(ErrorKind::InvalidInput, "allocation length is too large"))?;
@@ -147,6 +163,10 @@ pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
         Err(Error::from_raw_os_error(ret))
     }
 }
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+pub(crate) const ALLOCATE_SPACE_EFFECT: ReservationEffect =
+    ReservationEffect::from_length_guarantee(false);
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
@@ -182,6 +202,19 @@ pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(any(
+    all(target_os = "linux", target_env = "uclibc"),
+    target_os = "openbsd",
+    target_os = "netbsd",
+    target_os = "dragonfly",
+    target_os = "solaris",
+    target_os = "illumos",
+    target_os = "redox",
+    target_os = "haiku"
+))]
+pub(crate) const ALLOCATE_SPACE_EFFECT: ReservationEffect =
+    ReservationEffect::from_length_guarantee(false);
 
 #[cfg(any(
     all(target_os = "linux", target_env = "uclibc"),

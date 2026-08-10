@@ -8,6 +8,7 @@ from compare_performance import (
     benchmark_workload,
     bootstrap_upper_bound,
     prepare_subject,
+    stage_repository,
     subject_arguments,
 )
 
@@ -29,6 +30,22 @@ class PerformanceComparisonTests(unittest.TestCase):
 
             self.assertEqual(copied.read_bytes(), (BENCHMARKS / "benches" / "fs2.rs").read_bytes())
             self.assertIn(ROOT.as_posix(), manifest.read_text(encoding="utf-8"))
+
+    def test_staged_repository_preserves_sources_without_build_artifacts(self):
+        with tempfile.TemporaryDirectory(prefix="fs2-stage-test-") as temporary:
+            temporary_root = Path(temporary)
+            repository = temporary_root / "repository"
+            (repository / "src").mkdir(parents=True)
+            (repository / ".git").mkdir()
+            (repository / "target").mkdir()
+            source = b"pub fn staged() {}\n"
+            (repository / "src" / "lib.rs").write_bytes(source)
+
+            staged = stage_repository(temporary_root / "staged", "subject-a", repository)
+
+            self.assertEqual((staged / "src" / "lib.rs").read_bytes(), source)
+            self.assertFalse((staged / ".git").exists())
+            self.assertFalse((staged / "target").exists())
 
     def test_legacy_benchmark_workload_is_available(self):
         workload = benchmark_workload("fs2_legacy")

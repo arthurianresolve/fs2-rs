@@ -20,14 +20,30 @@ from validate_support_matrix import (
 EXPECTED_MATRICES = (
     '{"check":{"include":[{"os":"ubuntu-latest","target":"x86_64-unknown-linux-gnu","toolchain":"1.97.1"},'
     '{"os":"ubuntu-latest","target":"x86_64-unknown-linux-gnu","toolchain":"stable"},'
-    '{"os":"macos-latest","target":"x86_64-apple-darwin","toolchain":"1.97.1"},'
-    '{"os":"macos-latest","target":"x86_64-apple-darwin","toolchain":"stable"},'
+    '{"os":"macos-15-intel","target":"x86_64-apple-darwin","toolchain":"1.97.1"},'
+    '{"os":"macos-15-intel","target":"x86_64-apple-darwin","toolchain":"stable"},'
+    '{"os":"macos-latest","target":"aarch64-apple-darwin","toolchain":"1.97.1"},'
+    '{"os":"macos-latest","target":"aarch64-apple-darwin","toolchain":"stable"},'
     '{"os":"windows-latest","target":"x86_64-pc-windows-msvc","toolchain":"1.97.1"},'
     '{"os":"windows-latest","target":"x86_64-pc-windows-msvc","toolchain":"stable"}]},'
     '"cross_check":{"include":[{"os":"ubuntu-latest","target":"i686-unknown-linux-gnu","toolchain":"1.97.1"},'
+    '{"os":"ubuntu-latest","target":"aarch64-unknown-linux-gnu","toolchain":"1.97.1"},'
+    '{"os":"ubuntu-latest","target":"aarch64-unknown-linux-musl","toolchain":"1.97.1"},'
+    '{"os":"ubuntu-latest","target":"powerpc64-unknown-linux-gnu","toolchain":"1.97.1"},'
+    '{"os":"ubuntu-latest","target":"riscv64gc-unknown-linux-gnu","toolchain":"1.97.1"},'
+    '{"os":"ubuntu-latest","target":"aarch64-linux-android","toolchain":"1.97.1"},'
+    '{"os":"ubuntu-latest","target":"i686-linux-android","toolchain":"1.97.1"},'
+    '{"os":"ubuntu-latest","target":"aarch64-pc-windows-msvc","toolchain":"1.97.1"},'
+    '{"os":"ubuntu-latest","target":"x86_64-unknown-freebsd","toolchain":"1.97.1"},'
+    '{"os":"ubuntu-latest","target":"x86_64-unknown-netbsd","toolchain":"1.97.1"},'
     '{"os":"ubuntu-latest","target":"x86_64-unknown-illumos","toolchain":"1.97.1"},'
     '{"os":"ubuntu-latest","target":"x86_64-unknown-redox","toolchain":"1.97.1"}]},'
-    '"uclibc":{"include":[{"os":"ubuntu-latest","target":"armv7-unknown-linux-uclibceabihf","toolchain":"nightly"}]}}'
+    '"mingw":{"include":[{"os":"ubuntu-latest","target":"i686-pc-windows-gnu","toolchain":"1.97.1"},'
+    '{"os":"ubuntu-latest","target":"x86_64-pc-windows-gnu","toolchain":"1.97.1"}]},'
+    '"uclibc":{"include":[{"os":"ubuntu-latest","target":"armv7-unknown-linux-uclibceabihf","toolchain":"nightly"}]},'
+    '"coverage":{"include":[{"os":"ubuntu-latest","target":"x86_64-unknown-linux-gnu","toolchain":"1.97.1"},'
+    '{"os":"macos-latest","target":"aarch64-apple-darwin","toolchain":"1.97.1"},'
+    '{"os":"windows-latest","target":"x86_64-pc-windows-msvc","toolchain":"1.97.1"}]}}'
 )
 
 
@@ -38,7 +54,7 @@ class SupportMatrixTests(unittest.TestCase):
 
     def test_generates_every_declared_matrix(self):
         generated = matrices(self.data)
-        declared = self.data.ci_jobs
+        declared = self.data.matrix_jobs
 
         self.assertEqual(declared, set(generated))
         expected_counts = {}
@@ -47,11 +63,27 @@ class SupportMatrixTests(unittest.TestCase):
                 expected_counts[target.ci.job] = expected_counts.get(target.ci.job, 0) + len(
                     target.ci.toolchains
                 )
+        expected_counts["coverage"] = sum(
+            target.ci is not None and target.ci.coverage for target in self.data.targets
+        )
 
         actual_counts = {
             job: len(matrix["include"]) for job, matrix in generated.items()
         }
         self.assertEqual(actual_counts, expected_counts)
+
+    def test_coverage_matrix_projects_runtime_targets_at_msrv(self):
+        expected = [
+            {
+                "os": target.ci.runner,
+                "target": target.target,
+                "toolchain": target.ci.toolchains[0],
+            }
+            for target in self.data.targets
+            if target.ci is not None and target.ci.coverage
+        ]
+
+        self.assertEqual(matrices(self.data)["coverage"]["include"], expected)
 
     def test_generated_matrix_is_byte_stable(self):
         generated = json.dumps(matrices(self.data), separators=(",", ":"))
@@ -109,6 +141,42 @@ class SupportMatrixTests(unittest.TestCase):
     def test_rejects_malformed_evidence_levels(self):
         invalid = copy.deepcopy(self.raw)
         invalid["evidence_levels"] = None
+
+        with self.assertRaises(SystemExit):
+            parse_registry(invalid)
+
+    def test_rejects_registry_without_runtime_evidence(self):
+        invalid = copy.deepcopy(self.raw)
+        for target in invalid["targets"]:
+            if target["evidence"] == "runtime":
+                target["evidence"] = "compile"
+                target["ci"].pop("coverage", None)
+
+        with self.assertRaises(SystemExit):
+            parse_registry(invalid)
+
+    def test_rejects_compile_target_selected_for_native_coverage(self):
+        invalid = copy.deepcopy(self.raw)
+        compile_target = next(
+            target for target in invalid["targets"] if target["evidence"] == "compile"
+        )
+        compile_target["ci"]["coverage"] = True
+
+        with self.assertRaises(SystemExit):
+            parse_registry(invalid)
+
+    def test_rejects_non_boolean_native_coverage_selection(self):
+        invalid = copy.deepcopy(self.raw)
+        invalid["targets"][0]["ci"]["coverage"] = "yes"
+
+        with self.assertRaises(SystemExit):
+            parse_registry(invalid)
+
+    def test_rejects_registry_without_native_coverage_target(self):
+        invalid = copy.deepcopy(self.raw)
+        for target in invalid["targets"]:
+            if target["ci"] is not None:
+                target["ci"].pop("coverage", None)
 
         with self.assertRaises(SystemExit):
             parse_registry(invalid)
@@ -193,6 +261,12 @@ class SupportMatrixTests(unittest.TestCase):
                 if command.lstrip().startswith("cargo fmt "):
                     continue
                 self.assertIn("--locked", command, msg=f"{job_name}: {command}")
+
+    def test_workflow_has_manual_and_monthly_canary_triggers(self):
+        triggers = load_workflow()["on"]
+
+        self.assertIn("workflow_dispatch", triggers)
+        self.assertEqual(triggers["schedule"], [{"cron": "17 1 1 * *"}])
 
 if __name__ == "__main__":
     unittest.main()

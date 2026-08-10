@@ -137,7 +137,7 @@ fn verify_statistics(path: &Path) -> Result<()> {
     let path = path.to_owned();
     let stats = statvfs::<PathBuf>(path.clone())?;
     assert!(stats.total_space() > 0);
-    assert!(stats.available_space() <= stats.free_space());
+    assert!(stats.available_space() <= stats.total_space());
     assert!(stats.allocation_granularity() > 0);
 
     let _ = free_space::<PathBuf>(path.clone())?;

@@ -9,6 +9,23 @@ pub(crate) struct AllocationState {
     pub(crate) file_size: u64,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ReservationEffect {
+    length_at_least_requested: bool,
+}
+
+impl ReservationEffect {
+    pub(crate) const fn from_length_guarantee(length_at_least_requested: bool) -> Self {
+        Self {
+            length_at_least_requested,
+        }
+    }
+
+    pub(crate) const fn length_at_least_requested(self) -> bool {
+        self.length_at_least_requested
+    }
+}
+
 #[inline(always)]
 pub(crate) fn allocated_size(file: &File) -> Result<u64> {
     sys::allocation_state(file).map(|state| state.allocated_size)
@@ -18,6 +35,9 @@ pub(crate) fn allocate(file: &File, len: u64) -> Result<()> {
     let state = sys::allocation_state(file)?;
     if state.allocated_size < len {
         sys::allocate_space(file, len)?;
+        if sys::ALLOCATE_SPACE_EFFECT.length_at_least_requested() {
+            return Ok(());
+        }
     }
 
     if state.file_size < len && file.metadata()?.len() < len {
@@ -66,6 +86,7 @@ mod tests {
             .unwrap();
 
         allocate(&file, 4096).unwrap();
+        assert!(file.metadata().unwrap().len() >= 4096);
     }
 
     #[cfg(any(

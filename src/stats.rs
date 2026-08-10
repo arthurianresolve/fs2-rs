@@ -153,16 +153,26 @@ pub(crate) fn validate_space_values(
     available_space: u64,
     total_space: u64,
 ) -> Result<()> {
-    validate_available_space_values(free_space, available_space)?;
     #[cfg(windows)]
-    let _ = total_space;
+    {
+        let _ = total_space;
+        validate_available_space_values(free_space, available_space)?;
+    }
     #[cfg(unix)]
-    if free_space > total_space {
-        return Err(invalid_stats("filesystem free space exceeds total space"));
+    {
+        if free_space > total_space {
+            return Err(invalid_stats("filesystem free space exceeds total space"));
+        }
+        if available_space > total_space {
+            return Err(invalid_stats(
+                "filesystem available space exceeds total space",
+            ));
+        }
     }
     Ok(())
 }
 
+#[cfg(windows)]
 fn validate_available_space_values(free_space: u64, available_space: u64) -> Result<()> {
     if available_space > free_space {
         return Err(invalid_stats(
@@ -420,9 +430,28 @@ mod tests {
         assert_eq!(error.kind(), ErrorKind::InvalidData);
     }
 
+    #[cfg(windows)]
     #[test]
-    fn rejects_inconsistent_space_counts() {
+    fn rejects_available_space_above_free_space() {
         let error = FsStats::from_counters(counters(4096, 32_768, 36_864, 40_960)).unwrap_err();
+
+        assert_eq!(error.kind(), ErrorKind::InvalidData);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn accepts_available_space_above_free_space() {
+        let stats = FsStats::from_counters(counters(4096, 8, 9, 10)).unwrap();
+
+        assert_eq!(stats.free_space(), 32_768);
+        assert_eq!(stats.available_space(), 36_864);
+        assert_eq!(stats.total_space(), 40_960);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_available_space_above_total_space() {
+        let error = FsStats::from_counters(counters(4096, 8, 11, 10)).unwrap_err();
 
         assert_eq!(error.kind(), ErrorKind::InvalidData);
     }
@@ -433,9 +462,13 @@ mod tests {
         let stats = statvfs(tempdir.path()).unwrap();
 
         assert!(stats.total_space() > 0);
-        assert!(stats.available_space() <= stats.free_space());
         #[cfg(unix)]
-        assert!(stats.total_space() > stats.free_space());
+        {
+            assert!(stats.free_space() <= stats.total_space());
+            assert!(stats.available_space() <= stats.total_space());
+        }
+        #[cfg(windows)]
+        assert!(stats.available_space() <= stats.free_space());
     }
 
     #[test]
@@ -445,8 +478,14 @@ mod tests {
 
         for stats in [query.snapshot().unwrap(), query.snapshot().unwrap()] {
             assert!(stats.total_space() > 0);
-            assert!(stats.available_space() <= stats.free_space());
             assert!(stats.allocation_granularity() > 0);
+            #[cfg(unix)]
+            {
+                assert!(stats.free_space() <= stats.total_space());
+                assert!(stats.available_space() <= stats.total_space());
+            }
+            #[cfg(windows)]
+            assert!(stats.available_space() <= stats.free_space());
         }
     }
 
