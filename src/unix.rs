@@ -7,7 +7,7 @@ use std::os::unix::fs::MetadataExt;
 use std::os::unix::io::{AsRawFd, FromRawFd};
 use std::path::Path;
 
-use crate::allocation::{AllocationState, ReservationEffect};
+use crate::allocation::AllocationState;
 use crate::lock::{LockMode, LockOperation};
 use crate::{FilesystemCounters, FsStats, SpaceKind};
 
@@ -118,8 +118,7 @@ pub(crate) fn allocation_state(file: &File) -> Result<AllocationState> {
 ))]
 #[cfg(not(all(target_os = "linux", target_env = "uclibc")))]
 #[cfg(not(all(target_os = "linux", target_pointer_width = "32")))]
-pub(crate) const ALLOCATE_SPACE_EFFECT: ReservationEffect =
-    ReservationEffect::from_length_guarantee(true);
+pub(crate) const ALLOCATE_SPACE_EXTENDS_LENGTH: bool = true;
 
 #[cfg(any(
     target_os = "linux",
@@ -145,8 +144,7 @@ pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
 
 #[cfg(all(target_os = "linux", target_pointer_width = "32"))]
 #[cfg(not(target_env = "uclibc"))]
-pub(crate) const ALLOCATE_SPACE_EFFECT: ReservationEffect =
-    ReservationEffect::from_length_guarantee(true);
+pub(crate) const ALLOCATE_SPACE_EXTENDS_LENGTH: bool = true;
 
 #[cfg(all(target_os = "linux", target_pointer_width = "32"))]
 #[cfg(not(target_env = "uclibc"))]
@@ -165,8 +163,7 @@ pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
 }
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
-pub(crate) const ALLOCATE_SPACE_EFFECT: ReservationEffect =
-    ReservationEffect::from_length_guarantee(false);
+pub(crate) const ALLOCATE_SPACE_EXTENDS_LENGTH: bool = false;
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
@@ -213,8 +210,7 @@ pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
     target_os = "redox",
     target_os = "haiku"
 ))]
-pub(crate) const ALLOCATE_SPACE_EFFECT: ReservationEffect =
-    ReservationEffect::from_length_guarantee(false);
+pub(crate) const ALLOCATE_SPACE_EXTENDS_LENGTH: bool = false;
 
 #[cfg(any(
     all(target_os = "linux", target_env = "uclibc"),

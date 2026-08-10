@@ -18,7 +18,7 @@ use windows_sys::Win32::Storage::FileSystem::{
 use windows_sys::Win32::System::IO::OVERLAPPED;
 use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
 
-use crate::allocation::{AllocationState, ReservationEffect};
+use crate::allocation::AllocationState;
 use crate::lock::{LockMode, LockOperation};
 use crate::stats::{FsStats, validate_granularity};
 use crate::{FilesystemCounters, SpaceKind};
@@ -81,8 +81,7 @@ pub(crate) fn allocation_state(file: &File) -> Result<AllocationState> {
     }
 }
 
-pub(crate) const ALLOCATE_SPACE_EFFECT: ReservationEffect =
-    ReservationEffect::from_length_guarantee(false);
+pub(crate) const ALLOCATE_SPACE_EXTENDS_LENGTH: bool = false;
 
 pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
     let len = i64::try_from(len)
@@ -276,7 +275,7 @@ fn legacy_statvfs(root_path: &[u16]) -> Result<FilesystemCounters> {
     let bytes = byte_space(root_path)?;
 
     Ok(FilesystemCounters::windows_legacy_bytes(
-        geometry.allocation_granularity,
+        geometry,
         bytes.actual_free,
         bytes.caller_available,
         bytes.caller_total,
@@ -349,17 +348,11 @@ fn legacy_space(root_path: &[u16], kind: SpaceKind) -> Result<u64> {
         SpaceKind::Free => byte_space(root_path).map(|space| space.actual_free),
         SpaceKind::Available => byte_space(root_path).map(|space| space.caller_available),
         SpaceKind::Total => byte_space(root_path).map(|space| space.caller_total),
-        SpaceKind::AllocationGranularity => {
-            cluster_geometry(root_path).map(|geometry| geometry.allocation_granularity)
-        }
+        SpaceKind::AllocationGranularity => cluster_geometry(root_path),
     }
 }
 
-struct ClusterGeometry {
-    allocation_granularity: u64,
-}
-
-fn cluster_geometry(root_path: &[u16]) -> Result<ClusterGeometry> {
+fn cluster_geometry(root_path: &[u16]) -> Result<u64> {
     let mut sectors_per_cluster = 0;
     let mut bytes_per_sector = 0;
     let mut free_clusters = 0;
@@ -383,9 +376,7 @@ fn cluster_geometry(root_path: &[u16]) -> Result<ClusterGeometry> {
         .ok_or_else(|| Error::new(ErrorKind::InvalidData, "filesystem cluster size overflowed"))?;
     let allocation_granularity = validate_granularity(allocation_granularity)?;
 
-    Ok(ClusterGeometry {
-        allocation_granularity,
-    })
+    Ok(allocation_granularity)
 }
 
 struct ByteSpace {
