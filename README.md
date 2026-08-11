@@ -91,10 +91,13 @@ subject with `--baseline-package fs4` or `--candidate-package fs4`. It excludes
 file duplication because fs4 does not expose an equivalent operation. Same-lock
 comparisons are required by default; use `--allow-different-locks` explicitly
 when comparing releases with different dependency graphs, such as upstream
-v0.4.3, v0.5, and fs4. The performance command defaults to twenty alternating
-pairs and exits unsuccessfully unless every selected workload proves
-non-regression; use a benchmark-name filter to keep targeted comparisons
-practical. For private refactors, every comparison still requires paired
+v0.4.3, v0.5, and fs4. The performance command defaults to 24 alternating pairs
+across six independent build replicates and exits unsuccessfully unless every
+selected workload proves non-regression. It freezes both subjects before the
+first build so edits to a live checkout cannot contaminate later replicates; use
+a benchmark-name filter to keep targeted comparisons practical. Pair counts
+must be a multiple of eight so physical build placement and execution order
+remain balanced. For private refactors, every comparison still requires paired
 timing; object-file equality is not used as a substitute because public generic
 code is generated in the consumer crate.
 

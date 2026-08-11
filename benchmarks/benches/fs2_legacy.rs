@@ -177,6 +177,12 @@ fn bench_windows_root_stats(c: &mut Criterion) {
         group.bench_function("one_top_level_snapshot", |b| {
             b.iter(|| black_box(statvfs(&root).unwrap()));
         });
+        group.bench_function("free_space", |b| {
+            b.iter(|| black_box(free_space(&root).unwrap()));
+        });
+        group.bench_function("available_space", |b| {
+            b.iter(|| black_box(available_space(&root).unwrap()));
+        });
         group.bench_function("total_space", |b| {
             b.iter(|| black_box(total_space(&root).unwrap()));
         });

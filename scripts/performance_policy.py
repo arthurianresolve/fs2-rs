@@ -15,6 +15,7 @@ INCONCLUSIVE_OR_SLOWER = "inconclusive-or-slower"
 class BenchmarkDecision:
     benchmark: str
     median_ratio: float
+    lower_bound: float
     upper_bound: float
     decision: str
 
@@ -54,7 +55,9 @@ def pair_plan(pair_index: int) -> PairPlan:
     return PairPlan("b", "a", order)
 
 
-def bootstrap_upper_bound(ratios: list[float], resamples: int) -> float:
+def bootstrap_median_bounds(
+    ratios: list[float], resamples: int
+) -> tuple[float, float]:
     if not ratios:
         raise ValueError("at least one ratio is required")
     if resamples < 1:
@@ -67,13 +70,18 @@ def bootstrap_upper_bound(ratios: list[float], resamples: int) -> float:
         for _ in range(resamples)
     ]
     medians.sort()
-    return medians[min(len(medians) - 1, int(0.95 * len(medians)))]
+    lower = medians[min(len(medians) - 1, int(0.05 * len(medians)))]
+    upper = medians[min(len(medians) - 1, int(0.95 * len(medians)))]
+    return lower, upper
 
 
-def evaluate(
+def bootstrap_upper_bound(ratios: list[float], resamples: int) -> float:
+    return bootstrap_median_bounds(ratios, resamples)[1]
+
+
+def ratios_by_benchmark(
     paired_results: list[tuple[dict[str, float], dict[str, float]]],
-    bootstrap_resamples: int,
-) -> ComparisonReport:
+) -> dict[str, list[float]]:
     if not paired_results:
         raise ValueError("at least one paired result is required")
 
@@ -85,21 +93,44 @@ def evaluate(
         if baseline.keys() != benchmark_names or candidate.keys() != benchmark_names:
             raise ValueError("paired results produced different benchmark sets")
 
-    decisions = []
+    ratios = {benchmark: [] for benchmark in sorted(benchmark_names)}
     for benchmark in sorted(benchmark_names):
-        ratios = []
         for baseline, candidate in paired_results:
             baseline_estimate = baseline[benchmark]
             candidate_estimate = candidate[benchmark]
             if baseline_estimate <= 0 or candidate_estimate <= 0:
                 raise ValueError("benchmark estimates must be positive")
-            ratios.append(candidate_estimate / baseline_estimate)
+            ratios[benchmark].append(candidate_estimate / baseline_estimate)
+    return ratios
+
+
+def summarize_replicate(
+    paired_results: list[tuple[dict[str, float], dict[str, float]]],
+) -> tuple[dict[str, float], dict[str, float]]:
+    ratios = ratios_by_benchmark(paired_results)
+    baseline = {benchmark: 1.0 for benchmark in ratios}
+    candidate = {
+        benchmark: statistics.median(values) for benchmark, values in ratios.items()
+    }
+    return baseline, candidate
+
+
+def evaluate(
+    paired_results: list[tuple[dict[str, float], dict[str, float]]],
+    bootstrap_resamples: int,
+) -> ComparisonReport:
+    decisions = []
+    for benchmark, ratios in ratios_by_benchmark(paired_results).items():
 
         median_ratio = statistics.median(ratios)
-        upper_bound = bootstrap_upper_bound(ratios, bootstrap_resamples)
+        lower_bound, upper_bound = bootstrap_median_bounds(
+            ratios, bootstrap_resamples
+        )
         decision = PASS if upper_bound <= 1.0 else INCONCLUSIVE_OR_SLOWER
         decisions.append(
-            BenchmarkDecision(benchmark, median_ratio, upper_bound, decision)
+            BenchmarkDecision(
+                benchmark, median_ratio, lower_bound, upper_bound, decision
+            )
         )
 
     return ComparisonReport(tuple(decisions))

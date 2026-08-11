@@ -1,12 +1,20 @@
+import argparse
+import contextlib
+import io
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from compare_performance import (
     BENCHMARKS,
     ROOT,
+    balanced_pair_count,
     benchmark_workload,
+    cargo,
     criterion_output_root,
+    freeze_repositories,
     prepare_subject,
     stage_repository,
     subject_arguments,
@@ -15,13 +23,62 @@ from performance_policy import (
     INCONCLUSIVE_OR_SLOWER,
     PASS,
     alternating_order,
+    bootstrap_median_bounds,
     bootstrap_upper_bound,
     evaluate,
     pair_plan,
+    ratios_by_benchmark,
+    summarize_replicate,
 )
 
 
 class PerformanceComparisonTests(unittest.TestCase):
+    def test_pair_count_balances_logical_build_placement(self):
+        self.assertEqual(balanced_pair_count("8"), 8)
+        self.assertEqual(balanced_pair_count("24"), 24)
+        with self.assertRaisesRegex(argparse.ArgumentTypeError, "balance build placement"):
+            balanced_pair_count("12")
+
+    @mock.patch("compare_performance.subprocess.run")
+    def test_successful_cargo_output_is_quiet(self, run):
+        run.return_value = subprocess.CompletedProcess(
+            ["cargo", "check"],
+            0,
+            stdout="routine Cargo progress\n",
+        )
+        output = io.StringIO()
+
+        with contextlib.redirect_stdout(output):
+            captured = cargo(["check"])
+
+        self.assertEqual(captured, "routine Cargo progress\n")
+        self.assertEqual(output.getvalue(), "")
+
+    @mock.patch("compare_performance.subprocess.run")
+    def test_failed_cargo_output_remains_visible(self, run):
+        run.return_value = subprocess.CompletedProcess(
+            ["cargo", "check"],
+            1,
+            stdout="compiler diagnostic\n",
+        )
+        output = io.StringIO()
+
+        with contextlib.redirect_stdout(output):
+            with self.assertRaisesRegex(SystemExit, "command exited with 1"):
+                cargo(["check"])
+
+        self.assertIn("compiler diagnostic", output.getvalue())
+
+    @mock.patch("compare_performance.subprocess.run")
+    def test_cargo_merges_environment_overrides(self, run):
+        run.return_value = subprocess.CompletedProcess(["cargo", "check"], 0, stdout="")
+
+        cargo(["check"], {"CRITERION_HOME": "criterion-output"})
+
+        environment = run.call_args.kwargs["env"]
+        self.assertEqual(environment["CRITERION_HOME"], "criterion-output")
+        self.assertIn("PATH", environment)
+
     def test_alternates_subject_order(self):
         self.assertEqual(alternating_order(0), ("baseline", "candidate"))
         self.assertEqual(alternating_order(1), ("candidate", "baseline"))
@@ -53,6 +110,14 @@ class PerformanceComparisonTests(unittest.TestCase):
         )
         self.assertLessEqual(bootstrap_upper_bound(ratios, 1_000), 1.0)
 
+    def test_bootstrap_bounds_enclose_the_median(self):
+        ratios = [0.97, 0.98, 0.99, 1.0, 1.01]
+
+        lower, upper = bootstrap_median_bounds(ratios, 1_000)
+
+        self.assertLessEqual(lower, 0.99)
+        self.assertGreaterEqual(upper, 0.99)
+
     def test_evaluates_faster_candidate_as_pass(self):
         paired = [
             ({"operation": 100.0}, {"operation": 90.0}),
@@ -78,6 +143,27 @@ class PerformanceComparisonTests(unittest.TestCase):
     def test_rejects_mismatched_benchmark_sets(self):
         with self.assertRaisesRegex(ValueError, "different benchmark sets"):
             evaluate([({"first": 1.0}, {"second": 1.0})], 1_000)
+
+    def test_computes_ratios_by_benchmark(self):
+        paired = [
+            ({"operation": 100.0}, {"operation": 98.0}),
+            ({"operation": 200.0}, {"operation": 202.0}),
+        ]
+
+        self.assertEqual(ratios_by_benchmark(paired), {"operation": [0.98, 1.01]})
+
+    def test_summarizes_each_build_replicate_once(self):
+        paired = [
+            ({"operation": 100.0}, {"operation": 98.0}),
+            ({"operation": 100.0}, {"operation": 99.0}),
+            ({"operation": 100.0}, {"operation": 101.0}),
+            ({"operation": 100.0}, {"operation": 102.0}),
+        ]
+
+        baseline, candidate = summarize_replicate(paired)
+
+        self.assertEqual(baseline, {"operation": 1.0})
+        self.assertEqual(candidate, {"operation": 1.0})
 
     def test_prepared_subject_reuses_exact_workload(self):
         with tempfile.TemporaryDirectory(prefix="fs2-performance-test-") as temporary:
@@ -120,6 +206,26 @@ class PerformanceComparisonTests(unittest.TestCase):
             self.assertEqual((staged / "src" / "lib.rs").read_bytes(), source)
             self.assertFalse((staged / ".git").exists())
             self.assertFalse((staged / "target").exists())
+
+    def test_frozen_repositories_do_not_observe_later_source_edits(self):
+        with tempfile.TemporaryDirectory(prefix="fs2-freeze-test-") as temporary:
+            temporary_root = Path(temporary)
+            repository = temporary_root / "repository"
+            (repository / "src").mkdir(parents=True)
+            source = repository / "src" / "lib.rs"
+            source.write_text("pub fn original() {}\n", encoding="utf-8")
+
+            frozen = freeze_repositories(
+                temporary_root / "frozen",
+                {"candidate": repository},
+            )
+            source.write_text("pub fn changed() {}\n", encoding="utf-8")
+
+            frozen_source = frozen["candidate"] / "src" / "lib.rs"
+            self.assertEqual(
+                frozen_source.read_text(encoding="utf-8"),
+                "pub fn original() {}\n",
+            )
 
     def test_legacy_benchmark_workload_is_available(self):
         workload = benchmark_workload("fs2_legacy")
