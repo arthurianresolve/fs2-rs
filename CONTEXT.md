@@ -53,6 +53,8 @@ The compatibility oracle compiles one frozen v0.4 consumer against exact fs2
 the shared legacy behavior contract through both adapters. Legacy source shape
 and stable behavior come from the v0.4 reference; intentional v0.5 corrections
 remain canonical. Performance comparisons use one byte-identical benchmark
-workload and dependency lock for both checkouts, alternate execution order on
-the same host and filesystem, and reject inconclusive regressions. The oracle is
-tooling-only and does not enter the production dependency graph or call path.
+workload and dependency lock for both checkouts, counterbalance execution order
+and physical A/B build slots on the same host and filesystem, and reject
+inconclusive regressions. A pure policy module owns pairing, bootstrap, and
+decision rules; orchestration owns staging and Criterion execution. The oracle
+is tooling-only and does not enter the production dependency graph or call path.

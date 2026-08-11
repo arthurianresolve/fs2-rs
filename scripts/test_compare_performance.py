@@ -6,14 +6,44 @@ from compare_performance import (
     BENCHMARKS,
     ROOT,
     benchmark_workload,
-    bootstrap_upper_bound,
+    criterion_output_root,
     prepare_subject,
     stage_repository,
     subject_arguments,
 )
+from performance_policy import (
+    INCONCLUSIVE_OR_SLOWER,
+    PASS,
+    alternating_order,
+    bootstrap_upper_bound,
+    evaluate,
+    pair_plan,
+)
 
 
 class PerformanceComparisonTests(unittest.TestCase):
+    def test_alternates_subject_order(self):
+        self.assertEqual(alternating_order(0), ("baseline", "candidate"))
+        self.assertEqual(alternating_order(1), ("candidate", "baseline"))
+        self.assertEqual(alternating_order(2), ("baseline", "candidate"))
+
+    def test_counterbalances_subject_slots_and_order(self):
+        plans = [pair_plan(index) for index in range(4)]
+
+        self.assertEqual(
+            [(plan.baseline_slot, plan.candidate_slot) for plan in plans],
+            [("a", "b"), ("a", "b"), ("b", "a"), ("b", "a")],
+        )
+        self.assertEqual(
+            [plan.order for plan in plans],
+            [
+                ("baseline", "candidate"),
+                ("candidate", "baseline"),
+                ("baseline", "candidate"),
+                ("candidate", "baseline"),
+            ],
+        )
+
     def test_bootstrap_upper_bound_is_deterministic(self):
         ratios = [0.98, 0.99, 1.0, 0.99, 0.98]
 
@@ -23,6 +53,32 @@ class PerformanceComparisonTests(unittest.TestCase):
         )
         self.assertLessEqual(bootstrap_upper_bound(ratios, 1_000), 1.0)
 
+    def test_evaluates_faster_candidate_as_pass(self):
+        paired = [
+            ({"operation": 100.0}, {"operation": 90.0}),
+            ({"operation": 102.0}, {"operation": 91.0}),
+        ]
+
+        report = evaluate(paired, 1_000)
+
+        self.assertTrue(report.passed)
+        self.assertEqual(report.decisions[0].decision, PASS)
+
+    def test_rejects_inconclusive_or_slower_candidate(self):
+        paired = [
+            ({"operation": 100.0}, {"operation": 101.0}),
+            ({"operation": 99.0}, {"operation": 100.0}),
+        ]
+
+        report = evaluate(paired, 1_000)
+
+        self.assertFalse(report.passed)
+        self.assertEqual(report.decisions[0].decision, INCONCLUSIVE_OR_SLOWER)
+
+    def test_rejects_mismatched_benchmark_sets(self):
+        with self.assertRaisesRegex(ValueError, "different benchmark sets"):
+            evaluate([({"first": 1.0}, {"second": 1.0})], 1_000)
+
     def test_prepared_subject_reuses_exact_workload(self):
         with tempfile.TemporaryDirectory(prefix="fs2-performance-test-") as temporary:
             manifest, _ = prepare_subject(Path(temporary), "subject", ROOT)
@@ -30,6 +86,24 @@ class PerformanceComparisonTests(unittest.TestCase):
 
             self.assertEqual(copied.read_bytes(), (BENCHMARKS / "benches" / "fs2.rs").read_bytes())
             self.assertIn(ROOT.as_posix(), manifest.read_text(encoding="utf-8"))
+
+    def test_prepared_subject_accepts_explicit_target(self):
+        with tempfile.TemporaryDirectory(prefix="fs2-performance-test-") as temporary:
+            root = Path(temporary)
+            target = root / "cache" / "subject-a"
+
+            manifest, prepared_target = prepare_subject(
+                root / "work",
+                "subject",
+                ROOT,
+                target=target,
+            )
+
+            self.assertEqual(prepared_target, target)
+            self.assertEqual(
+                criterion_output_root(manifest),
+                manifest.parent / "target" / "criterion",
+            )
 
     def test_staged_repository_preserves_sources_without_build_artifacts(self):
         with tempfile.TemporaryDirectory(prefix="fs2-stage-test-") as temporary:
