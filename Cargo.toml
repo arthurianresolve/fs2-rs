@@ -28,7 +28,7 @@ resolver = "3"
 
 [workspace.package]
 edition = "2024"
-rust-version = "1.97.1"
+rust-version = "1.88"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.189"

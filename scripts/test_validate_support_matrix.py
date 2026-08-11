@@ -18,32 +18,32 @@ from validate_support_matrix import (
 
 
 EXPECTED_MATRICES = (
-    '{"check":{"include":[{"os":"ubuntu-latest","target":"x86_64-unknown-linux-gnu","toolchain":"1.97.1"},'
+    '{"check":{"include":[{"os":"ubuntu-latest","target":"x86_64-unknown-linux-gnu","toolchain":"1.88"},'
     '{"os":"ubuntu-latest","target":"x86_64-unknown-linux-gnu","toolchain":"stable"},'
-    '{"os":"macos-15-intel","target":"x86_64-apple-darwin","toolchain":"1.97.1"},'
+    '{"os":"macos-15-intel","target":"x86_64-apple-darwin","toolchain":"1.88"},'
     '{"os":"macos-15-intel","target":"x86_64-apple-darwin","toolchain":"stable"},'
-    '{"os":"macos-latest","target":"aarch64-apple-darwin","toolchain":"1.97.1"},'
+    '{"os":"macos-latest","target":"aarch64-apple-darwin","toolchain":"1.88"},'
     '{"os":"macos-latest","target":"aarch64-apple-darwin","toolchain":"stable"},'
-    '{"os":"windows-latest","target":"x86_64-pc-windows-msvc","toolchain":"1.97.1"},'
+    '{"os":"windows-latest","target":"x86_64-pc-windows-msvc","toolchain":"1.88"},'
     '{"os":"windows-latest","target":"x86_64-pc-windows-msvc","toolchain":"stable"}]},'
-    '"cross_check":{"include":[{"os":"ubuntu-latest","target":"i686-unknown-linux-gnu","toolchain":"1.97.1"},'
-    '{"os":"ubuntu-latest","target":"aarch64-unknown-linux-gnu","toolchain":"1.97.1"},'
-    '{"os":"ubuntu-latest","target":"aarch64-unknown-linux-musl","toolchain":"1.97.1"},'
-    '{"os":"ubuntu-latest","target":"powerpc64-unknown-linux-gnu","toolchain":"1.97.1"},'
-    '{"os":"ubuntu-latest","target":"riscv64gc-unknown-linux-gnu","toolchain":"1.97.1"},'
-    '{"os":"ubuntu-latest","target":"aarch64-linux-android","toolchain":"1.97.1"},'
-    '{"os":"ubuntu-latest","target":"i686-linux-android","toolchain":"1.97.1"},'
-    '{"os":"ubuntu-latest","target":"aarch64-pc-windows-msvc","toolchain":"1.97.1"},'
-    '{"os":"ubuntu-latest","target":"x86_64-unknown-freebsd","toolchain":"1.97.1"},'
-    '{"os":"ubuntu-latest","target":"x86_64-unknown-netbsd","toolchain":"1.97.1"},'
-    '{"os":"ubuntu-latest","target":"x86_64-unknown-illumos","toolchain":"1.97.1"},'
-    '{"os":"ubuntu-latest","target":"x86_64-unknown-redox","toolchain":"1.97.1"}]},'
-    '"mingw":{"include":[{"os":"ubuntu-latest","target":"i686-pc-windows-gnu","toolchain":"1.97.1"},'
-    '{"os":"ubuntu-latest","target":"x86_64-pc-windows-gnu","toolchain":"1.97.1"}]},'
+    '"cross_check":{"include":[{"os":"ubuntu-latest","target":"i686-unknown-linux-gnu","toolchain":"1.88"},'
+    '{"os":"ubuntu-latest","target":"aarch64-unknown-linux-gnu","toolchain":"1.88"},'
+    '{"os":"ubuntu-latest","target":"aarch64-unknown-linux-musl","toolchain":"1.88"},'
+    '{"os":"ubuntu-latest","target":"powerpc64-unknown-linux-gnu","toolchain":"1.88"},'
+    '{"os":"ubuntu-latest","target":"riscv64gc-unknown-linux-gnu","toolchain":"1.88"},'
+    '{"os":"ubuntu-latest","target":"aarch64-linux-android","toolchain":"1.88"},'
+    '{"os":"ubuntu-latest","target":"i686-linux-android","toolchain":"1.88"},'
+    '{"os":"ubuntu-latest","target":"aarch64-pc-windows-msvc","toolchain":"1.88"},'
+    '{"os":"ubuntu-latest","target":"x86_64-unknown-freebsd","toolchain":"1.88"},'
+    '{"os":"ubuntu-latest","target":"x86_64-unknown-netbsd","toolchain":"1.88"},'
+    '{"os":"ubuntu-latest","target":"x86_64-unknown-illumos","toolchain":"1.88"},'
+    '{"os":"ubuntu-latest","target":"x86_64-unknown-redox","toolchain":"1.88"}]},'
+    '"mingw":{"include":[{"os":"ubuntu-latest","target":"i686-pc-windows-gnu","toolchain":"1.88"},'
+    '{"os":"ubuntu-latest","target":"x86_64-pc-windows-gnu","toolchain":"1.88"}]},'
     '"uclibc":{"include":[{"os":"ubuntu-latest","target":"armv7-unknown-linux-uclibceabihf","toolchain":"nightly"}]},'
-    '"coverage":{"include":[{"os":"ubuntu-latest","target":"x86_64-unknown-linux-gnu","toolchain":"1.97.1"},'
-    '{"os":"macos-latest","target":"aarch64-apple-darwin","toolchain":"1.97.1"},'
-    '{"os":"windows-latest","target":"x86_64-pc-windows-msvc","toolchain":"1.97.1"}]}}'
+    '"coverage":{"include":[{"os":"ubuntu-latest","target":"x86_64-unknown-linux-gnu","toolchain":"1.88"},'
+    '{"os":"macos-latest","target":"aarch64-apple-darwin","toolchain":"1.88"},'
+    '{"os":"windows-latest","target":"x86_64-pc-windows-msvc","toolchain":"1.88"}]}}'
 )
 
 
@@ -201,9 +201,9 @@ class SupportMatrixTests(unittest.TestCase):
     def test_github_output_includes_canonical_rust_version(self):
         with tempfile.TemporaryDirectory(prefix="fs2-support-matrix-test-") as temporary:
             output = Path(temporary) / "github-output"
-            write_github_output(output, matrices(self.data), "1.97.1")
+            write_github_output(output, matrices(self.data), "1.88")
             self.assertTrue(
-                output.read_text(encoding="utf-8").endswith("rust_version=1.97.1\n")
+                output.read_text(encoding="utf-8").endswith("rust_version=1.88\n")
             )
 
     def test_accepts_whitespace_in_matrix_expression(self):

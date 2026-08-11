@@ -7,7 +7,7 @@ The original implementation is from
 [danburkert/fs2-rs](https://github.com/danburkert/fs2-rs).
 
 Extended utilities for working with files and filesystems in Rust. `fs2`
-requires Rust stable 1.97.1 or greater.
+requires Rust stable 1.88 or greater.
 
 # Changes
 1. Manifest modernization
@@ -17,7 +17,7 @@ requires Rust stable 1.97.1 or greater.
  * Dependency modernization
    - Replaced `winapi` with `windows-sys`
    - Replaced `tempdir` with `tempfile`
-   - Updated to Rust 1.97.1 and Rust 2024 edition syntax
+   - Updated to Rust 1.88 and Rust 2024 edition syntax
  * Updated to current `libc` library
 
 [![Documentation](https://docs.rs/fs2/badge.svg)](https://docs.rs/fs2)
@@ -47,7 +47,7 @@ modern disk-space provider is available. On systems that require the legacy
 fallback, the reported total may be limited by the calling user's disk quota.
 
 The CI matrix continuously tests the native `x86_64` targets on Linux, macOS,
-and Windows with Rust 1.97.1 and stable. The historical 32-bit and GNU
+and Windows with Rust 1.88 and stable. The historical 32-bit and GNU
 Windows targets are not currently covered by the native test matrix. The
 `armv7-unknown-linux-uclibceabihf` target is compile-checked separately with
 nightly `build-std`; runtime tests require a target-specific emulator and
