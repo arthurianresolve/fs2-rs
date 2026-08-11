@@ -60,12 +60,15 @@ impl FsStatsQuery {
 
 impl FsStats {
     pub(crate) fn from_counters(counters: FilesystemCounters) -> Result<Self> {
+        #[cfg(unix)]
+        let allocation_granularity = validate_unix_counters(counters)?;
+        #[cfg(windows)]
         let allocation_granularity = validate_granularity(counters.allocation_granularity)?;
         #[cfg(unix)]
         let (free_space, available_space, total_space) = (
-            checked_space(counters.allocation_granularity, counters.free_blocks)?,
-            checked_space(counters.allocation_granularity, counters.available_blocks)?,
-            checked_space(counters.allocation_granularity, counters.total_blocks)?,
+            allocation_granularity * counters.free_blocks,
+            allocation_granularity * counters.available_blocks,
+            allocation_granularity * counters.total_blocks,
         );
         #[cfg(windows)]
         // The legacy Windows API reports physical free space separately from
@@ -76,8 +79,6 @@ impl FsStats {
             counters.total_space,
         );
 
-        #[cfg(unix)]
-        validate_space_values(free_space, available_space, total_space)?;
         #[cfg(windows)]
         match counters.source {
             WindowsCounterSource::Modern => {
@@ -130,6 +131,7 @@ impl FsStats {
         self.allocation_granularity
     }
 
+    #[cfg(windows)]
     pub(crate) fn value(&self, kind: SpaceKind) -> u64 {
         match kind {
             SpaceKind::Free => self.free_space,
@@ -323,6 +325,34 @@ pub fn total_space<P: AsRef<Path>>(path: P) -> Result<u64> {
 /// multiple counters are needed.
 pub fn allocation_granularity<P: AsRef<Path>>(path: P) -> Result<u64> {
     sys::space(path.as_ref(), SpaceKind::AllocationGranularity)
+}
+
+#[cfg(unix)]
+fn validate_unix_counters(counters: FilesystemCounters) -> Result<u64> {
+    let allocation_granularity = validate_granularity(counters.allocation_granularity)?;
+    let maximum_blocks = counters
+        .free_blocks
+        .max(counters.available_blocks)
+        .max(counters.total_blocks);
+    checked_space(allocation_granularity, maximum_blocks)?;
+    validate_space_values(
+        counters.free_blocks,
+        counters.available_blocks,
+        counters.total_blocks,
+    )?;
+    Ok(allocation_granularity)
+}
+
+#[cfg(unix)]
+pub(crate) fn space_from_counters(counters: FilesystemCounters, kind: SpaceKind) -> Result<u64> {
+    let allocation_granularity = validate_unix_counters(counters)?;
+    let blocks = match kind {
+        SpaceKind::Free => counters.free_blocks,
+        SpaceKind::Available => counters.available_blocks,
+        SpaceKind::Total => counters.total_blocks,
+        SpaceKind::AllocationGranularity => return Ok(allocation_granularity),
+    };
+    Ok(allocation_granularity * blocks)
 }
 
 #[cfg(unix)]

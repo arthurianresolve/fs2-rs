@@ -1,15 +1,19 @@
 use std::ffi::{CStr, CString};
 use std::fs::File;
 use std::io::{Error, ErrorKind, Result};
+#[cfg(not(all(target_os = "linux", target_pointer_width = "64")))]
 use std::mem;
+use std::mem::MaybeUninit;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::MetadataExt;
 use std::os::unix::io::{AsRawFd, FromRawFd};
 use std::path::Path;
+use std::{ptr, slice};
 
 use crate::allocation::AllocationState;
 use crate::lock::{LockMode, LockOperation};
-use crate::{FilesystemCounters, FsStats, SpaceKind};
+use crate::stats::space_from_counters;
+use crate::{FilesystemCounters, SpaceKind};
 
 #[inline]
 pub(crate) fn duplicate(file: &File) -> Result<File> {
@@ -248,9 +252,64 @@ impl StatsQuery {
 }
 
 pub(crate) fn statvfs(path: &Path) -> Result<FilesystemCounters> {
-    StatsQuery::new(path)?.counters()
+    with_c_path(path, statvfs_cstr)
 }
 
+const SMALL_PATH_BUFFER_SIZE: usize = 256;
+
+fn with_c_path<T>(path: &Path, query: impl FnOnce(&CStr) -> Result<T>) -> Result<T> {
+    let bytes = path.as_os_str().as_bytes();
+    if bytes.len() >= SMALL_PATH_BUFFER_SIZE {
+        let path = CString::new(bytes)
+            .map_err(|_| Error::new(ErrorKind::InvalidInput, "path contained a null"))?;
+        return query(&path);
+    }
+
+    let mut buffer = MaybeUninit::<[u8; SMALL_PATH_BUFFER_SIZE]>::uninit();
+    let buffer_ptr = buffer.as_mut_ptr().cast::<u8>();
+
+    // SAFETY: `bytes.len() < SMALL_PATH_BUFFER_SIZE`, so the buffer has room
+    // for the bytes and their trailing null. The initialized prefix remains
+    // valid for the duration of `query`.
+    unsafe {
+        ptr::copy_nonoverlapping(bytes.as_ptr(), buffer_ptr, bytes.len());
+        buffer_ptr.add(bytes.len()).write(0);
+    }
+    // SAFETY: the preceding writes initialized exactly `bytes.len() + 1`
+    // bytes, including the trailing null.
+    let bytes_with_null = unsafe { slice::from_raw_parts(buffer_ptr, bytes.len() + 1) };
+    let path = CStr::from_bytes_with_nul(bytes_with_null)
+        .map_err(|_| Error::new(ErrorKind::InvalidInput, "path contained a null"))?;
+    query(path)
+}
+
+#[cfg(all(target_os = "linux", target_pointer_width = "64"))]
+#[allow(clippy::unnecessary_cast)]
+fn statvfs_cstr(path: &CStr) -> Result<FilesystemCounters> {
+    let mut stat = MaybeUninit::<libc::statfs>::uninit();
+    // SAFETY: `path` is null-terminated and `stat` points to writable storage
+    // large enough for `libc::statfs`.
+    let ret = unsafe { libc::statfs(path.as_ptr(), stat.as_mut_ptr()) };
+    if ret != 0 {
+        Err(Error::last_os_error())
+    } else {
+        // SAFETY: a successful `libc::statfs` call initialized the output.
+        let stat = unsafe { stat.assume_init() };
+        let allocation_granularity = if stat.f_frsize == 0 {
+            stat.f_bsize
+        } else {
+            stat.f_frsize
+        };
+        Ok(FilesystemCounters::unix_blocks(
+            allocation_granularity as u64,
+            stat.f_bfree as u64,
+            stat.f_bavail as u64,
+            stat.f_blocks as u64,
+        ))
+    }
+}
+
+#[cfg(not(all(target_os = "linux", target_pointer_width = "64")))]
 fn statvfs_cstr(path: &CStr) -> Result<FilesystemCounters> {
     // SAFETY: `libc::statvfs` initializes every field of this output structure.
     let mut stat: libc::statvfs = unsafe { mem::zeroed() };
@@ -269,7 +328,7 @@ fn statvfs_cstr(path: &CStr) -> Result<FilesystemCounters> {
 }
 
 pub(crate) fn space(path: &Path, kind: SpaceKind) -> Result<u64> {
-    FsStats::from_counters(statvfs(path)?).map(|stats| stats.value(kind))
+    space_from_counters(statvfs(path)?, kind)
 }
 
 #[cfg(test)]
