@@ -6,8 +6,9 @@ use std::path::Path;
 use std::sync::OnceLock;
 
 use windows_sys::Win32::Foundation::{
-    E_NOTIMPL, ERROR_CALL_NOT_IMPLEMENTED, ERROR_INVALID_FUNCTION, ERROR_LOCK_VIOLATION,
-    ERROR_NOT_SUPPORTED, S_OK,
+    E_NOTIMPL, ERROR_BAD_NETPATH, ERROR_BAD_PATHNAME, ERROR_CALL_NOT_IMPLEMENTED, ERROR_DIRECTORY,
+    ERROR_INVALID_DRIVE, ERROR_INVALID_FUNCTION, ERROR_INVALID_NAME, ERROR_INVALID_PARAMETER,
+    ERROR_LOCK_VIOLATION, ERROR_NOT_SUPPORTED, ERROR_PATH_NOT_FOUND, S_OK,
 };
 use windows_sys::Win32::Storage::FileSystem::{
     DISK_SPACE_INFORMATION, FILE_ALLOCATION_INFO, FILE_STANDARD_INFO, FileAllocationInfo,
@@ -24,6 +25,9 @@ use crate::stats::{FsStats, validate_granularity};
 use crate::{FilesystemCounters, SpaceKind};
 
 const VOLUME_PATH_CAPACITY: usize = 261;
+// `GetDiskSpaceInformationW` can return this NTSTATUS-derived value for an
+// unavailable drive instead of a Win32 HRESULT.
+const VOLUME_PATH_NOT_FOUND_STATUS: i32 = 0xd000_003a_u32 as i32;
 type GetDiskSpaceInformation = unsafe extern "system" fn(
     *const u16,
     *mut DISK_SPACE_INFORMATION,
@@ -195,11 +199,19 @@ pub(crate) fn statvfs(path: &Path) -> Result<FilesystemCounters> {
 }
 
 fn statvfs_root(root_path: &[u16]) -> Result<FilesystemCounters> {
-    if let Some(counters) = modern_statvfs(root_path)? {
-        return Ok(counters);
-    }
+    query_root(root_path, Ok, legacy_statvfs)
+}
 
-    legacy_statvfs(root_path)
+#[inline(always)]
+fn query_root<T>(
+    root_path: &[u16],
+    modern: impl FnOnce(FilesystemCounters) -> Result<T>,
+    legacy: impl FnOnce(&[u16]) -> Result<T>,
+) -> Result<T> {
+    match modern_statvfs(root_path)? {
+        Some(counters) => modern(counters),
+        None => legacy(root_path),
+    }
 }
 
 fn modern_statvfs(root_path: &[u16]) -> Result<Option<FilesystemCounters>> {
@@ -284,17 +296,20 @@ fn legacy_statvfs(root_path: &[u16]) -> Result<FilesystemCounters> {
 
 pub(crate) fn space(path: &Path, kind: SpaceKind) -> Result<u64> {
     let path_utf16 = wide_path(path);
-    if path.is_absolute()
-        && let DirectSpace::Hit(value) = direct_space(&path_utf16, kind)
-    {
-        return Ok(value);
+    if path.is_absolute() {
+        match direct_space(&path_utf16, kind) {
+            DirectSpace::Hit(value) => return Ok(value),
+            DirectSpace::Unavailable => {}
+        }
     }
 
     let mut root_path = [0u16; VOLUME_PATH_CAPACITY];
-    if copy_exact_drive_root(&path_utf16, &mut root_path)
-        && let Ok(value) = root_space(&root_path, kind)
-    {
-        return Ok(value);
+    if copy_exact_drive_root(&path_utf16, &mut root_path) {
+        match exact_root_space(root_space(&root_path, kind)) {
+            ExactRootSpace::Hit(value) => return Ok(value),
+            ExactRootSpace::ResolveVolume => {}
+            ExactRootSpace::Failed(error) => return Err(error),
+        }
     }
 
     root_path.fill(0);
@@ -303,23 +318,56 @@ pub(crate) fn space(path: &Path, kind: SpaceKind) -> Result<u64> {
     root_space(&root_path, kind)
 }
 
-fn root_space(root_path: &[u16], kind: SpaceKind) -> Result<u64> {
-    if let Some(counters) = modern_statvfs(root_path)? {
-        return FsStats::from_counters(counters).map(|stats| stats.value(kind));
-    }
+#[derive(Debug)]
+enum ExactRootSpace {
+    Hit(u64),
+    ResolveVolume,
+    Failed(Error),
+}
 
-    legacy_space(root_path, kind)
+fn exact_root_space(result: Result<u64>) -> ExactRootSpace {
+    match result {
+        Ok(value) => ExactRootSpace::Hit(value),
+        Err(error) if is_volume_resolution_error(&error) => ExactRootSpace::ResolveVolume,
+        Err(error) => ExactRootSpace::Failed(error),
+    }
+}
+
+fn is_volume_resolution_error(error: &Error) -> bool {
+    let Some(code) = error.raw_os_error() else {
+        return false;
+    };
+    [
+        ERROR_BAD_NETPATH,
+        ERROR_BAD_PATHNAME,
+        ERROR_DIRECTORY,
+        ERROR_INVALID_DRIVE,
+        ERROR_INVALID_NAME,
+        ERROR_INVALID_PARAMETER,
+        ERROR_PATH_NOT_FOUND,
+    ]
+    .into_iter()
+    .any(|win32_error| code == win32_error as i32 || code == hresult_from_win32(win32_error) as i32)
+        || code == VOLUME_PATH_NOT_FOUND_STATUS
+}
+
+fn root_space(root_path: &[u16], kind: SpaceKind) -> Result<u64> {
+    query_root(
+        root_path,
+        |counters| FsStats::from_counters(counters).map(|stats| stats.value(kind)),
+        |root_path| legacy_space(root_path, kind),
+    )
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum DirectSpace {
     Hit(u64),
-    Fallback,
+    Unavailable,
 }
 
 fn direct_space(path: &[u16], kind: SpaceKind) -> DirectSpace {
     if matches!(kind, SpaceKind::Total | SpaceKind::AllocationGranularity) {
-        return DirectSpace::Fallback;
+        return DirectSpace::Unavailable;
     }
     let mut caller_available = 0;
     let mut actual_free = 0;
@@ -333,12 +381,12 @@ fn direct_space(path: &[u16], kind: SpaceKind) -> DirectSpace {
         )
     };
     if ret == 0 || caller_available > actual_free {
-        DirectSpace::Fallback
+        DirectSpace::Unavailable
     } else {
         match kind {
             SpaceKind::Free => DirectSpace::Hit(actual_free),
             SpaceKind::Available => DirectSpace::Hit(caller_available),
-            SpaceKind::Total | SpaceKind::AllocationGranularity => DirectSpace::Fallback,
+            SpaceKind::Total | SpaceKind::AllocationGranularity => DirectSpace::Unavailable,
         }
     }
 }
