@@ -14,7 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 COMPATIBILITY = ROOT / "compatibility"
 CONSUMER = COMPATIBILITY / "v04_consumer.rs"
-EXPECTED_CONSUMER_SHA256 = "54417492d4e1b37216c25397bbce05ae48a28e244b24e31de936c5f6970d577d"
+EXPECTED_CONSUMER_SHA256 = "1f3f777c06ba5956a5a3107706ca8328fe382d64e75ad0d5dde34f1d942544fe"
 SUBJECTS = ("legacy", "current")
 CARGO = os.environ.get("CARGO", "cargo")
 

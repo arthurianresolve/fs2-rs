@@ -197,6 +197,9 @@ fn bench_windows_file_space_fallback(c: &mut Criterion) {
         c.bench_function("free_space_file_fallback", |b| {
             b.iter(|| black_box(free_space(&path).unwrap()));
         });
+        c.bench_function("available_space_file_fallback", |b| {
+            b.iter(|| black_box(available_space(&path).unwrap()));
+        });
     }
 
     #[cfg(not(windows))]

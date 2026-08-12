@@ -5,19 +5,24 @@ use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::os::windows::io::AsRawHandle;
 use std::path::PathBuf;
 
+use windows_sys::Wdk::System::SystemServices::FILE_FS_FULL_SIZE_INFORMATION;
 use windows_sys::Win32::Foundation::{
     ERROR_ACCESS_DENIED, ERROR_BAD_NETPATH, ERROR_BAD_PATHNAME, ERROR_CALL_NOT_IMPLEMENTED,
     ERROR_DIRECTORY, ERROR_INVALID_DRIVE, ERROR_INVALID_FUNCTION, ERROR_INVALID_NAME,
     ERROR_INVALID_PARAMETER, ERROR_NOT_SUPPORTED, ERROR_PATH_NOT_FOUND, GetHandleInformation,
     HANDLE_FLAG_INHERIT,
 };
-use windows_sys::Win32::Storage::FileSystem::DISK_SPACE_INFORMATION;
+use windows_sys::Win32::Storage::FileSystem::{
+    DISK_SPACE_INFORMATION, FILE_ATTRIBUTE_ARCHIVE, FILE_ATTRIBUTE_DEVICE,
+    FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_OFFLINE, FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS,
+    FILE_ATTRIBUTE_RECALL_ON_OPEN, INVALID_FILE_ATTRIBUTES,
+};
 
 use super::{
     DirectSpace, E_NOTIMPL, ExactRootSpace, VOLUME_PATH_CAPACITY, copy_exact_drive_root,
-    counters_from_disk_space_information, direct_space, exact_root_space, hresult_from_win32,
-    legacy_statvfs, modern_statvfs, modern_statvfs_unavailable, modern_statvfs_with, space,
-    volume_path, wide_path,
+    counters_from_disk_space_information, direct_space, exact_root_space, handle_space,
+    handle_space_attributes_eligible, handle_space_from_info, hresult_from_win32, legacy_statvfs,
+    modern_statvfs, modern_statvfs_unavailable, modern_statvfs_with, space, volume_path, wide_path,
 };
 use crate::{FileExt, FilesystemCounters, SpaceKind, lock_contended_error};
 use tempfile::tempdir;
@@ -163,7 +168,7 @@ fn direct_directory_space_uses_narrow_queries() {
 }
 
 #[test]
-fn direct_file_space_falls_back_to_canonical_provider() {
+fn direct_file_space_defers_to_an_alternate_provider() {
     let tempdir = tempdir().unwrap();
     let path = tempdir.path().join("fs2");
     fs::write(&path, []).unwrap();
@@ -173,6 +178,112 @@ fn direct_file_space_falls_back_to_canonical_provider() {
         DirectSpace::Unavailable
     );
     assert!(space(&path, SpaceKind::Free).is_ok());
+}
+
+#[test]
+fn handle_space_only_resolves_online_files() {
+    let tempdir = tempdir().unwrap();
+    let file = tempdir.path().join("fs2");
+    fs::write(&file, []).unwrap();
+
+    let path = wide_path(&file).unwrap();
+    assert!(matches!(
+        handle_space(&path, SpaceKind::Free),
+        DirectSpace::Hit(_)
+    ));
+    assert!(matches!(
+        handle_space(&path, SpaceKind::Available),
+        DirectSpace::Hit(_)
+    ));
+    assert_eq!(
+        handle_space(&path, SpaceKind::Total),
+        DirectSpace::Unavailable
+    );
+    assert_eq!(
+        handle_space(&wide_path(tempdir.path()).unwrap(), SpaceKind::Free),
+        DirectSpace::Unavailable
+    );
+}
+
+#[test]
+fn handle_space_attributes_only_accept_online_regular_files() {
+    assert!(handle_space_attributes_eligible(FILE_ATTRIBUTE_ARCHIVE));
+    for attributes in [
+        INVALID_FILE_ATTRIBUTES,
+        FILE_ATTRIBUTE_DEVICE,
+        FILE_ATTRIBUTE_DIRECTORY,
+        FILE_ATTRIBUTE_OFFLINE,
+        FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS,
+        FILE_ATTRIBUTE_RECALL_ON_OPEN,
+    ] {
+        assert!(!handle_space_attributes_eligible(attributes));
+    }
+}
+
+#[test]
+fn handle_space_projects_valid_file_counters() {
+    let info = FILE_FS_FULL_SIZE_INFORMATION {
+        ActualAvailableAllocationUnits: 8,
+        CallerAvailableAllocationUnits: 6,
+        SectorsPerAllocationUnit: 2,
+        BytesPerSector: 512,
+        ..Default::default()
+    };
+
+    assert_eq!(
+        handle_space_from_info(info, SpaceKind::Free),
+        DirectSpace::Hit(8192)
+    );
+    assert_eq!(
+        handle_space_from_info(info, SpaceKind::Available),
+        DirectSpace::Hit(6144)
+    );
+    assert_eq!(
+        handle_space_from_info(info, SpaceKind::Total),
+        DirectSpace::Unavailable
+    );
+}
+
+#[test]
+fn handle_space_rejects_invalid_file_counters() {
+    let valid = FILE_FS_FULL_SIZE_INFORMATION {
+        ActualAvailableAllocationUnits: 8,
+        CallerAvailableAllocationUnits: 6,
+        SectorsPerAllocationUnit: 2,
+        BytesPerSector: 512,
+        ..Default::default()
+    };
+    let invalid = [
+        FILE_FS_FULL_SIZE_INFORMATION {
+            SectorsPerAllocationUnit: 0,
+            ..valid
+        },
+        FILE_FS_FULL_SIZE_INFORMATION {
+            ActualAvailableAllocationUnits: -1,
+            ..valid
+        },
+        FILE_FS_FULL_SIZE_INFORMATION {
+            CallerAvailableAllocationUnits: -1,
+            ..valid
+        },
+        FILE_FS_FULL_SIZE_INFORMATION {
+            ActualAvailableAllocationUnits: 5,
+            CallerAvailableAllocationUnits: 6,
+            ..valid
+        },
+        FILE_FS_FULL_SIZE_INFORMATION {
+            ActualAvailableAllocationUnits: i64::MAX,
+            CallerAvailableAllocationUnits: i64::MAX,
+            ..valid
+        },
+    ];
+
+    for info in invalid {
+        assert_eq!(
+            handle_space_from_info(info, SpaceKind::Free),
+            DirectSpace::Unavailable
+        );
+    }
 }
 
 #[test]

@@ -29,13 +29,16 @@ adapters acquire the raw counters. Convenience queries remain compatibility
 projections and each acquire a new snapshot. The Windows adapter uses a
 one-query full snapshot when the operating system supports it, retains the
 legacy fallback, uses the narrowest correct query for scalar projections, and
-recognizes exact drive roots without repeating volume-root discovery. All other
-Windows paths retain canonical volume-root resolution. On Windows, modern
-snapshots report physical total space while the legacy fallback may report a
-quota-limited total for the calling user; scalar queries use the same provider
-selected by the snapshot path. Platform adapters construct private raw counters
-through source-specific constructors; the stats module alone owns their
-representation, projection, conversion, and validation.
+recognizes exact drive roots without repeating volume-root discovery. A guarded
+metadata-only handle query accelerates free and available space for online
+regular files. Paths that are ineligible for a narrow query retain canonical
+volume-root resolution. On Windows, modern snapshots report physical total
+space while the legacy fallback may report a quota-limited total for the calling
+user; scalar queries preserve the physical-free and caller-available domains and
+fall back to the canonical provider when an optimized query is unavailable or
+invalid. Platform adapters construct private raw counters through
+source-specific constructors; the stats module alone owns their representation,
+projection, conversion, and validation.
 
 ## Support evidence
 

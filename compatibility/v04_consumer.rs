@@ -209,5 +209,6 @@ fn main() -> Result<()> {
     let file = tempdir.path().join("fs2");
     verify_duplicate_and_allocation(&file)?;
     verify_locking(&file)?;
-    verify_statistics(tempdir.path())
+    verify_statistics(tempdir.path())?;
+    verify_statistics(&file)
 }

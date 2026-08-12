@@ -5,19 +5,27 @@ use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::path::Path;
 use std::sync::OnceLock;
 
+use windows_sys::Wdk::Storage::FileSystem::{
+    FileFsFullSizeInformation, NtQueryVolumeInformationFile,
+};
+use windows_sys::Wdk::System::SystemServices::FILE_FS_FULL_SIZE_INFORMATION;
 use windows_sys::Win32::Foundation::{
     DUPLICATE_SAME_ACCESS, DuplicateHandle, E_NOTIMPL, ERROR_BAD_NETPATH, ERROR_BAD_PATHNAME,
     ERROR_CALL_NOT_IMPLEMENTED, ERROR_DIRECTORY, ERROR_INVALID_DRIVE, ERROR_INVALID_FUNCTION,
     ERROR_INVALID_NAME, ERROR_INVALID_PARAMETER, ERROR_LOCK_VIOLATION, ERROR_NOT_SUPPORTED,
-    ERROR_PATH_NOT_FOUND, RtlNtStatusToDosError, S_OK, TRUE,
+    ERROR_PATH_NOT_FOUND, INVALID_HANDLE_VALUE, RtlNtStatusToDosError, S_OK, TRUE,
 };
 use windows_sys::Win32::Storage::FileSystem::{
-    DISK_SPACE_INFORMATION, FILE_ALLOCATION_INFO, FILE_STANDARD_INFO, FileAllocationInfo,
-    FileStandardInfo, GetDiskFreeSpaceExW, GetDiskFreeSpaceW, GetFileInformationByHandleEx,
-    GetVolumePathNameW, LOCKFILE_EXCLUSIVE_LOCK, LOCKFILE_FAIL_IMMEDIATELY, LockFileEx,
+    CreateFileW, DISK_SPACE_INFORMATION, FILE_ALLOCATION_INFO, FILE_ATTRIBUTE_DEVICE,
+    FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_OFFLINE, FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS,
+    FILE_ATTRIBUTE_RECALL_ON_OPEN, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_NO_RECALL,
+    FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_STANDARD_INFO, FileAllocationInfo,
+    FileStandardInfo, GetDiskFreeSpaceExW, GetDiskFreeSpaceW, GetFileAttributesW,
+    GetFileInformationByHandleEx, GetVolumePathNameW, INVALID_FILE_ATTRIBUTES,
+    LOCKFILE_EXCLUSIVE_LOCK, LOCKFILE_FAIL_IMMEDIATELY, LockFileEx, OPEN_EXISTING,
     SetFileInformationByHandle, UnlockFile,
 };
-use windows_sys::Win32::System::IO::OVERLAPPED;
+use windows_sys::Win32::System::IO::{IO_STATUS_BLOCK, OVERLAPPED};
 use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
 use windows_sys::Win32::System::Threading::GetCurrentProcess;
 
@@ -350,7 +358,10 @@ pub(crate) fn space(path: &Path, kind: SpaceKind) -> Result<u64> {
     if path.is_absolute() {
         match direct_space(&path_utf16, kind) {
             DirectSpace::Hit(value) => return Ok(value),
-            DirectSpace::Unavailable => {}
+            DirectSpace::Unavailable => match handle_space(&path_utf16, kind) {
+                DirectSpace::Hit(value) => return Ok(value),
+                DirectSpace::Unavailable => {}
+            },
         }
     }
 
@@ -367,6 +378,99 @@ pub(crate) fn space(path: &Path, kind: SpaceKind) -> Result<u64> {
     volume_path(&path_utf16, &mut root_path)?;
 
     root_space(&root_path, kind)
+}
+
+const UNSUITABLE_HANDLE_SPACE_ATTRIBUTES: u32 = FILE_ATTRIBUTE_DEVICE
+    | FILE_ATTRIBUTE_DIRECTORY
+    | FILE_ATTRIBUTE_OFFLINE
+    | FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS
+    | FILE_ATTRIBUTE_RECALL_ON_OPEN;
+
+const fn handle_space_attributes_eligible(attributes: u32) -> bool {
+    attributes != INVALID_FILE_ATTRIBUTES && attributes & UNSUITABLE_HANDLE_SPACE_ATTRIBUTES == 0
+}
+
+fn handle_space(path: &[u16], kind: SpaceKind) -> DirectSpace {
+    if matches!(kind, SpaceKind::Total | SpaceKind::AllocationGranularity) {
+        return DirectSpace::Unavailable;
+    }
+
+    let attributes = unsafe {
+        // SAFETY: `path` is null-terminated for the duration of the call.
+        GetFileAttributesW(path.as_ptr())
+    };
+    if !handle_space_attributes_eligible(attributes) {
+        return DirectSpace::Unavailable;
+    }
+
+    let handle = unsafe {
+        // SAFETY: `path` is null-terminated. The null security-attributes and
+        // template pointers are permitted, and no data access is requested.
+        CreateFileW(
+            path.as_ptr(),
+            0,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            std::ptr::null(),
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_NO_RECALL,
+            std::ptr::null_mut(),
+        )
+    };
+    if handle == INVALID_HANDLE_VALUE {
+        return DirectSpace::Unavailable;
+    }
+    // SAFETY: successful `CreateFileW` returned one newly owned handle.
+    let handle = unsafe { OwnedHandle::from_raw_handle(handle) };
+    let mut status = IO_STATUS_BLOCK::default();
+    let mut info = FILE_FS_FULL_SIZE_INFORMATION::default();
+    let result = unsafe {
+        // SAFETY: `handle` remains valid, and `status` and `info` are writable,
+        // correctly sized output storage for this query class.
+        NtQueryVolumeInformationFile(
+            handle.as_raw_handle(),
+            &mut status,
+            std::ptr::from_mut(&mut info).cast(),
+            std::mem::size_of::<FILE_FS_FULL_SIZE_INFORMATION>() as u32,
+            FileFsFullSizeInformation,
+        )
+    };
+    if result != 0 {
+        return DirectSpace::Unavailable;
+    }
+
+    handle_space_from_info(info, kind)
+}
+
+fn handle_space_from_info(info: FILE_FS_FULL_SIZE_INFORMATION, kind: SpaceKind) -> DirectSpace {
+    let Some(granularity) =
+        u64::from(info.SectorsPerAllocationUnit).checked_mul(u64::from(info.BytesPerSector))
+    else {
+        return DirectSpace::Unavailable;
+    };
+    if granularity == 0 {
+        return DirectSpace::Unavailable;
+    }
+    let Ok(actual_units) = u64::try_from(info.ActualAvailableAllocationUnits) else {
+        return DirectSpace::Unavailable;
+    };
+    let Ok(caller_units) = u64::try_from(info.CallerAvailableAllocationUnits) else {
+        return DirectSpace::Unavailable;
+    };
+    let Some(actual_free) = granularity.checked_mul(actual_units) else {
+        return DirectSpace::Unavailable;
+    };
+    let Some(caller_available) = granularity.checked_mul(caller_units) else {
+        return DirectSpace::Unavailable;
+    };
+    if caller_available > actual_free {
+        return DirectSpace::Unavailable;
+    }
+
+    match kind {
+        SpaceKind::Free => DirectSpace::Hit(actual_free),
+        SpaceKind::Available => DirectSpace::Hit(caller_available),
+        SpaceKind::Total | SpaceKind::AllocationGranularity => DirectSpace::Unavailable,
+    }
 }
 
 #[derive(Debug)]
