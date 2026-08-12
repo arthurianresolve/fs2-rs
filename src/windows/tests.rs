@@ -1,25 +1,29 @@
+use std::ffi::OsString;
 use std::fs;
 use std::io::ErrorKind;
+use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::os::windows::io::AsRawHandle;
 use std::path::PathBuf;
 
 use windows_sys::Win32::Foundation::{
     ERROR_ACCESS_DENIED, ERROR_BAD_NETPATH, ERROR_BAD_PATHNAME, ERROR_CALL_NOT_IMPLEMENTED,
     ERROR_DIRECTORY, ERROR_INVALID_DRIVE, ERROR_INVALID_FUNCTION, ERROR_INVALID_NAME,
-    ERROR_INVALID_PARAMETER, ERROR_NOT_SUPPORTED, ERROR_PATH_NOT_FOUND,
+    ERROR_INVALID_PARAMETER, ERROR_NOT_SUPPORTED, ERROR_PATH_NOT_FOUND, GetHandleInformation,
+    HANDLE_FLAG_INHERIT,
 };
 use windows_sys::Win32::Storage::FileSystem::DISK_SPACE_INFORMATION;
 
 use super::{
-    DirectSpace, E_NOTIMPL, ExactRootSpace, VOLUME_PATH_CAPACITY, VOLUME_PATH_NOT_FOUND_STATUS,
-    copy_exact_drive_root, counters_from_disk_space_information, direct_space, exact_root_space,
-    hresult_from_win32, legacy_statvfs, modern_statvfs, modern_statvfs_unavailable,
-    modern_statvfs_with, space, volume_path, wide_path,
+    DirectSpace, E_NOTIMPL, ExactRootSpace, VOLUME_PATH_CAPACITY, copy_exact_drive_root,
+    counters_from_disk_space_information, direct_space, exact_root_space, hresult_from_win32,
+    legacy_statvfs, modern_statvfs, modern_statvfs_unavailable, modern_statvfs_with, space,
+    volume_path, wide_path,
 };
 use crate::{FileExt, FilesystemCounters, SpaceKind, lock_contended_error};
 use tempfile::tempdir;
 
 const HRESULT_ACCESS_DENIED: i32 = 0x8007_0005_u32 as i32;
+const HRESULT_E_FAIL: i32 = 0x8000_4005_u32 as i32;
 const HRESULT_E_NOTIMPL: i32 = 0x8000_4001_u32 as i32;
 const HRESULT_OBJECT_PATH_NOT_FOUND: i32 = 0xd000_003a_u32 as i32;
 const PATH_ERROR_ENCODINGS: [(u32, i32); 7] = [
@@ -100,7 +104,7 @@ fn rejects_modern_disk_space_overflow() {
 fn modern_and_legacy_stats_have_valid_domains() {
     let tempdir = tempdir().unwrap();
     let mut root_path = [0u16; VOLUME_PATH_CAPACITY];
-    volume_path(&wide_path(tempdir.path()), &mut root_path).unwrap();
+    volume_path(&wide_path(tempdir.path()).unwrap(), &mut root_path).unwrap();
 
     let legacy = crate::FsStats::from_counters(legacy_statvfs(&root_path).unwrap()).unwrap();
     assert!(legacy.allocation_granularity() > 0);
@@ -143,7 +147,7 @@ fn filesystem_counters_retain_compact_layout() {
 #[test]
 fn direct_directory_space_uses_narrow_queries() {
     let tempdir = tempdir().unwrap();
-    let path = wide_path(tempdir.path());
+    let path = wide_path(tempdir.path()).unwrap();
 
     let DirectSpace::Hit(_) = direct_space(&path, SpaceKind::Free) else {
         panic!("direct free-space query unexpectedly required fallback");
@@ -165,7 +169,7 @@ fn direct_file_space_falls_back_to_canonical_provider() {
     fs::write(&path, []).unwrap();
 
     assert_eq!(
-        direct_space(&wide_path(&path), SpaceKind::Free),
+        direct_space(&wide_path(&path).unwrap(), SpaceKind::Free),
         DirectSpace::Unavailable
     );
     assert!(space(&path, SpaceKind::Free).is_ok());
@@ -175,7 +179,7 @@ fn direct_file_space_falls_back_to_canonical_provider() {
 fn copies_only_exact_drive_roots() {
     let mut root_path = [0; VOLUME_PATH_CAPACITY];
     assert!(copy_exact_drive_root(
-        &wide_path(std::path::Path::new("c:/")),
+        &wide_path(std::path::Path::new("c:/")).unwrap(),
         &mut root_path
     ));
     assert_eq!(
@@ -186,7 +190,7 @@ fn copies_only_exact_drive_roots() {
     for path in ["C:", r"C:\directory", r"\", r"\\server\share\"] {
         root_path.fill(0);
         assert!(!copy_exact_drive_root(
-            &wide_path(std::path::Path::new(path)),
+            &wide_path(std::path::Path::new(path)).unwrap(),
             &mut root_path
         ));
     }
@@ -198,7 +202,7 @@ fn exact_drive_root_matches_canonical_resolution() {
     let root = current.ancestors().last().unwrap();
     let query = super::StatsQuery::new(root).unwrap();
     let mut canonical = [0; VOLUME_PATH_CAPACITY];
-    volume_path(&wide_path(root), &mut canonical).unwrap();
+    volume_path(&wide_path(root).unwrap(), &mut canonical).unwrap();
 
     assert_eq!(query.root_path, canonical);
 }
@@ -221,7 +225,7 @@ fn exact_drive_root_scalar_errors_match_canonical_resolution() {
     let missing_root = (b'A'..=b'Z').find_map(|drive| {
         let root = PathBuf::from(format!("{}:\\", char::from(drive)));
         let mut canonical = [0; VOLUME_PATH_CAPACITY];
-        volume_path(&wide_path(&root), &mut canonical)
+        volume_path(&wide_path(&root).unwrap(), &mut canonical)
             .err()
             .map(|error| (root, error))
     });
@@ -243,20 +247,18 @@ fn exact_drive_root_scalar_errors_match_canonical_resolution() {
 
 #[test]
 fn exact_drive_root_preserves_provider_errors() {
-    for code in [ERROR_ACCESS_DENIED as i32, HRESULT_ACCESS_DENIED] {
-        let error = std::io::Error::from_raw_os_error(code);
+    let code = ERROR_ACCESS_DENIED as i32;
+    let error = std::io::Error::from_raw_os_error(code);
 
-        assert!(matches!(
-            exact_root_space(Err(error)),
-            ExactRootSpace::Failed(error) if error.raw_os_error() == Some(code)
-        ));
-    }
+    assert!(matches!(
+        exact_root_space(Err(error)),
+        ExactRootSpace::Failed(error) if error.raw_os_error() == Some(code)
+    ));
 }
 
 #[test]
 fn windows_errors_map_to_documented_hresult_values() {
     assert_eq!(E_NOTIMPL, HRESULT_E_NOTIMPL);
-    assert_eq!(VOLUME_PATH_NOT_FOUND_STATUS, HRESULT_OBJECT_PATH_NOT_FOUND);
     assert_eq!(
         hresult_from_win32(ERROR_ACCESS_DENIED),
         HRESULT_ACCESS_DENIED
@@ -280,21 +282,13 @@ fn modern_provider_only_falls_back_for_unavailable_errors() {
 
 #[test]
 fn exact_drive_root_only_resolves_volume_for_path_errors() {
-    for (win32_error, hresult) in PATH_ERROR_ENCODINGS {
-        for code in [win32_error as i32, hresult] {
-            let error = std::io::Error::from_raw_os_error(code);
-            assert!(matches!(
-                exact_root_space(Err(error)),
-                ExactRootSpace::ResolveVolume
-            ));
-        }
+    for (win32_error, _) in PATH_ERROR_ENCODINGS {
+        let error = std::io::Error::from_raw_os_error(win32_error as i32);
+        assert!(matches!(
+            exact_root_space(Err(error)),
+            ExactRootSpace::ResolveVolume
+        ));
     }
-
-    let error = std::io::Error::from_raw_os_error(HRESULT_OBJECT_PATH_NOT_FOUND);
-    assert!(matches!(
-        exact_root_space(Err(error)),
-        ExactRootSpace::ResolveVolume
-    ));
 }
 
 #[test]
@@ -310,7 +304,21 @@ fn distinguishes_unavailable_and_failed_modern_api() {
         _root_path: *const u16,
         _info: *mut DISK_SPACE_INFORMATION,
     ) -> windows_sys::core::HRESULT {
-        -1
+        HRESULT_E_FAIL
+    }
+
+    unsafe extern "system" fn access_denied_api(
+        _root_path: *const u16,
+        _info: *mut DISK_SPACE_INFORMATION,
+    ) -> windows_sys::core::HRESULT {
+        HRESULT_ACCESS_DENIED
+    }
+
+    unsafe extern "system" fn missing_path_api(
+        _root_path: *const u16,
+        _info: *mut DISK_SPACE_INFORMATION,
+    ) -> windows_sys::core::HRESULT {
+        HRESULT_OBJECT_PATH_NOT_FOUND
     }
 
     let root_path = [0u16; VOLUME_PATH_CAPACITY];
@@ -324,7 +332,61 @@ fn distinguishes_unavailable_and_failed_modern_api() {
         modern_statvfs_with(&root_path, Some(failed_api))
             .unwrap_err()
             .raw_os_error(),
-        Some(-1)
+        Some(HRESULT_E_FAIL)
+    );
+
+    let access_denied = modern_statvfs_with(&root_path, Some(access_denied_api)).unwrap_err();
+    assert_eq!(access_denied.kind(), ErrorKind::PermissionDenied);
+    assert_eq!(
+        access_denied.raw_os_error(),
+        Some(ERROR_ACCESS_DENIED as i32)
+    );
+
+    let missing_path = modern_statvfs_with(&root_path, Some(missing_path_api)).unwrap_err();
+    assert_eq!(missing_path.kind(), ErrorKind::NotFound);
+    assert_eq!(
+        missing_path.raw_os_error(),
+        Some(ERROR_PATH_NOT_FOUND as i32)
+    );
+}
+
+#[test]
+fn statistics_reject_embedded_null_paths() {
+    let mut encoded: Vec<_> = std::env::current_dir()
+        .unwrap()
+        .as_os_str()
+        .encode_wide()
+        .collect();
+    encoded.extend([0, u16::from(b'x')]);
+    let path = PathBuf::from(OsString::from_wide(&encoded));
+
+    assert_eq!(
+        wide_path(&path).unwrap_err().kind(),
+        ErrorKind::InvalidInput
+    );
+    assert_eq!(
+        crate::statvfs(&path).unwrap_err().kind(),
+        ErrorKind::InvalidInput
+    );
+    assert_eq!(
+        crate::free_space(&path).unwrap_err().kind(),
+        ErrorKind::InvalidInput
+    );
+    assert_eq!(
+        crate::available_space(&path).unwrap_err().kind(),
+        ErrorKind::InvalidInput
+    );
+    assert_eq!(
+        crate::total_space(&path).unwrap_err().kind(),
+        ErrorKind::InvalidInput
+    );
+    assert_eq!(
+        crate::allocation_granularity(&path).unwrap_err().kind(),
+        ErrorKind::InvalidInput
+    );
+    assert_eq!(
+        crate::FsStatsQuery::new(&path).unwrap_err().kind(),
+        ErrorKind::InvalidInput
     );
 }
 
@@ -341,6 +403,26 @@ fn duplicate_new_handle() {
         .unwrap();
     let file2 = file1.duplicate().unwrap();
     assert!(file1.as_raw_handle() != file2.as_raw_handle());
+}
+
+#[test]
+fn duplicate_preserves_legacy_handle_inheritance() {
+    let tempdir = tempdir().unwrap();
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(tempdir.path().join("fs2"))
+        .unwrap();
+    let duplicate = file.duplicate().unwrap();
+    let mut flags = 0;
+    let result = unsafe {
+        // SAFETY: `duplicate` owns a valid handle and `flags` is writable output storage.
+        GetHandleInformation(duplicate.as_raw_handle(), &mut flags)
+    };
+
+    assert_ne!(result, 0, "{}", std::io::Error::last_os_error());
+    assert_ne!(flags & HANDLE_FLAG_INHERIT, 0);
 }
 
 /// A duplicated file handle does not have access to the original handle's locks.

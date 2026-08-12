@@ -1,14 +1,15 @@
 use std::fs::File;
 use std::io::{Error, ErrorKind, Result};
 use std::os::windows::ffi::OsStrExt;
-use std::os::windows::io::{AsHandle, AsRawHandle};
+use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::path::Path;
 use std::sync::OnceLock;
 
 use windows_sys::Win32::Foundation::{
-    E_NOTIMPL, ERROR_BAD_NETPATH, ERROR_BAD_PATHNAME, ERROR_CALL_NOT_IMPLEMENTED, ERROR_DIRECTORY,
-    ERROR_INVALID_DRIVE, ERROR_INVALID_FUNCTION, ERROR_INVALID_NAME, ERROR_INVALID_PARAMETER,
-    ERROR_LOCK_VIOLATION, ERROR_NOT_SUPPORTED, ERROR_PATH_NOT_FOUND, S_OK,
+    DUPLICATE_SAME_ACCESS, DuplicateHandle, E_NOTIMPL, ERROR_BAD_NETPATH, ERROR_BAD_PATHNAME,
+    ERROR_CALL_NOT_IMPLEMENTED, ERROR_DIRECTORY, ERROR_INVALID_DRIVE, ERROR_INVALID_FUNCTION,
+    ERROR_INVALID_NAME, ERROR_INVALID_PARAMETER, ERROR_LOCK_VIOLATION, ERROR_NOT_SUPPORTED,
+    ERROR_PATH_NOT_FOUND, RtlNtStatusToDosError, S_OK, TRUE,
 };
 use windows_sys::Win32::Storage::FileSystem::{
     DISK_SPACE_INFORMATION, FILE_ALLOCATION_INFO, FILE_STANDARD_INFO, FileAllocationInfo,
@@ -18,6 +19,7 @@ use windows_sys::Win32::Storage::FileSystem::{
 };
 use windows_sys::Win32::System::IO::OVERLAPPED;
 use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
+use windows_sys::Win32::System::Threading::GetCurrentProcess;
 
 use crate::allocation::AllocationState;
 use crate::lock::{LockMode, LockOperation};
@@ -25,9 +27,8 @@ use crate::stats::{FsStats, validate_granularity};
 use crate::{FilesystemCounters, SpaceKind};
 
 const VOLUME_PATH_CAPACITY: usize = 261;
-// `GetDiskSpaceInformationW` can return this NTSTATUS-derived value for an
-// unavailable drive instead of a Win32 HRESULT.
-const VOLUME_PATH_NOT_FOUND_STATUS: i32 = 0xd000_003a_u32 as i32;
+const FACILITY_NT_BIT: u32 = 0x1000_0000;
+const FACILITY_WIN32: u32 = 7;
 type GetDiskSpaceInformation = unsafe extern "system" fn(
     *const u16,
     *mut DISK_SPACE_INFORMATION,
@@ -42,7 +43,7 @@ pub(crate) struct StatsQuery {
 
 impl StatsQuery {
     pub(crate) fn new(path: &Path) -> Result<Self> {
-        let path = wide_path(path);
+        let path = wide_path(path)?;
         let mut root_path = [0; VOLUME_PATH_CAPACITY];
         if !copy_exact_drive_root(&path, &mut root_path) {
             volume_path(&path, &mut root_path)?;
@@ -57,7 +58,31 @@ impl StatsQuery {
 
 #[inline]
 pub(crate) fn duplicate(file: &File) -> Result<File> {
-    let owned = file.as_handle().try_clone_to_owned()?;
+    let mut duplicate = std::ptr::null_mut();
+    let process = unsafe {
+        // SAFETY: `GetCurrentProcess` returns the calling process's pseudo-handle.
+        GetCurrentProcess()
+    };
+    let result = unsafe {
+        // SAFETY: `file` owns a valid handle, `process` identifies the calling
+        // process, and `duplicate` is writable output storage. On success the
+        // returned handle is newly owned by the caller.
+        DuplicateHandle(
+            process,
+            file.as_raw_handle(),
+            process,
+            &mut duplicate,
+            0,
+            TRUE,
+            DUPLICATE_SAME_ACCESS,
+        )
+    };
+    if result == 0 {
+        return Err(Error::last_os_error());
+    }
+
+    // SAFETY: a successful `DuplicateHandle` call returned one newly owned handle.
+    let owned = unsafe { OwnedHandle::from_raw_handle(duplicate) };
     Ok(File::from(owned))
 }
 
@@ -158,8 +183,17 @@ fn lock_file(file: &File, flags: u32) -> Result<()> {
     }
 }
 
-fn wide_path(path: &Path) -> Vec<u16> {
-    path.as_os_str().encode_wide().chain(Some(0)).collect()
+fn wide_path(path: &Path) -> Result<Vec<u16>> {
+    let path = path.as_os_str();
+    let mut encoded = Vec::with_capacity(path.len().saturating_add(1));
+    for code_unit in path.encode_wide() {
+        if code_unit == 0 {
+            return Err(Error::new(ErrorKind::InvalidInput, "path contained a null"));
+        }
+        encoded.push(code_unit);
+    }
+    encoded.push(0);
+    Ok(encoded)
 }
 
 fn copy_exact_drive_root(path: &[u16], root_path: &mut [u16; VOLUME_PATH_CAPACITY]) -> bool {
@@ -245,7 +279,7 @@ fn modern_statvfs_with(
         if modern_statvfs_unavailable(result) {
             return Ok(None);
         }
-        return Err(Error::from_raw_os_error(result));
+        return Err(io_error_from_hresult(result));
     }
 
     counters_from_disk_space_information(info).map(Some)
@@ -253,6 +287,23 @@ fn modern_statvfs_with(
 
 const fn hresult_from_win32(error: u32) -> windows_sys::core::HRESULT {
     ((error & 0xffff) | 0x8007_0000) as windows_sys::core::HRESULT
+}
+
+fn io_error_from_hresult(result: windows_sys::core::HRESULT) -> Error {
+    let encoded = result as u32;
+    let facility = (encoded >> 16) & 0x1fff;
+    let error = if encoded & FACILITY_NT_BIT != 0 {
+        let status = (encoded & !FACILITY_NT_BIT) as i32;
+        unsafe {
+            // SAFETY: this converts an integer NTSTATUS value and dereferences no pointers.
+            RtlNtStatusToDosError(status)
+        }
+    } else if facility == FACILITY_WIN32 {
+        encoded & 0xffff
+    } else {
+        return Error::from_raw_os_error(result);
+    };
+    Error::from_raw_os_error(error as i32)
 }
 
 fn modern_statvfs_unavailable(result: windows_sys::core::HRESULT) -> bool {
@@ -295,7 +346,7 @@ fn legacy_statvfs(root_path: &[u16]) -> Result<FilesystemCounters> {
 }
 
 pub(crate) fn space(path: &Path, kind: SpaceKind) -> Result<u64> {
-    let path_utf16 = wide_path(path);
+    let path_utf16 = wide_path(path)?;
     if path.is_absolute() {
         match direct_space(&path_utf16, kind) {
             DirectSpace::Hit(value) => return Ok(value),
@@ -347,8 +398,7 @@ fn is_volume_resolution_error(error: &Error) -> bool {
         ERROR_PATH_NOT_FOUND,
     ]
     .into_iter()
-    .any(|win32_error| code == win32_error as i32 || code == hresult_from_win32(win32_error) as i32)
-        || code == VOLUME_PATH_NOT_FOUND_STATUS
+    .any(|win32_error| code == win32_error as i32)
 }
 
 fn root_space(root_path: &[u16], kind: SpaceKind) -> Result<u64> {

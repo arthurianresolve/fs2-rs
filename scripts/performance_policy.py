@@ -44,7 +44,9 @@ class ComparisonReport:
 
     @property
     def passed(self) -> bool:
-        return all(decision.passed for decision in self.decisions)
+        return bool(self.decisions) and all(
+            decision.passed for decision in self.decisions
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +102,8 @@ def ratios_by_benchmark(
     benchmark_names = paired_results[0][0].keys()
     if benchmark_names != paired_results[0][1].keys():
         raise ValueError("baseline and candidate produced different benchmark sets")
+    if not benchmark_names:
+        raise ValueError("at least one benchmark is required")
 
     for baseline, candidate in paired_results[1:]:
         if baseline.keys() != benchmark_names or candidate.keys() != benchmark_names:

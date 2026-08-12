@@ -26,6 +26,7 @@ from performance_policy import (
     INCONCLUSIVE_OR_SLOWER,
     NON_INFERIOR,
     PASS,
+    ComparisonReport,
     alternating_order,
     evaluate,
     exact_median_bounds,
@@ -208,6 +209,15 @@ class PerformanceComparisonTests(unittest.TestCase):
     def test_rejects_mismatched_benchmark_sets(self):
         with self.assertRaisesRegex(ValueError, "different benchmark sets"):
             evaluate([({"first": 1.0}, {"second": 1.0})] * 6)
+
+    def test_rejects_empty_benchmark_set(self):
+        with self.assertRaisesRegex(ValueError, "at least one benchmark"):
+            evaluate([({}, {})] * 6)
+
+    def test_empty_report_cannot_pass(self):
+        report = ComparisonReport((), 0.0, CONFIDENCE_LEVEL, 6)
+
+        self.assertFalse(report.passed)
 
     def test_rejects_non_finite_benchmark_estimates(self):
         for value in (float("nan"), float("inf")):

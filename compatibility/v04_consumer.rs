@@ -17,6 +17,20 @@ use std::io::{Read, Result, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[cfg(windows)]
+use std::ffi::c_void;
+#[cfg(windows)]
+use std::os::windows::io::AsRawHandle;
+
+#[cfg(windows)]
+const HANDLE_FLAG_INHERIT: u32 = 1;
+
+#[cfg(windows)]
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    fn GetHandleInformation(object: *mut c_void, flags: *mut u32) -> i32;
+}
+
 use fs2::{
     allocation_granularity, available_space, free_space, lock_contended_error, statvfs,
     total_space, FileExt, FsStats,
@@ -106,6 +120,19 @@ fn verify_duplicate_and_allocation(path: &Path) -> Result<()> {
     original.write_all(b"fs2")?;
 
     let mut duplicate = FileExt::duplicate(&original)?;
+    #[cfg(windows)]
+    {
+        let mut flags = 0;
+        let result = unsafe {
+            // SAFETY: `duplicate` owns a valid handle and `flags` is writable output storage.
+            GetHandleInformation(duplicate.as_raw_handle(), &mut flags)
+        };
+        if result == 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        assert_ne!(flags & HANDLE_FLAG_INHERIT, 0);
+    }
+
     let mut at_shared_offset = Vec::new();
     duplicate.read_to_end(&mut at_shared_offset)?;
     assert!(at_shared_offset.is_empty());
