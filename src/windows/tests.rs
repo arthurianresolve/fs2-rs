@@ -18,6 +18,17 @@ use super::{
 use crate::{FileExt, FilesystemCounters, SpaceKind, lock_contended_error};
 use tempfile::tempdir;
 
+const HRESULT_ACCESS_DENIED: i32 = 0x8007_0005_u32 as i32;
+const PATH_ERROR_ENCODINGS: [(u32, i32); 7] = [
+    (ERROR_BAD_NETPATH, 0x8007_0035_u32 as i32),
+    (ERROR_BAD_PATHNAME, 0x8007_00a1_u32 as i32),
+    (ERROR_DIRECTORY, 0x8007_010b_u32 as i32),
+    (ERROR_INVALID_DRIVE, 0x8007_000f_u32 as i32),
+    (ERROR_INVALID_NAME, 0x8007_007b_u32 as i32),
+    (ERROR_INVALID_PARAMETER, 0x8007_0057_u32 as i32),
+    (ERROR_PATH_NOT_FOUND, 0x8007_0003_u32 as i32),
+];
+
 #[test]
 fn maps_modern_disk_space_information() {
     let info = DISK_SPACE_INFORMATION {
@@ -224,10 +235,7 @@ fn exact_drive_root_scalar_errors_match_canonical_resolution() {
 
 #[test]
 fn exact_drive_root_preserves_provider_errors() {
-    for code in [
-        ERROR_ACCESS_DENIED as i32,
-        hresult_from_win32(ERROR_ACCESS_DENIED),
-    ] {
+    for code in [ERROR_ACCESS_DENIED as i32, HRESULT_ACCESS_DENIED] {
         let error = std::io::Error::from_raw_os_error(code);
 
         assert!(matches!(
@@ -238,17 +246,20 @@ fn exact_drive_root_preserves_provider_errors() {
 }
 
 #[test]
+fn win32_errors_map_to_documented_hresult_values() {
+    assert_eq!(
+        hresult_from_win32(ERROR_ACCESS_DENIED),
+        HRESULT_ACCESS_DENIED
+    );
+    for (win32_error, hresult) in PATH_ERROR_ENCODINGS {
+        assert_eq!(hresult_from_win32(win32_error), hresult);
+    }
+}
+
+#[test]
 fn exact_drive_root_only_resolves_volume_for_path_errors() {
-    for win32_error in [
-        ERROR_BAD_NETPATH,
-        ERROR_BAD_PATHNAME,
-        ERROR_DIRECTORY,
-        ERROR_INVALID_DRIVE,
-        ERROR_INVALID_NAME,
-        ERROR_INVALID_PARAMETER,
-        ERROR_PATH_NOT_FOUND,
-    ] {
-        for code in [win32_error as i32, hresult_from_win32(win32_error)] {
+    for (win32_error, hresult) in PATH_ERROR_ENCODINGS {
+        for code in [win32_error as i32, hresult] {
             let error = std::io::Error::from_raw_os_error(code);
             assert!(matches!(
                 exact_root_space(Err(error)),
