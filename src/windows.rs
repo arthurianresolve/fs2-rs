@@ -42,11 +42,10 @@ pub(crate) struct StatsQuery {
 
 impl StatsQuery {
     pub(crate) fn new(path: &Path) -> Result<Self> {
+        let path = wide_path(path);
         let mut root_path = [0; VOLUME_PATH_CAPACITY];
-        if let Some(drive_root) = exact_drive_root(path) {
-            root_path[..drive_root.len()].copy_from_slice(&drive_root);
-        } else {
-            volume_path(&wide_path(path), &mut root_path)?;
+        if !copy_exact_drive_root(&path, &mut root_path) {
+            volume_path(&path, &mut root_path)?;
         }
         Ok(Self { root_path })
     }
@@ -163,24 +162,20 @@ fn wide_path(path: &Path) -> Vec<u16> {
     path.as_os_str().encode_wide().chain(Some(0)).collect()
 }
 
-fn exact_drive_root(path: &Path) -> Option<[u16; 4]> {
-    if path.as_os_str().len() != 3 {
-        return None;
-    }
-    let mut units = path.as_os_str().encode_wide();
-    let (Some(drive), Some(colon), Some(separator), None) =
-        (units.next(), units.next(), units.next(), units.next())
-    else {
-        return None;
+fn copy_exact_drive_root(path: &[u16], root_path: &mut [u16; VOLUME_PATH_CAPACITY]) -> bool {
+    let [drive, colon, separator, terminator] = path else {
+        return false;
     };
-    let is_drive_letter = (u16::from(b'A')..=u16::from(b'Z')).contains(&drive)
-        || (u16::from(b'a')..=u16::from(b'z')).contains(&drive);
-    let is_separator = separator == u16::from(b'\\') || separator == u16::from(b'/');
-    if !is_drive_letter || colon != u16::from(b':') || !is_separator {
-        return None;
+    let is_drive_letter = (u16::from(b'A')..=u16::from(b'Z')).contains(drive)
+        || (u16::from(b'a')..=u16::from(b'z')).contains(drive);
+    let is_separator = *separator == u16::from(b'\\') || *separator == u16::from(b'/');
+    if !is_drive_letter || *colon != u16::from(b':') || !is_separator || *terminator != 0 {
+        return false;
     }
 
-    Some([drive, colon, u16::from(b'\\'), 0])
+    root_path[..path.len()].copy_from_slice(path);
+    root_path[2] = u16::from(b'\\');
+    true
 }
 
 fn volume_path(path: &[u16], volume_path: &mut [u16]) -> Result<()> {
@@ -300,29 +295,42 @@ fn legacy_statvfs(root_path: &[u16]) -> Result<FilesystemCounters> {
 }
 
 pub(crate) fn space(path: &Path, kind: SpaceKind) -> Result<u64> {
-    let drive_root = exact_drive_root(path);
-    if let Some(drive_root) = drive_root {
-        if let Some(value) = direct_space(&drive_root, kind) {
-            return Ok(value);
-        }
-        match root_space(&drive_root, kind) {
-            Ok(value) => return Ok(value),
-            Err(error) if is_volume_resolution_error(&error) => {}
-            Err(error) => return Err(error),
-        }
-    }
-
     let path_utf16 = wide_path(path);
-    if drive_root.is_none() && path.is_absolute() {
-        if let Some(value) = direct_space(&path_utf16, kind) {
-            return Ok(value);
+    if path.is_absolute() {
+        match direct_space(&path_utf16, kind) {
+            DirectSpace::Hit(value) => return Ok(value),
+            DirectSpace::Unavailable => {}
         }
     }
 
     let mut root_path = [0u16; VOLUME_PATH_CAPACITY];
+    if copy_exact_drive_root(&path_utf16, &mut root_path) {
+        match exact_root_space(root_space(&root_path, kind)) {
+            ExactRootSpace::Hit(value) => return Ok(value),
+            ExactRootSpace::ResolveVolume => {}
+            ExactRootSpace::Failed(error) => return Err(error),
+        }
+    }
+
+    root_path.fill(0);
     volume_path(&path_utf16, &mut root_path)?;
 
     root_space(&root_path, kind)
+}
+
+#[derive(Debug)]
+enum ExactRootSpace {
+    Hit(u64),
+    ResolveVolume,
+    Failed(Error),
+}
+
+fn exact_root_space(result: Result<u64>) -> ExactRootSpace {
+    match result {
+        Ok(value) => ExactRootSpace::Hit(value),
+        Err(error) if is_volume_resolution_error(&error) => ExactRootSpace::ResolveVolume,
+        Err(error) => ExactRootSpace::Failed(error),
+    }
 }
 
 fn is_volume_resolution_error(error: &Error) -> bool {
@@ -351,9 +359,15 @@ fn root_space(root_path: &[u16], kind: SpaceKind) -> Result<u64> {
     )
 }
 
-fn direct_space(path: &[u16], kind: SpaceKind) -> Option<u64> {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DirectSpace {
+    Hit(u64),
+    Unavailable,
+}
+
+fn direct_space(path: &[u16], kind: SpaceKind) -> DirectSpace {
     if matches!(kind, SpaceKind::Total | SpaceKind::AllocationGranularity) {
-        return None;
+        return DirectSpace::Unavailable;
     }
     let mut caller_available = 0;
     let mut actual_free = 0;
@@ -367,12 +381,12 @@ fn direct_space(path: &[u16], kind: SpaceKind) -> Option<u64> {
         )
     };
     if ret == 0 || caller_available > actual_free {
-        None
+        DirectSpace::Unavailable
     } else {
         match kind {
-            SpaceKind::Free => Some(actual_free),
-            SpaceKind::Available => Some(caller_available),
-            SpaceKind::Total | SpaceKind::AllocationGranularity => None,
+            SpaceKind::Free => DirectSpace::Hit(actual_free),
+            SpaceKind::Available => DirectSpace::Hit(caller_available),
+            SpaceKind::Total | SpaceKind::AllocationGranularity => DirectSpace::Unavailable,
         }
     }
 }

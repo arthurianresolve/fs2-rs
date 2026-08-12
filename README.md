@@ -91,19 +91,20 @@ subject with `--baseline-package fs4` or `--candidate-package fs4`. It excludes
 file duplication because fs4 does not expose an equivalent operation. Same-lock
 comparisons are required by default; use `--allow-different-locks` explicitly
 when comparing releases with different dependency graphs, such as upstream
-v0.4.3, v0.5, and fs4. The performance command defaults to 24 alternating pairs
-across six independent build replicates. A workload passes when its one-sided
-95% upper confidence bound stays at or below parity or within the default 5%
-non-inferiority margin. Set `--non-inferiority-margin 0` to require zero-margin
-non-regression, or choose another explicit maximum acceptable slowdown. The
-command exits unsuccessfully when any selected workload exceeds the margin. It
-freezes both subjects before the first build so edits to a live checkout cannot
-contaminate later replicates; use
+v0.4.3, v0.5, and fs4. The performance command requires at least 24 alternating
+pairs across six independent build replicates. It computes exact,
+distribution-free one-sided 95% confidence bounds for the median ratio. A
+workload passes by default only when its upper bound stays at or below parity.
+A nonzero `--non-inferiority-margin` is an explicit maximum acceptable slowdown;
+for example, `--non-inferiority-margin 0.01` permits a 1% non-inferiority limit.
+The command exits unsuccessfully when any selected workload exceeds its applied
+limit. It freezes both subjects before the first build so edits to a live
+checkout cannot contaminate later replicates; use
 a benchmark-name filter to keep targeted comparisons practical. Pair counts
-must be a multiple of eight so physical build placement and execution order
-remain balanced. For private refactors, every comparison still requires paired
-timing; object-file equality is not used as a substitute because public generic
-code is generated in the consumer crate.
+must be a multiple of eight and at least 24 so physical build placement,
+execution order, and the confidence claim remain valid. For private refactors,
+every comparison still requires paired timing; object-file equality is not used
+as a substitute because public generic code is generated in the consumer crate.
 
 ## License
 

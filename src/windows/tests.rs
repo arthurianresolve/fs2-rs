@@ -11,9 +11,9 @@ use windows_sys::Win32::Foundation::{
 use windows_sys::Win32::Storage::FileSystem::DISK_SPACE_INFORMATION;
 
 use super::{
-    E_NOTIMPL, VOLUME_PATH_CAPACITY, VOLUME_PATH_NOT_FOUND_STATUS,
-    counters_from_disk_space_information, direct_space, exact_drive_root, hresult_from_win32,
-    is_volume_resolution_error, legacy_statvfs, modern_statvfs, modern_statvfs_unavailable,
+    DirectSpace, E_NOTIMPL, ExactRootSpace, VOLUME_PATH_CAPACITY, VOLUME_PATH_NOT_FOUND_STATUS,
+    copy_exact_drive_root, counters_from_disk_space_information, direct_space, exact_root_space,
+    hresult_from_win32, legacy_statvfs, modern_statvfs, modern_statvfs_unavailable,
     modern_statvfs_with, space, volume_path, wide_path,
 };
 use crate::{FileExt, FilesystemCounters, SpaceKind, lock_contended_error};
@@ -145,9 +145,17 @@ fn direct_directory_space_uses_narrow_queries() {
     let tempdir = tempdir().unwrap();
     let path = wide_path(tempdir.path());
 
-    assert!(direct_space(&path, SpaceKind::Free).is_some());
-    assert!(direct_space(&path, SpaceKind::Available).is_some());
-    assert_eq!(direct_space(&path, SpaceKind::Total), None);
+    let DirectSpace::Hit(_) = direct_space(&path, SpaceKind::Free) else {
+        panic!("direct free-space query unexpectedly required fallback");
+    };
+    let DirectSpace::Hit(_) = direct_space(&path, SpaceKind::Available) else {
+        panic!("direct available-space query unexpectedly required fallback");
+    };
+
+    assert!(matches!(
+        direct_space(&path, SpaceKind::Total),
+        DirectSpace::Unavailable
+    ));
 }
 
 #[test]
@@ -156,19 +164,31 @@ fn direct_file_space_falls_back_to_canonical_provider() {
     let path = tempdir.path().join("fs2");
     fs::write(&path, []).unwrap();
 
-    assert_eq!(direct_space(&wide_path(&path), SpaceKind::Free), None);
+    assert_eq!(
+        direct_space(&wide_path(&path), SpaceKind::Free),
+        DirectSpace::Unavailable
+    );
     assert!(space(&path, SpaceKind::Free).is_ok());
 }
 
 #[test]
-fn recognizes_only_exact_drive_roots() {
+fn copies_only_exact_drive_roots() {
+    let mut root_path = [0; VOLUME_PATH_CAPACITY];
+    assert!(copy_exact_drive_root(
+        &wide_path(std::path::Path::new("c:/")),
+        &mut root_path
+    ));
     assert_eq!(
-        exact_drive_root(std::path::Path::new("c:/")),
-        Some([u16::from(b'c'), u16::from(b':'), u16::from(b'\\'), 0])
+        &root_path[..4],
+        &[u16::from(b'c'), u16::from(b':'), u16::from(b'\\'), 0]
     );
 
     for path in ["C:", r"C:\directory", r"\", r"\\server\share\"] {
-        assert_eq!(exact_drive_root(std::path::Path::new(path)), None);
+        root_path.fill(0);
+        assert!(!copy_exact_drive_root(
+            &wide_path(std::path::Path::new(path)),
+            &mut root_path
+        ));
     }
 }
 
@@ -222,10 +242,14 @@ fn exact_drive_root_scalar_errors_match_canonical_resolution() {
 }
 
 #[test]
-fn provider_errors_do_not_trigger_volume_resolution() {
+fn exact_drive_root_preserves_provider_errors() {
     for code in [ERROR_ACCESS_DENIED as i32, HRESULT_ACCESS_DENIED] {
         let error = std::io::Error::from_raw_os_error(code);
-        assert!(!is_volume_resolution_error(&error));
+
+        assert!(matches!(
+            exact_root_space(Err(error)),
+            ExactRootSpace::Failed(error) if error.raw_os_error() == Some(code)
+        ));
     }
 }
 
@@ -259,12 +283,18 @@ fn exact_drive_root_only_resolves_volume_for_path_errors() {
     for (win32_error, hresult) in PATH_ERROR_ENCODINGS {
         for code in [win32_error as i32, hresult] {
             let error = std::io::Error::from_raw_os_error(code);
-            assert!(is_volume_resolution_error(&error));
+            assert!(matches!(
+                exact_root_space(Err(error)),
+                ExactRootSpace::ResolveVolume
+            ));
         }
     }
 
     let error = std::io::Error::from_raw_os_error(HRESULT_OBJECT_PATH_NOT_FOUND);
-    assert!(is_volume_resolution_error(&error));
+    assert!(matches!(
+        exact_root_space(Err(error)),
+        ExactRootSpace::ResolveVolume
+    ));
 }
 
 #[test]

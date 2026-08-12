@@ -56,10 +56,12 @@ remain canonical. Performance comparisons use one byte-identical benchmark
 workload and dependency lock for both checkouts, counterbalance execution order
 and physical A/B build slots on the same host and filesystem, balance logical
 left/right placement across independent build replicates, and reject candidates
-whose one-sided confidence bound exceeds the explicit non-inferiority margin.
-Both subjects are frozen before replicate staging so a long run cannot observe
-live checkout edits. Confidence is computed from
-build-replicate medians, not repeated runs of the same binaries. A pure policy
-module owns pairing, replicate aggregation, bootstrap, and decision rules;
-orchestration owns staging and Criterion execution. The oracle is tooling-only
-and does not enter the production dependency graph or call path.
+whose exact, distribution-free one-sided 95% median bound exceeds the applied
+non-inferiority margin. The default margin is zero; a nonzero slowdown allowance
+must be supplied explicitly. Both subjects are frozen before replicate staging
+so a long run cannot observe live checkout edits. Confidence is computed from
+at least six build-replicate medians, not repeated runs of the same binaries. A
+pure policy module owns pairing, replicate aggregation, exact confidence bounds,
+applied policy context, and decision rules; orchestration owns staging and
+Criterion execution. The oracle is tooling-only and does not enter the
+production dependency graph or call path.

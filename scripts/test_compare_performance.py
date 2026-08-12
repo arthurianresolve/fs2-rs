@@ -22,25 +22,34 @@ from compare_performance import (
     subject_arguments,
 )
 from performance_policy import (
+    CONFIDENCE_LEVEL,
     INCONCLUSIVE_OR_SLOWER,
     NON_INFERIOR,
     PASS,
     alternating_order,
-    bootstrap_median_bounds,
-    bootstrap_upper_bound,
     evaluate,
+    exact_median_bounds,
     pair_plan,
     ratios_by_benchmark,
     summarize_replicate,
 )
 
 
+def paired_operation_ratios(
+    *ratios: float,
+) -> list[tuple[dict[str, float], dict[str, float]]]:
+    return [({"operation": 1.0}, {"operation": ratio}) for ratio in ratios]
+
+
 class PerformanceComparisonTests(unittest.TestCase):
     def test_pair_count_balances_logical_build_placement(self):
-        self.assertEqual(balanced_pair_count("8"), 8)
         self.assertEqual(balanced_pair_count("24"), 24)
-        with self.assertRaisesRegex(argparse.ArgumentTypeError, "balance build placement"):
-            balanced_pair_count("12")
+        self.assertEqual(balanced_pair_count("32"), 32)
+        for value in ("8", "12", "16"):
+            with self.assertRaisesRegex(
+                argparse.ArgumentTypeError, "at least six independent build replicates"
+            ):
+                balanced_pair_count(value)
 
     def test_non_inferiority_margin_is_a_fraction(self):
         self.assertEqual(non_inferiority_margin("0"), 0)
@@ -64,6 +73,13 @@ class PerformanceComparisonTests(unittest.TestCase):
         )
 
         self.assertEqual(args.non_inferiority_margin, 0.03)
+
+    def test_non_inferiority_margin_defaults_to_zero(self):
+        args = parse_arguments(
+            ["--baseline", str(ROOT), "--candidate", str(ROOT.parent)]
+        )
+
+        self.assertEqual(args.non_inferiority_margin, 0.0)
 
     @mock.patch("compare_performance.subprocess.run")
     def test_successful_cargo_output_is_quiet(self, run):
@@ -127,76 +143,80 @@ class PerformanceComparisonTests(unittest.TestCase):
             ],
         )
 
-    def test_bootstrap_upper_bound_is_deterministic(self):
-        ratios = [0.98, 0.99, 1.0, 0.99, 0.98]
-
+    def test_exact_median_bounds_use_extremes_for_six_replicates(self):
         self.assertEqual(
-            bootstrap_upper_bound(ratios, 1_000),
-            bootstrap_upper_bound(ratios, 1_000),
+            exact_median_bounds([0.97, 0.98, 0.99, 1.0, 1.01, 1.02]),
+            (0.97, 1.02),
         )
-        self.assertLessEqual(bootstrap_upper_bound(ratios, 1_000), 1.0)
 
-    def test_bootstrap_bounds_enclose_the_median(self):
-        ratios = [0.97, 0.98, 0.99, 1.0, 1.01]
+    def test_exact_median_bounds_tighten_at_eight_replicates(self):
+        self.assertEqual(
+            exact_median_bounds([0.93, 0.95, 0.97, 0.99, 1.01, 1.03, 1.05, 1.07]),
+            (0.95, 1.05),
+        )
 
-        lower, upper = bootstrap_median_bounds(ratios, 1_000)
-
-        self.assertLessEqual(lower, 0.99)
-        self.assertGreaterEqual(upper, 0.99)
+    def test_exact_median_bounds_reject_insufficient_replicates(self):
+        with self.assertRaisesRegex(ValueError, "at least 5 independent replicates"):
+            exact_median_bounds([0.98, 0.99, 1.0, 1.01])
 
     def test_evaluates_faster_candidate_as_pass(self):
-        paired = [
-            ({"operation": 100.0}, {"operation": 90.0}),
-            ({"operation": 102.0}, {"operation": 91.0}),
-        ]
+        paired = paired_operation_ratios(0.94, 0.95, 0.96, 0.97, 0.98, 0.99)
 
-        report = evaluate(paired, 1_000)
+        report = evaluate(paired)
 
         self.assertTrue(report.passed)
         self.assertEqual(report.decisions[0].decision, PASS)
 
-    def test_accepts_candidate_within_non_inferiority_margin(self):
-        paired = [
-            ({"operation": 100.0}, {"operation": 102.0}),
-            ({"operation": 100.0}, {"operation": 103.0}),
-        ]
+    def test_accepts_explicit_one_percent_non_inferiority(self):
+        paired = paired_operation_ratios(0.995, 0.998, 1.001, 1.004, 1.007, 1.009)
 
-        report = evaluate(paired, 1_000)
+        report = evaluate(paired, non_inferiority_margin=0.01)
 
         self.assertTrue(report.passed)
         self.assertEqual(report.decisions[0].decision, NON_INFERIOR)
+        self.assertEqual(report.non_inferiority_margin, 0.01)
+        self.assertEqual(report.non_inferiority_limit, 1.01)
+        self.assertEqual(report.confidence_level, CONFIDENCE_LEVEL)
+        self.assertEqual(report.replicate_count, 6)
 
-    def test_rejects_candidate_outside_non_inferiority_margin(self):
-        paired = [
-            ({"operation": 100.0}, {"operation": 106.0}),
-            ({"operation": 100.0}, {"operation": 107.0}),
-        ]
+    def test_rejects_candidate_outside_explicit_margin(self):
+        paired = paired_operation_ratios(0.99, 1.0, 1.005, 1.008, 1.01, 1.011)
 
-        report = evaluate(paired, 1_000)
+        report = evaluate(paired, non_inferiority_margin=0.01)
 
         self.assertFalse(report.passed)
         self.assertEqual(report.decisions[0].decision, INCONCLUSIVE_OR_SLOWER)
 
-    def test_zero_margin_requires_upper_bound_at_parity(self):
-        paired = [
-            ({"operation": 100.0}, {"operation": 101.0}),
-            ({"operation": 100.0}, {"operation": 102.0}),
-        ]
+    def test_default_zero_margin_rejects_a_slower_candidate(self):
+        paired = paired_operation_ratios(1.001, 1.002, 1.003, 1.004, 1.005, 1.006)
 
-        report = evaluate(paired, 1_000, non_inferiority_margin=0)
+        report = evaluate(paired)
 
         self.assertFalse(report.passed)
 
+    def test_evaluate_rejects_insufficient_replicates(self):
+        with self.assertRaisesRegex(ValueError, "at least 6 independent replicates"):
+            evaluate(paired_operation_ratios(0.98, 0.99, 1.0, 1.01, 1.02))
+
     def test_rejects_invalid_non_inferiority_margin(self):
-        paired = [({"operation": 100.0}, {"operation": 100.0})]
+        paired = paired_operation_ratios(1.0, 1.0, 1.0, 1.0, 1.0, 1.0)
 
         for margin in (-0.01, 1.0):
             with self.assertRaisesRegex(ValueError, "non-inferiority margin"):
-                evaluate(paired, 1_000, non_inferiority_margin=margin)
+                evaluate(paired, non_inferiority_margin=margin)
 
     def test_rejects_mismatched_benchmark_sets(self):
         with self.assertRaisesRegex(ValueError, "different benchmark sets"):
-            evaluate([({"first": 1.0}, {"second": 1.0})], 1_000)
+            evaluate([({"first": 1.0}, {"second": 1.0})] * 6)
+
+    def test_rejects_non_finite_benchmark_estimates(self):
+        for value in (float("nan"), float("inf")):
+            with self.assertRaisesRegex(ValueError, "finite and positive"):
+                ratios_by_benchmark([({"operation": value}, {"operation": 1.0})])
+
+    def test_rejects_non_finite_benchmark_ratios(self):
+        with self.assertRaisesRegex(ValueError, "benchmark ratios must be finite"):
+            ratios_by_benchmark([({"operation": 5e-324}, {"operation": 1e308})])
 
     def test_computes_ratios_by_benchmark(self):
         paired = [

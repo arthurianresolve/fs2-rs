@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
-import random
 import statistics
 from dataclasses import dataclass
+from math import comb, isfinite
 
 
 PASS = "pass"
 NON_INFERIOR = "non-inferior"
 INCONCLUSIVE_OR_SLOWER = "inconclusive-or-slower"
-DEFAULT_NON_INFERIORITY_MARGIN = 0.05
+DEFAULT_NON_INFERIORITY_MARGIN = 0.0
+ONE_SIDED_ALPHA = 0.05
+CONFIDENCE_LEVEL = 1.0 - ONE_SIDED_ALPHA
+MIN_EXACT_MEDIAN_SAMPLES = 5
+MIN_GATING_REPLICATES = 6
+PAIRS_PER_BUILD_REPLICATE = 4
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,6 +34,13 @@ class BenchmarkDecision:
 @dataclass(frozen=True, slots=True)
 class ComparisonReport:
     decisions: tuple[BenchmarkDecision, ...]
+    non_inferiority_margin: float
+    confidence_level: float
+    replicate_count: int
+
+    @property
+    def non_inferiority_limit(self) -> float:
+        return 1.0 + self.non_inferiority_margin
 
     @property
     def passed(self) -> bool:
@@ -52,33 +64,31 @@ def alternating_order(pair_index: int) -> tuple[str, str]:
 
 def pair_plan(pair_index: int) -> PairPlan:
     order = alternating_order(pair_index)
-    if pair_index % 4 < 2:
+    if pair_index % PAIRS_PER_BUILD_REPLICATE < PAIRS_PER_BUILD_REPLICATE // 2:
         return PairPlan("a", "b", order)
     return PairPlan("b", "a", order)
 
 
-def bootstrap_median_bounds(
-    ratios: list[float], resamples: int
-) -> tuple[float, float]:
-    if not ratios:
-        raise ValueError("at least one ratio is required")
-    if resamples < 1:
-        raise ValueError("at least one bootstrap resample is required")
-
-    rng = random.Random(0)
+def exact_median_bounds(ratios: list[float]) -> tuple[float, float]:
+    """Return exact distribution-free one-sided confidence bounds for the median."""
     count = len(ratios)
-    medians = [
-        statistics.median(ratios[rng.randrange(count)] for _ in range(count))
-        for _ in range(resamples)
-    ]
-    medians.sort()
-    lower = medians[min(len(medians) - 1, int(0.05 * len(medians)))]
-    upper = medians[min(len(medians) - 1, int(0.95 * len(medians)))]
-    return lower, upper
+    if count < MIN_EXACT_MEDIAN_SAMPLES:
+        raise ValueError(
+            f"at least {MIN_EXACT_MEDIAN_SAMPLES} independent replicates are required "
+            f"for finite one-sided {CONFIDENCE_LEVEL:.0%} median bounds"
+        )
 
+    rank = 0
+    tail_outcomes = 0
+    all_outcomes = 1 << count
+    for observations in range(count):
+        tail_outcomes += comb(count, observations)
+        if tail_outcomes / all_outcomes > ONE_SIDED_ALPHA:
+            break
+        rank = observations + 1
 
-def bootstrap_upper_bound(ratios: list[float], resamples: int) -> float:
-    return bootstrap_median_bounds(ratios, resamples)[1]
+    ordered = sorted(ratios)
+    return ordered[rank - 1], ordered[-rank]
 
 
 def ratios_by_benchmark(
@@ -100,9 +110,17 @@ def ratios_by_benchmark(
         for baseline, candidate in paired_results:
             baseline_estimate = baseline[benchmark]
             candidate_estimate = candidate[benchmark]
-            if baseline_estimate <= 0 or candidate_estimate <= 0:
-                raise ValueError("benchmark estimates must be positive")
-            ratios[benchmark].append(candidate_estimate / baseline_estimate)
+            if (
+                not isfinite(baseline_estimate)
+                or not isfinite(candidate_estimate)
+                or baseline_estimate <= 0
+                or candidate_estimate <= 0
+            ):
+                raise ValueError("benchmark estimates must be finite and positive")
+            ratio = candidate_estimate / baseline_estimate
+            if not isfinite(ratio):
+                raise ValueError("benchmark ratios must be finite")
+            ratios[benchmark].append(ratio)
     return ratios
 
 
@@ -119,20 +137,25 @@ def summarize_replicate(
 
 def evaluate(
     paired_results: list[tuple[dict[str, float], dict[str, float]]],
-    bootstrap_resamples: int,
     non_inferiority_margin: float = DEFAULT_NON_INFERIORITY_MARGIN,
 ) -> ComparisonReport:
     if not 0 <= non_inferiority_margin < 1:
         raise ValueError("non-inferiority margin must be at least 0 and less than 1")
 
     non_inferiority_limit = 1 + non_inferiority_margin
-    decisions = []
-    for benchmark, ratios in ratios_by_benchmark(paired_results).items():
-
-        median_ratio = statistics.median(ratios)
-        lower_bound, upper_bound = bootstrap_median_bounds(
-            ratios, bootstrap_resamples
+    ratios = ratios_by_benchmark(paired_results)
+    replicate_count = len(paired_results)
+    if replicate_count < MIN_GATING_REPLICATES:
+        raise ValueError(
+            f"at least {MIN_GATING_REPLICATES} independent replicates are required "
+            "for a gating decision"
         )
+
+    decisions = []
+    for benchmark, benchmark_ratios in ratios.items():
+
+        median_ratio = statistics.median(benchmark_ratios)
+        lower_bound, upper_bound = exact_median_bounds(benchmark_ratios)
         if upper_bound <= 1.0:
             decision = PASS
         elif upper_bound <= non_inferiority_limit:
@@ -145,4 +168,9 @@ def evaluate(
             )
         )
 
-    return ComparisonReport(tuple(decisions))
+    return ComparisonReport(
+        decisions=tuple(decisions),
+        non_inferiority_margin=non_inferiority_margin,
+        confidence_level=CONFIDENCE_LEVEL,
+        replicate_count=replicate_count,
+    )

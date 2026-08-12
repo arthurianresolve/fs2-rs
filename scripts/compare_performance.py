@@ -14,6 +14,8 @@ from pathlib import Path
 
 from performance_policy import (
     DEFAULT_NON_INFERIORITY_MARGIN,
+    MIN_GATING_REPLICATES,
+    PAIRS_PER_BUILD_REPLICATE,
     evaluate,
     pair_plan,
     summarize_replicate,
@@ -30,6 +32,7 @@ BENCHMARKS_BY_NAME = {
     "fs_compat": BENCHMARKS / "benches" / "fs_compat.rs",
 }
 SUBJECT_PACKAGES = ("fs2", "fs4")
+MIN_GATING_PAIRS = PAIRS_PER_BUILD_REPLICATE * MIN_GATING_REPLICATES
 
 
 def fail(message: str) -> None:
@@ -38,9 +41,10 @@ def fail(message: str) -> None:
 
 def balanced_pair_count(value: str) -> int:
     pairs = int(value)
-    if pairs < 8 or pairs % 8 != 0:
+    if pairs < MIN_GATING_PAIRS or pairs % 8 != 0:
         raise argparse.ArgumentTypeError(
-            "must be a multiple of 8 and at least 8 to balance build placement"
+            f"must be a multiple of 8 and at least {MIN_GATING_PAIRS} to provide "
+            "at least six independent build replicates"
         )
     return pairs
 
@@ -254,7 +258,7 @@ def compare(args: argparse.Namespace) -> None:
         }
         paired: list[tuple[dict[str, float], dict[str, float]]] = []
         reference_locks: tuple[bytes, bytes] | None = None
-        build_replicates = args.pairs // 4
+        build_replicates = args.pairs // PAIRS_PER_BUILD_REPLICATE
         print(f"independent build replicates: {build_replicates}")
         for replicate in range(build_replicates):
             replicate_root = temporary_root / f"replicate-{replicate:03d}"
@@ -350,8 +354,8 @@ def compare(args: argparse.Namespace) -> None:
                 )
 
             replicate_pairs: list[tuple[dict[str, float], dict[str, float]]] = []
-            for local_pair in range(4):
-                pair = replicate * 4 + local_pair
+            for local_pair in range(PAIRS_PER_BUILD_REPLICATE):
+                pair = replicate * PAIRS_PER_BUILD_REPLICATE + local_pair
                 plan = pair_plan(local_pair)
                 slots = {
                     "baseline": plan.baseline_slot,
@@ -387,7 +391,6 @@ def compare(args: argparse.Namespace) -> None:
     try:
         report = evaluate(
             paired,
-            args.bootstrap_resamples,
             args.non_inferiority_margin,
         )
     except ValueError as error:
@@ -395,12 +398,15 @@ def compare(args: argparse.Namespace) -> None:
 
     print(
         "non-inferiority margin="
-        f"{args.non_inferiority_margin:.2%} "
-        f"(upper-bound limit={1 + args.non_inferiority_margin:.6f})"
+        f"{report.non_inferiority_margin:.2%} "
+        f"(upper-bound limit={report.non_inferiority_limit:.6f}; "
+        f"confidence={report.confidence_level:.0%}; "
+        f"replicates={report.replicate_count})"
     )
     print(
-        "benchmark\tmedian candidate/baseline\tone-sided 95% lower\t"
-        "one-sided 95% upper\tdecision"
+        "benchmark\tmedian candidate/baseline\texact one-sided "
+        f"{report.confidence_level:.0%} lower\texact one-sided "
+        f"{report.confidence_level:.0%} upper\tdecision"
     )
     for decision in report.decisions:
         print(
@@ -448,7 +454,6 @@ def parse_arguments(arguments: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--sample-size", type=int, default=10)
     parser.add_argument("--warm-up-time", type=float, default=0.5)
     parser.add_argument("--measurement-time", type=float, default=1.0)
-    parser.add_argument("--bootstrap-resamples", type=int, default=10_000)
     parser.add_argument(
         "--non-inferiority-margin",
         type=non_inferiority_margin,
@@ -456,7 +461,7 @@ def parse_arguments(arguments: list[str] | None = None) -> argparse.Namespace:
         help=(
             "largest acceptable candidate slowdown as a fraction; "
             "0 requires the upper bound to stay at or below parity "
-            "(default: 0.05)"
+            "(default: %(default)s)"
         ),
     )
     args = parser.parse_args(arguments)
@@ -465,9 +470,6 @@ def parse_arguments(arguments: list[str] | None = None) -> argparse.Namespace:
         parser.error("--sample-size must be at least 10")
     if args.warm_up_time <= 0 or args.measurement_time <= 0:
         parser.error("benchmark times must be positive")
-    if args.bootstrap_resamples < 1_000:
-        parser.error("--bootstrap-resamples must be at least 1000")
-
     return args
 
 
