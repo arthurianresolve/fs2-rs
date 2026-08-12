@@ -8,7 +8,9 @@ from dataclasses import dataclass
 
 
 PASS = "pass"
+NON_INFERIOR = "non-inferior"
 INCONCLUSIVE_OR_SLOWER = "inconclusive-or-slower"
+DEFAULT_NON_INFERIORITY_MARGIN = 0.05
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,7 +23,7 @@ class BenchmarkDecision:
 
     @property
     def passed(self) -> bool:
-        return self.decision == PASS
+        return self.decision in (PASS, NON_INFERIOR)
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,7 +120,12 @@ def summarize_replicate(
 def evaluate(
     paired_results: list[tuple[dict[str, float], dict[str, float]]],
     bootstrap_resamples: int,
+    non_inferiority_margin: float = DEFAULT_NON_INFERIORITY_MARGIN,
 ) -> ComparisonReport:
+    if not 0 <= non_inferiority_margin < 1:
+        raise ValueError("non-inferiority margin must be at least 0 and less than 1")
+
+    non_inferiority_limit = 1 + non_inferiority_margin
     decisions = []
     for benchmark, ratios in ratios_by_benchmark(paired_results).items():
 
@@ -126,7 +133,12 @@ def evaluate(
         lower_bound, upper_bound = bootstrap_median_bounds(
             ratios, bootstrap_resamples
         )
-        decision = PASS if upper_bound <= 1.0 else INCONCLUSIVE_OR_SLOWER
+        if upper_bound <= 1.0:
+            decision = PASS
+        elif upper_bound <= non_inferiority_limit:
+            decision = NON_INFERIOR
+        else:
+            decision = INCONCLUSIVE_OR_SLOWER
         decisions.append(
             BenchmarkDecision(
                 benchmark, median_ratio, lower_bound, upper_bound, decision

@@ -15,12 +15,15 @@ from compare_performance import (
     cargo,
     criterion_output_root,
     freeze_repositories,
+    non_inferiority_margin,
+    parse_arguments,
     prepare_subject,
     stage_repository,
     subject_arguments,
 )
 from performance_policy import (
     INCONCLUSIVE_OR_SLOWER,
+    NON_INFERIOR,
     PASS,
     alternating_order,
     bootstrap_median_bounds,
@@ -38,6 +41,29 @@ class PerformanceComparisonTests(unittest.TestCase):
         self.assertEqual(balanced_pair_count("24"), 24)
         with self.assertRaisesRegex(argparse.ArgumentTypeError, "balance build placement"):
             balanced_pair_count("12")
+
+    def test_non_inferiority_margin_is_a_fraction(self):
+        self.assertEqual(non_inferiority_margin("0"), 0)
+        self.assertEqual(non_inferiority_margin("0.05"), 0.05)
+        for value in ("-0.01", "1"):
+            with self.assertRaisesRegex(
+                argparse.ArgumentTypeError, "at least 0 and less than 1"
+            ):
+                non_inferiority_margin(value)
+
+    def test_non_inferiority_option_reaches_comparison_namespace(self):
+        args = parse_arguments(
+            [
+                "--baseline",
+                str(ROOT),
+                "--candidate",
+                str(ROOT),
+                "--non-inferiority-margin",
+                "0.03",
+            ]
+        )
+
+        self.assertEqual(args.non_inferiority_margin, 0.03)
 
     @mock.patch("compare_performance.subprocess.run")
     def test_successful_cargo_output_is_quiet(self, run):
@@ -129,16 +155,44 @@ class PerformanceComparisonTests(unittest.TestCase):
         self.assertTrue(report.passed)
         self.assertEqual(report.decisions[0].decision, PASS)
 
-    def test_rejects_inconclusive_or_slower_candidate(self):
+    def test_accepts_candidate_within_non_inferiority_margin(self):
         paired = [
-            ({"operation": 100.0}, {"operation": 101.0}),
-            ({"operation": 99.0}, {"operation": 100.0}),
+            ({"operation": 100.0}, {"operation": 102.0}),
+            ({"operation": 100.0}, {"operation": 103.0}),
+        ]
+
+        report = evaluate(paired, 1_000)
+
+        self.assertTrue(report.passed)
+        self.assertEqual(report.decisions[0].decision, NON_INFERIOR)
+
+    def test_rejects_candidate_outside_non_inferiority_margin(self):
+        paired = [
+            ({"operation": 100.0}, {"operation": 106.0}),
+            ({"operation": 100.0}, {"operation": 107.0}),
         ]
 
         report = evaluate(paired, 1_000)
 
         self.assertFalse(report.passed)
         self.assertEqual(report.decisions[0].decision, INCONCLUSIVE_OR_SLOWER)
+
+    def test_zero_margin_requires_upper_bound_at_parity(self):
+        paired = [
+            ({"operation": 100.0}, {"operation": 101.0}),
+            ({"operation": 100.0}, {"operation": 102.0}),
+        ]
+
+        report = evaluate(paired, 1_000, non_inferiority_margin=0)
+
+        self.assertFalse(report.passed)
+
+    def test_rejects_invalid_non_inferiority_margin(self):
+        paired = [({"operation": 100.0}, {"operation": 100.0})]
+
+        for margin in (-0.01, 1.0):
+            with self.assertRaisesRegex(ValueError, "non-inferiority margin"):
+                evaluate(paired, 1_000, non_inferiority_margin=margin)
 
     def test_rejects_mismatched_benchmark_sets(self):
         with self.assertRaisesRegex(ValueError, "different benchmark sets"):

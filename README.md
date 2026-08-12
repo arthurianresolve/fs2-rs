@@ -92,9 +92,13 @@ file duplication because fs4 does not expose an equivalent operation. Same-lock
 comparisons are required by default; use `--allow-different-locks` explicitly
 when comparing releases with different dependency graphs, such as upstream
 v0.4.3, v0.5, and fs4. The performance command defaults to 24 alternating pairs
-across six independent build replicates and exits unsuccessfully unless every
-selected workload proves non-regression. It freezes both subjects before the
-first build so edits to a live checkout cannot contaminate later replicates; use
+across six independent build replicates. A workload passes when its one-sided
+95% upper confidence bound stays at or below parity or within the default 5%
+non-inferiority margin. Set `--non-inferiority-margin 0` to require zero-margin
+non-regression, or choose another explicit maximum acceptable slowdown. The
+command exits unsuccessfully when any selected workload exceeds the margin. It
+freezes both subjects before the first build so edits to a live checkout cannot
+contaminate later replicates; use
 a benchmark-name filter to keep targeted comparisons practical. Pair counts
 must be a multiple of eight so physical build placement and execution order
 remain balanced. For private refactors, every comparison still requires paired

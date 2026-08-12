@@ -55,9 +55,10 @@ and stable behavior come from the v0.4 reference; intentional v0.5 corrections
 remain canonical. Performance comparisons use one byte-identical benchmark
 workload and dependency lock for both checkouts, counterbalance execution order
 and physical A/B build slots on the same host and filesystem, balance logical
-left/right placement across independent build replicates, and reject
-inconclusive regressions. Both subjects are frozen before replicate staging so a
-long run cannot observe live checkout edits. Confidence is computed from
+left/right placement across independent build replicates, and reject candidates
+whose one-sided confidence bound exceeds the explicit non-inferiority margin.
+Both subjects are frozen before replicate staging so a long run cannot observe
+live checkout edits. Confidence is computed from
 build-replicate medians, not repeated runs of the same binaries. A pure policy
 module owns pairing, replicate aggregation, bootstrap, and decision rules;
 orchestration owns staging and Criterion execution. The oracle is tooling-only

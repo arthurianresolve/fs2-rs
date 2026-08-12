@@ -12,7 +12,12 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from performance_policy import evaluate, pair_plan, summarize_replicate
+from performance_policy import (
+    DEFAULT_NON_INFERIORITY_MARGIN,
+    evaluate,
+    pair_plan,
+    summarize_replicate,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -38,6 +43,13 @@ def balanced_pair_count(value: str) -> int:
             "must be a multiple of 8 and at least 8 to balance build placement"
         )
     return pairs
+
+
+def non_inferiority_margin(value: str) -> float:
+    margin = float(value)
+    if not 0 <= margin < 1:
+        raise argparse.ArgumentTypeError("must be at least 0 and less than 1")
+    return margin
 
 
 def benchmark_workload(name: str) -> Path:
@@ -373,10 +385,19 @@ def compare(args: argparse.Namespace) -> None:
             paired.append(summarize_replicate(replicate_pairs))
 
     try:
-        report = evaluate(paired, args.bootstrap_resamples)
+        report = evaluate(
+            paired,
+            args.bootstrap_resamples,
+            args.non_inferiority_margin,
+        )
     except ValueError as error:
         fail(str(error))
 
+    print(
+        "non-inferiority margin="
+        f"{args.non_inferiority_margin:.2%} "
+        f"(upper-bound limit={1 + args.non_inferiority_margin:.6f})"
+    )
     print(
         "benchmark\tmedian candidate/baseline\tone-sided 95% lower\t"
         "one-sided 95% upper\tdecision"
@@ -389,10 +410,10 @@ def compare(args: argparse.Namespace) -> None:
         )
 
     if not report.passed:
-        fail("at least one workload did not prove non-regression")
+        fail("at least one workload did not prove non-inferiority")
 
 
-def main() -> None:
+def parse_arguments(arguments: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--baseline", type=Path, required=True)
     parser.add_argument("--candidate", type=Path, required=True)
@@ -428,7 +449,17 @@ def main() -> None:
     parser.add_argument("--warm-up-time", type=float, default=0.5)
     parser.add_argument("--measurement-time", type=float, default=1.0)
     parser.add_argument("--bootstrap-resamples", type=int, default=10_000)
-    args = parser.parse_args()
+    parser.add_argument(
+        "--non-inferiority-margin",
+        type=non_inferiority_margin,
+        default=DEFAULT_NON_INFERIORITY_MARGIN,
+        help=(
+            "largest acceptable candidate slowdown as a fraction; "
+            "0 requires the upper bound to stay at or below parity "
+            "(default: 0.05)"
+        ),
+    )
+    args = parser.parse_args(arguments)
 
     if args.sample_size < 10:
         parser.error("--sample-size must be at least 10")
@@ -437,7 +468,11 @@ def main() -> None:
     if args.bootstrap_resamples < 1_000:
         parser.error("--bootstrap-resamples must be at least 1000")
 
-    compare(args)
+    return args
+
+
+def main() -> None:
+    compare(parse_arguments())
 
 
 if __name__ == "__main__":
