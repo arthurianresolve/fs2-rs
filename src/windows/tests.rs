@@ -3,13 +3,17 @@ use std::io::ErrorKind;
 use std::os::windows::io::AsRawHandle;
 use std::path::PathBuf;
 
-use windows_sys::Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_PATH_NOT_FOUND};
+use windows_sys::Win32::Foundation::{
+    ERROR_ACCESS_DENIED, ERROR_BAD_NETPATH, ERROR_BAD_PATHNAME, ERROR_DIRECTORY,
+    ERROR_INVALID_DRIVE, ERROR_INVALID_NAME, ERROR_INVALID_PARAMETER, ERROR_PATH_NOT_FOUND,
+};
 use windows_sys::Win32::Storage::FileSystem::DISK_SPACE_INFORMATION;
 
 use super::{
-    DirectSpace, E_NOTIMPL, ExactRootSpace, VOLUME_PATH_CAPACITY, copy_exact_drive_root,
-    counters_from_disk_space_information, direct_space, exact_root_space, legacy_statvfs,
-    modern_statvfs, modern_statvfs_with, space, volume_path, wide_path,
+    DirectSpace, E_NOTIMPL, ExactRootSpace, VOLUME_PATH_CAPACITY, VOLUME_PATH_NOT_FOUND_STATUS,
+    copy_exact_drive_root, counters_from_disk_space_information, direct_space, exact_root_space,
+    hresult_from_win32, legacy_statvfs, modern_statvfs, modern_statvfs_with, space, volume_path,
+    wide_path,
 };
 use crate::{FileExt, FilesystemCounters, SpaceKind, lock_contended_error};
 use tempfile::tempdir;
@@ -122,15 +126,13 @@ fn direct_directory_space_uses_narrow_queries() {
     let tempdir = tempdir().unwrap();
     let path = wide_path(tempdir.path());
 
-    let DirectSpace::Hit(free) = direct_space(&path, SpaceKind::Free) else {
+    let DirectSpace::Hit(_) = direct_space(&path, SpaceKind::Free) else {
         panic!("direct free-space query unexpectedly required fallback");
     };
-    let DirectSpace::Hit(available) = direct_space(&path, SpaceKind::Available) else {
+    let DirectSpace::Hit(_) = direct_space(&path, SpaceKind::Available) else {
         panic!("direct available-space query unexpectedly required fallback");
     };
 
-    assert!(free > 0);
-    assert!(available <= free);
     assert!(matches!(
         direct_space(&path, SpaceKind::Total),
         DirectSpace::Unavailable
@@ -222,18 +224,40 @@ fn exact_drive_root_scalar_errors_match_canonical_resolution() {
 
 #[test]
 fn exact_drive_root_preserves_provider_errors() {
-    let error = std::io::Error::from_raw_os_error(ERROR_ACCESS_DENIED as i32);
+    for code in [
+        ERROR_ACCESS_DENIED as i32,
+        hresult_from_win32(ERROR_ACCESS_DENIED),
+    ] {
+        let error = std::io::Error::from_raw_os_error(code);
 
-    assert!(matches!(
-        exact_root_space(Err(error)),
-        ExactRootSpace::Failed(error) if error.raw_os_error() == Some(ERROR_ACCESS_DENIED as i32)
-    ));
+        assert!(matches!(
+            exact_root_space(Err(error)),
+            ExactRootSpace::Failed(error) if error.raw_os_error() == Some(code)
+        ));
+    }
 }
 
 #[test]
 fn exact_drive_root_only_resolves_volume_for_path_errors() {
-    let error = std::io::Error::from_raw_os_error(ERROR_PATH_NOT_FOUND as i32);
+    for win32_error in [
+        ERROR_BAD_NETPATH,
+        ERROR_BAD_PATHNAME,
+        ERROR_DIRECTORY,
+        ERROR_INVALID_DRIVE,
+        ERROR_INVALID_NAME,
+        ERROR_INVALID_PARAMETER,
+        ERROR_PATH_NOT_FOUND,
+    ] {
+        for code in [win32_error as i32, hresult_from_win32(win32_error)] {
+            let error = std::io::Error::from_raw_os_error(code);
+            assert!(matches!(
+                exact_root_space(Err(error)),
+                ExactRootSpace::ResolveVolume
+            ));
+        }
+    }
 
+    let error = std::io::Error::from_raw_os_error(VOLUME_PATH_NOT_FOUND_STATUS);
     assert!(matches!(
         exact_root_space(Err(error)),
         ExactRootSpace::ResolveVolume

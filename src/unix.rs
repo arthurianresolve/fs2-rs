@@ -310,6 +310,7 @@ fn statvfs_cstr(path: &CStr) -> Result<FilesystemCounters> {
 }
 
 #[cfg(not(all(target_os = "linux", target_pointer_width = "64")))]
+#[allow(clippy::unnecessary_cast)]
 fn statvfs_cstr(path: &CStr) -> Result<FilesystemCounters> {
     // SAFETY: `libc::statvfs` initializes every field of this output structure.
     let mut stat: libc::statvfs = unsafe { mem::zeroed() };
@@ -333,11 +334,58 @@ pub(crate) fn space(path: &Path, kind: SpaceKind) -> Result<u64> {
 
 #[cfg(test)]
 mod test {
+    use std::ffi::OsStr;
     use std::fs::{self, File};
+    use std::io::ErrorKind;
+    use std::os::unix::ffi::OsStrExt;
     use std::os::unix::io::AsRawFd;
+    use std::path::Path;
 
+    use super::{SMALL_PATH_BUFFER_SIZE, statvfs, with_c_path};
     use crate::{FileExt, lock_contended_error};
     use tempfile::tempdir;
+
+    #[test]
+    fn converts_paths_at_the_stack_buffer_boundary() {
+        for length in [
+            0,
+            SMALL_PATH_BUFFER_SIZE - 1,
+            SMALL_PATH_BUFFER_SIZE,
+            SMALL_PATH_BUFFER_SIZE + 1,
+        ] {
+            let bytes = vec![b'a'; length];
+            let path = Path::new(OsStr::from_bytes(&bytes));
+
+            with_c_path(path, |path| {
+                assert_eq!(path.to_bytes(), bytes);
+                Ok(())
+            })
+            .unwrap();
+        }
+    }
+
+    #[test]
+    fn rejects_nulls_on_both_path_conversion_branches() {
+        for length in [SMALL_PATH_BUFFER_SIZE - 1, SMALL_PATH_BUFFER_SIZE] {
+            let mut bytes = vec![b'a'; length];
+            bytes[length / 2] = 0;
+            let path = Path::new(OsStr::from_bytes(&bytes));
+
+            let error = with_c_path(path, |_| -> Result<(), std::io::Error> {
+                panic!("query called with an invalid path")
+            })
+            .unwrap_err();
+            assert_eq!(error.kind(), ErrorKind::InvalidInput);
+        }
+    }
+
+    #[test]
+    fn missing_stats_path_reports_not_found() {
+        let tempdir = tempdir().unwrap();
+        let error = statvfs(&tempdir.path().join("missing")).unwrap_err();
+
+        assert_eq!(error.kind(), ErrorKind::NotFound);
+    }
 
     /// The duplicate method returns a file with a new file descriptor.
     #[test]
