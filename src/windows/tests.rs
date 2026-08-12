@@ -4,21 +4,24 @@ use std::os::windows::io::AsRawHandle;
 use std::path::PathBuf;
 
 use windows_sys::Win32::Foundation::{
-    ERROR_ACCESS_DENIED, ERROR_BAD_NETPATH, ERROR_BAD_PATHNAME, ERROR_DIRECTORY,
-    ERROR_INVALID_DRIVE, ERROR_INVALID_NAME, ERROR_INVALID_PARAMETER, ERROR_PATH_NOT_FOUND,
+    ERROR_ACCESS_DENIED, ERROR_BAD_NETPATH, ERROR_BAD_PATHNAME, ERROR_CALL_NOT_IMPLEMENTED,
+    ERROR_DIRECTORY, ERROR_INVALID_DRIVE, ERROR_INVALID_FUNCTION, ERROR_INVALID_NAME,
+    ERROR_INVALID_PARAMETER, ERROR_NOT_SUPPORTED, ERROR_PATH_NOT_FOUND,
 };
 use windows_sys::Win32::Storage::FileSystem::DISK_SPACE_INFORMATION;
 
 use super::{
     DirectSpace, E_NOTIMPL, ExactRootSpace, VOLUME_PATH_CAPACITY, VOLUME_PATH_NOT_FOUND_STATUS,
     copy_exact_drive_root, counters_from_disk_space_information, direct_space, exact_root_space,
-    hresult_from_win32, legacy_statvfs, modern_statvfs, modern_statvfs_with, space, volume_path,
-    wide_path,
+    hresult_from_win32, legacy_statvfs, modern_statvfs, modern_statvfs_unavailable,
+    modern_statvfs_with, space, volume_path, wide_path,
 };
 use crate::{FileExt, FilesystemCounters, SpaceKind, lock_contended_error};
 use tempfile::tempdir;
 
 const HRESULT_ACCESS_DENIED: i32 = 0x8007_0005_u32 as i32;
+const HRESULT_E_NOTIMPL: i32 = 0x8000_4001_u32 as i32;
+const HRESULT_OBJECT_PATH_NOT_FOUND: i32 = 0xd000_003a_u32 as i32;
 const PATH_ERROR_ENCODINGS: [(u32, i32); 7] = [
     (ERROR_BAD_NETPATH, 0x8007_0035_u32 as i32),
     (ERROR_BAD_PATHNAME, 0x8007_00a1_u32 as i32),
@@ -27,6 +30,11 @@ const PATH_ERROR_ENCODINGS: [(u32, i32); 7] = [
     (ERROR_INVALID_NAME, 0x8007_007b_u32 as i32),
     (ERROR_INVALID_PARAMETER, 0x8007_0057_u32 as i32),
     (ERROR_PATH_NOT_FOUND, 0x8007_0003_u32 as i32),
+];
+const UNAVAILABLE_ERROR_ENCODINGS: [(u32, i32); 3] = [
+    (ERROR_CALL_NOT_IMPLEMENTED, 0x8007_0078_u32 as i32),
+    (ERROR_INVALID_FUNCTION, 0x8007_0001_u32 as i32),
+    (ERROR_NOT_SUPPORTED, 0x8007_0032_u32 as i32),
 ];
 
 #[test]
@@ -246,7 +254,9 @@ fn exact_drive_root_preserves_provider_errors() {
 }
 
 #[test]
-fn win32_errors_map_to_documented_hresult_values() {
+fn windows_errors_map_to_documented_hresult_values() {
+    assert_eq!(E_NOTIMPL, HRESULT_E_NOTIMPL);
+    assert_eq!(VOLUME_PATH_NOT_FOUND_STATUS, HRESULT_OBJECT_PATH_NOT_FOUND);
     assert_eq!(
         hresult_from_win32(ERROR_ACCESS_DENIED),
         HRESULT_ACCESS_DENIED
@@ -254,6 +264,18 @@ fn win32_errors_map_to_documented_hresult_values() {
     for (win32_error, hresult) in PATH_ERROR_ENCODINGS {
         assert_eq!(hresult_from_win32(win32_error), hresult);
     }
+    for (win32_error, hresult) in UNAVAILABLE_ERROR_ENCODINGS {
+        assert_eq!(hresult_from_win32(win32_error), hresult);
+    }
+}
+
+#[test]
+fn modern_provider_only_falls_back_for_unavailable_errors() {
+    assert!(modern_statvfs_unavailable(HRESULT_E_NOTIMPL));
+    for (_, hresult) in UNAVAILABLE_ERROR_ENCODINGS {
+        assert!(modern_statvfs_unavailable(hresult));
+    }
+    assert!(!modern_statvfs_unavailable(HRESULT_ACCESS_DENIED));
 }
 
 #[test]
@@ -268,7 +290,7 @@ fn exact_drive_root_only_resolves_volume_for_path_errors() {
         }
     }
 
-    let error = std::io::Error::from_raw_os_error(VOLUME_PATH_NOT_FOUND_STATUS);
+    let error = std::io::Error::from_raw_os_error(HRESULT_OBJECT_PATH_NOT_FOUND);
     assert!(matches!(
         exact_root_space(Err(error)),
         ExactRootSpace::ResolveVolume
@@ -281,7 +303,7 @@ fn distinguishes_unavailable_and_failed_modern_api() {
         _root_path: *const u16,
         _info: *mut DISK_SPACE_INFORMATION,
     ) -> windows_sys::core::HRESULT {
-        E_NOTIMPL
+        HRESULT_E_NOTIMPL
     }
 
     unsafe extern "system" fn failed_api(

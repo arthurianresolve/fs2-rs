@@ -54,7 +54,7 @@ nightly `build-std`; runtime tests require a target-specific emulator and
 uClibc sysroot.
 
 The target evidence and allocation capability claims are recorded in the
-repository's [`support-matrix.json`](https://github.com/arthurianresolve/fs2-rs/blob/v0.5/support-matrix.json).
+repository's [`support-matrix.json`](support-matrix.json).
 CI validates the matrix and generates its native and cross-target job matrices
 from the registry, then runs native runtime tests and compile-checks the listed
 cross targets. Compile-only evidence does not imply runtime support.
