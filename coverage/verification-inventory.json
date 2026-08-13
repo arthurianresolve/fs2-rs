@@ -37,7 +37,7 @@
     {"id": "test::allocate_is_idempotent", "kind": "unit", "platforms": ["unix", "windows"]},
     {"id": "test::allocate_propagates_read_only_file_error", "kind": "unit", "platforms": ["unix"]},
     {"id": "test::allocate_rejects_unrepresentable_length", "kind": "unit", "platforms": ["unix", "windows"]},
-    {"id": "test::allocate_reserves_sparse_file_blocks", "kind": "unit", "platforms": ["unix"]},
+    {"id": "test::allocate_reserves_sparse_file_blocks", "kind": "unit", "platforms": ["unix"], "targets": ["x86_64-unknown-linux-gnu"]},
     {"id": "test::duplicate", "kind": "unit", "platforms": ["unix", "windows"]},
     {"id": "windows::test::copies_only_exact_drive_roots", "kind": "unit", "platforms": ["windows"]},
     {"id": "windows::test::evaluates_drive_root_components_independently", "kind": "unit", "platforms": ["windows"]},

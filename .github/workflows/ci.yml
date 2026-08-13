@@ -39,6 +39,7 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo clippy --package fs2 --all-targets --target ${{ matrix.target }} --locked -- -D warnings
       - run: cargo test --package fs2 --target ${{ matrix.target }} --locked
+      - run: python scripts/validate_coverage.py --verify-test-inventory
       - if: matrix.toolchain == needs.support-matrix.outputs.rust_version
         run: python scripts/validate_compatibility.py
       - run: cargo bench --manifest-path benchmarks/Cargo.toml --bench fs2 --no-run --locked --target ${{ matrix.target }}

@@ -442,6 +442,11 @@ def validate_verification_inventory(inventory: dict[str, Any]) -> set[str]:
             fail(f"{item_label}.kind is invalid")
         if not isinstance(record["platforms"], list) or not record["platforms"] or not all(isinstance(value, str) for value in record["platforms"]):
             fail(f"{item_label}.platforms must be a non-empty string list")
+        if "targets" in record:
+            if not isinstance(record["targets"], list) or not record["targets"] or not all(
+                isinstance(value, str) and value for value in record["targets"]
+            ):
+                fail(f"{item_label}.targets must be a non-empty string list")
     return identifiers
 
 
@@ -478,6 +483,18 @@ def validate_test_inventory() -> None:
         ],
         "doctest": ["cargo", "test", "--package", "fs2", "--doc", "--locked", "--", "--list"],
     }
+    rustc = subprocess.run(
+        ["rustc", "-vV"], cwd=ROOT, capture_output=True, text=True, check=False
+    )
+    if rustc.returncode != 0:
+        detail = rustc.stderr.strip() or rustc.stdout.strip()
+        fail(f"rustc -vV failed: {detail}")
+    target = next(
+        (line.split(":", 1)[1].strip() for line in rustc.stdout.splitlines() if line.startswith("host:")),
+        None,
+    )
+    if not target:
+        fail("rustc -vV did not report a host target")
     discovered = {kind: set() for kind in commands}
     for kind, command in commands.items():
         result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, check=False)
@@ -493,7 +510,9 @@ def validate_test_inventory() -> None:
         kind: {
             item["id"]
             for item in inventory
-            if item["kind"] == kind and runtime in item["platforms"]
+            if item["kind"] == kind
+            and runtime in item["platforms"]
+            and ("targets" not in item or target in item["targets"])
         }
         for kind in discovered
     }
