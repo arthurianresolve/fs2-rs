@@ -98,6 +98,12 @@ class CoverageRecordTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             validate_decisions(invalid, validate_requirements(self.requirements))
 
+    def test_decision_inventory_accepts_error_propagation_disposition(self):
+        valid = copy.deepcopy(self.decisions)
+        valid["decisions"][7]["mcdc_disposition"] = "not_applicable_error_propagation"
+
+        validate_decisions(valid, validate_requirements(self.requirements))
+
     def test_policy_keeps_branch_and_mcdc_separate(self):
         invalid = copy.deepcopy(self.policy)
         invalid["metrics"]["branch"]["mcdc_claim"] = True

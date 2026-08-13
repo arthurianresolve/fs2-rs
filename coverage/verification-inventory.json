@@ -3,7 +3,7 @@
   "schema_version": 1,
   "status": "draft",
   "owner": "fs2 DO-178C coverage workstream",
-  "source_revision": "19e8ec95f92077dc68f2e1c85f7d74e0bda5aed2",
+  "source_revision": "3188ec2894a86295d9f7069b26e9639dbb7ef79e",
   "inventory_basis": "cargo test --package fs2 --locked -- --list on the supported Unix and Windows runtime families, plus the upstream compatibility and FsStatsQuery doctest identities",
   "verifications": [
     {"id": "allocation::tests::accepts_already_allocated_zero_length", "kind": "unit", "platforms": ["unix", "windows"]},

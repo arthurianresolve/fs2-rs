@@ -58,6 +58,7 @@ MCDC_DISPOSITIONS = {
     "not_applicable_non_boolean_dispatch",
     "not_applicable_enum_dispatch",
     "not_applicable_sequential_query",
+    "not_applicable_error_propagation",
 }
 
 
