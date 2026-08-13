@@ -2,7 +2,7 @@
   "record_type": "windows_native_fault_independent_review",
   "schema_version": 1,
   "id": "IR-WINDOWS-NATIVE-FAULTS-001",
-  "status": "approved",
+  "status": "assigned_ready_for_review",
   "owner": "fs2 DO-178C coverage workstream",
   "assurance_context": "internal_assurance",
   "credit": "none",
@@ -15,31 +15,31 @@
       "profile_url": "https://github.com/arthurianresolve"
     },
     "assignment_status": "assigned",
-    "reviewer_acceptance": "accepted",
+    "reviewer_acceptance": "pending",
     "assigned_at": "2026-08-13T09:50:29Z",
     "assignment_basis": "explicit_user_direction"
   },
   "independence": {
-    "status": "accepted",
-    "identity_observation": "The assigned reviewer login matches the local Git commit identity configured to publish the candidate; the reviewer explicitly assessed and accepted the disclosed shared-identity process risk for this internal review.",
-    "implementation_authorship": "confirmed",
-    "organizational_independence": "confirmed",
-    "technical_independence": "confirmed",
-    "expected_results_independently_established": "confirmed",
-    "common_mode_independence": "confirmed",
+    "status": "declaration_pending",
+    "identity_observation": "The assigned reviewer login matches the local Git commit identity configured to publish the candidate; a fresh independence declaration is required for this candidate.",
+    "implementation_authorship": "not_assessed",
+    "organizational_independence": "not_assessed",
+    "technical_independence": "not_assessed",
+    "expected_results_independently_established": "not_assessed",
+    "common_mode_independence": "not_assessed",
     "conflicts_of_interest": [],
-    "same_identity_rationale": "The reviewer confirmed that the review was performed separately from implementation, independently checked expected results without relying solely on the implementation or collector oracles, found no conflicts of interest, and accepted process independence despite the shared arthurianresolve publication identity.",
-    "declaration_ref": "conversation-confirmation:IR-WINDOWS-NATIVE-FAULTS-001:2026-08-13T11:29:40Z",
-    "declared_at": "2026-08-13T11:29:40Z"
+    "same_identity_rationale": null,
+    "declaration_ref": null,
+    "declared_at": null
   },
   "candidate_baseline": {
     "repository": "arthurianresolve/fs2-rs",
     "branch": "DO-178C",
-    "preparation_parent_commit": "5151d1685656c85f34236bf5ba75c76c801956cd",
-    "reviewed_commit": "70cbe5e61efae8b21acf4d75c98a42140de10ce9",
-    "reviewed_tree": "4c5e70af25cbaf9626e450a52bd3bae990cb43d3",
-    "clean_native_fault_manifest_ref": "https://github.com/arthurianresolve/fs2-rs/actions/runs/31689316550/artifacts/9176726593#windows-native-fault-manifest.json",
-    "clean_native_fault_manifest_sha256": "f2d07ae6a07fcdb309be131f5cdbe027dae003d9a7c3918ce3d110e74a192723",
+    "preparation_parent_commit": "e2c5d7404d8fbc851c42e3163177db3bd2efa543",
+    "reviewed_commit": "15da349ed581e9d8d471a50d967724887220b7d1",
+    "reviewed_tree": "86b581624c9bf1329fdcfbdafa4e9f71ef411e65",
+    "clean_native_fault_manifest_ref": "https://github.com/arthurianresolve/fs2-rs/actions/runs/31699707347/artifacts/9180758079#windows-native-fault-manifest.json",
+    "clean_native_fault_manifest_sha256": "8d22fea7c99a9181c4538fe82079207e453f67579fa260ed3341308df17cc464",
     "application_verifier_manifest_ref": null,
     "application_verifier_required_for_approval": false,
     "state": "clean_candidate_bound"
@@ -71,41 +71,45 @@
   ],
   "procedure_revision": 1,
   "checklist": [
-    {"id": "IR-WNF-001", "objective": "Confirm the reviewed commit, tree, branch, lockfile, native Windows host, target, Rust toolchain, command, native exit, and artifact hashes are exact and clean.", "status": "pass", "finding_refs": []},
-    {"id": "IR-WNF-002", "objective": "Confirm all eight deterministic OS-mediated and Win32-boundary scenarios execute the intended API boundaries and preserve the actual native errors.", "status": "pass", "finding_refs": []},
-    {"id": "IR-WNF-003", "objective": "Derive ERROR_ACCESS_DENIED, ERROR_LOCK_VIOLATION, and ERROR_INVALID_HANDLE expectations independently of the implementation and collector oracles.", "status": "pass", "finding_refs": []},
-    {"id": "IR-WNF-004", "objective": "Confirm the unavailable-volume oracle is intentionally host-specific, requires a positive native error, and cannot silently pass on success.", "status": "pass", "finding_refs": []},
-    {"id": "IR-WNF-005", "objective": "Confirm requirements, verification IDs, decision mappings, source surfaces, and gap references are complete and reciprocal.", "status": "pass", "finding_refs": []},
-    {"id": "IR-WNF-006", "objective": "Challenge collector and validator failure modes with malformed, stale, dirty, wrong-host, wrong-error, timeout, missing-artifact, and false-review-state cases.", "status": "pass", "finding_refs": []},
-    {"id": "IR-WNF-007", "objective": "Confirm Application Verifier remains optional user-mode robustness depth and that any claimed pass proves pre-clean absence, exact configuration, observed activation, and post-clean absence.", "status": "pass", "finding_refs": []},
-    {"id": "IR-WNF-008", "objective": "Confirm Driver Verifier is not applicable because the repository supplies no kernel-mode driver and that unrelated OS or filesystem drivers must not be targeted as fs2 evidence.", "status": "pass", "finding_refs": []},
-    {"id": "IR-WNF-009", "objective": "Assess common-mode dependencies, independently established expected results, reviewer competence, organizational or process independence, and residual tool reliance.", "status": "pass", "finding_refs": []},
-    {"id": "IR-WNF-010", "objective": "Confirm approval would satisfy only the registered internal independent-review condition and would not assert certification, qualification, MC/DC, object-code coverage, or authority acceptance.", "status": "pass", "finding_refs": []}
+    {"id": "IR-WNF-001", "objective": "Confirm the reviewed commit, tree, branch, lockfile, native Windows host, target, Rust toolchain, command, native exit, and artifact hashes are exact and clean.", "status": "not_reviewed", "finding_refs": []},
+    {"id": "IR-WNF-002", "objective": "Confirm all eight deterministic OS-mediated and Win32-boundary scenarios execute the intended API boundaries and preserve the actual native errors.", "status": "not_reviewed", "finding_refs": []},
+    {"id": "IR-WNF-003", "objective": "Derive ERROR_ACCESS_DENIED, ERROR_LOCK_VIOLATION, and ERROR_INVALID_HANDLE expectations independently of the implementation and collector oracles.", "status": "not_reviewed", "finding_refs": []},
+    {"id": "IR-WNF-004", "objective": "Confirm the unavailable-volume oracle is intentionally host-specific, requires a positive native error, and cannot silently pass on success.", "status": "not_reviewed", "finding_refs": []},
+    {"id": "IR-WNF-005", "objective": "Confirm requirements, verification IDs, decision mappings, source surfaces, and gap references are complete and reciprocal.", "status": "not_reviewed", "finding_refs": []},
+    {"id": "IR-WNF-006", "objective": "Challenge collector and validator failure modes with malformed, stale, dirty, wrong-host, wrong-error, timeout, missing-artifact, and false-review-state cases.", "status": "not_reviewed", "finding_refs": []},
+    {"id": "IR-WNF-007", "objective": "Confirm Application Verifier remains optional user-mode robustness depth and that any claimed pass proves pre-clean absence, exact configuration, observed activation, and post-clean absence.", "status": "not_reviewed", "finding_refs": []},
+    {"id": "IR-WNF-008", "objective": "Confirm Driver Verifier is not applicable because the repository supplies no kernel-mode driver and that unrelated OS or filesystem drivers must not be targeted as fs2 evidence.", "status": "not_reviewed", "finding_refs": []},
+    {"id": "IR-WNF-009", "objective": "Assess common-mode dependencies, independently established expected results, reviewer competence, organizational or process independence, and residual tool reliance.", "status": "not_reviewed", "finding_refs": []},
+    {"id": "IR-WNF-010", "objective": "Confirm approval would satisfy only the registered internal independent-review condition and would not assert certification, qualification, MC/DC, object-code coverage, or authority acceptance.", "status": "not_reviewed", "finding_refs": []}
   ],
   "findings": [],
   "decision": {
-    "status": "recorded",
-    "outcome": "approve",
-    "reviewer_login": "arthurianresolve",
-    "reviewed_commit": "70cbe5e61efae8b21acf4d75c98a42140de10ce9",
-    "native_fault_manifest_sha256": "f2d07ae6a07fcdb309be131f5cdbe027dae003d9a7c3918ce3d110e74a192723",
-    "attestation": "I confirm: I accept the reviewer assignment for candidate 70cbe5e61efae8b21acf4d75c98a42140de10ce9 and manifest f2d07ae6a07fcdb309be131f5cdbe027dae003d9a7c3918ce3d110e74a192723. I performed the review separately from implementation, independently checked expected results without relying solely on implementation or collector oracles, found no conflicts of interest, and accept process independence despite the shared arthurianresolve publication identity. All ten IR-WNF-001 through IR-WNF-010 checks pass with no findings. Approval is limited to the registered internal Windows native-fault review condition and does not constitute release approval, certification, DO-330 qualification, MC/DC, object-code coverage, or authority acceptance.",
-    "decision_ref": "conversation-confirmation:IR-WINDOWS-NATIVE-FAULTS-001:2026-08-13T11:29:40Z",
-    "decided_at": "2026-08-13T11:29:40Z"
+    "status": "pending",
+    "outcome": null,
+    "reviewer_login": null,
+    "reviewed_commit": null,
+    "native_fault_manifest_sha256": null,
+    "attestation": null,
+    "decision_ref": null,
+    "decided_at": null
   },
   "closure_effect": {
     "gap_id": "GAP-WINDOWS-NATIVE-ERRORS",
-    "current_effect": "independent_review_condition_satisfied",
-    "independent_review_condition_satisfied": true,
-    "gap_closure_permitted": true,
-    "remaining_conditions": []
+    "current_effect": "none_review_incomplete",
+    "independent_review_condition_satisfied": false,
+    "gap_closure_permitted": false,
+    "remaining_conditions": [
+      "obtain reviewer acceptance for the current candidate",
+      "complete the independence declaration and all ten checklist items",
+      "record an independent decision bound to the current commit and manifest digest"
+    ]
   },
   "created_at": "2026-08-13T09:50:29Z",
-  "updated_at": "2026-08-13T11:29:40Z",
+  "updated_at": "2026-08-13T13:35:58Z",
   "non_claims": [
     "Reviewer assignment is not reviewer acceptance, an independence determination, or review approval.",
-    "The shared GitHub identity was explicitly assessed for this internal review and does not establish broader organizational independence or authority acceptance.",
-    "The bound clean exact-commit candidate evidence and approval remain limited to the registered internal review condition.",
+    "The shared GitHub identity is disclosed for this candidate; a fresh independence declaration is required and does not establish broader organizational independence or authority acceptance.",
+    "The previous candidate-scoped approval does not approve the current candidate; the current clean exact-commit evidence is assigned for review only.",
     "This record does not establish certification credit, tool qualification, MC/DC, object-code coverage, or authority acceptance."
   ]
 }

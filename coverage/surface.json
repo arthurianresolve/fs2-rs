@@ -3,7 +3,7 @@
   "schema_version": 1,
   "status": "draft",
   "owner": "fs2 DO-178C coverage workstream",
-  "source_revision": "working_tree_parent_5151d1685656c85f34236bf5ba75c76c801956cd",
+  "source_revision": "candidate_15da349ed581e9d8d471a50d967724887220b7d1",
   "records": [
     {"id": "SURF-ALLOC", "path": "src/allocation.rs", "sha256": "34aa31f65b79fde296a5bd56aad9853485e0aa18bed09a7f6444777634f6c563", "line_spans": ["1-80"], "classification": "production", "applicability": ["unix", "windows"], "denominator": "in_scope", "requirement_ids": ["REQ-ALLOC-001", "REQ-ALLOC-002", "REQ-ALLOC-003"], "decision_ids": ["DEC-ALLOC-001", "DEC-ALLOC-002", "DEC-ALLOC-003"]},
     {"id": "SURF-ALLOC-TEST", "path": "src/allocation.rs", "sha256": "34aa31f65b79fde296a5bd56aad9853485e0aa18bed09a7f6444777634f6c563", "line_spans": ["82-243"], "classification": "test_only", "applicability": ["unix", "windows"], "denominator": "excluded_with_classification", "requirement_ids": ["REQ-ALLOC-002", "REQ-ALLOC-003", "REQ-ALLOC-004"], "decision_ids": []},

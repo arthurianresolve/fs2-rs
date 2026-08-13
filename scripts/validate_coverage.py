@@ -628,17 +628,20 @@ def validate_gap_register(
     )
     if not COMMIT_RE.fullmatch(str(snapshot["commit"])) or not COMMIT_RE.fullmatch(str(snapshot["tree"])):
         fail(f"{label}.clean_local_snapshot must contain full commit and tree values")
-    if snapshot["dirty"] is not False or snapshot["status"] != "clean_exact_commit_local_disposable; not release evidence":
+    if snapshot["dirty"] is not False or snapshot["status"] not in {
+        "clean_exact_commit_local_disposable; not release evidence",
+        "clean_exact_commit_ci_disposable; not release evidence",
+    }:
         fail(f"{label}.clean_local_snapshot must remain clean and non-promotable")
     if not isinstance(snapshot["targets"], list) or len(snapshot["targets"]) < 2 or not all(
         isinstance(target, str) and target for target in snapshot["targets"]
     ):
         fail(f"{label}.clean_local_snapshot.targets must identify multiple targets")
     run_ids = snapshot["run_ids"]
-    if not isinstance(run_ids, list) or len(run_ids) != 6 or len(set(run_ids)) != len(run_ids) or not all(
+    if not isinstance(run_ids, list) or len(run_ids) != 9 or len(set(run_ids)) != len(run_ids) or not all(
         isinstance(run_id, str) and run_id for run_id in run_ids
     ):
-        fail(f"{label}.clean_local_snapshot.run_ids must identify six unique runs")
+        fail(f"{label}.clean_local_snapshot.run_ids must identify nine unique runs")
     profiles = snapshot["profiles"]
     expected_profiles = {
         "linux_stable",
@@ -647,9 +650,12 @@ def validate_gap_register(
         "windows_stable",
         "windows_branch",
         "windows_condition_instrumentation",
+        "macos_stable",
+        "macos_branch",
+        "macos_condition_instrumentation",
     }
     if not isinstance(profiles, dict) or set(profiles) != expected_profiles:
-        fail(f"{label}.clean_local_snapshot.profiles must contain the six local profile snapshots")
+        fail(f"{label}.clean_local_snapshot.profiles must contain the nine matrix profile snapshots")
     for profile_name, profile in profiles.items():
         if not isinstance(profile, dict):
             fail(f"{label}.clean_local_snapshot.profiles.{profile_name} must be an object")

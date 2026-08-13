@@ -29,25 +29,25 @@
     "status": "superseded_focused_only_dirty_working_tree; not release evidence"
   },
   "clean_local_snapshot": {
-    "commit": "16bf6a8211ac7b8c345fa8ebe6d98acc2ec3ba6c",
-    "tree": "e4b119a9fc0dd58f7ba0c84dcff69f998c63c3f1",
+    "commit": "15da349ed581e9d8d471a50d967724887220b7d1",
+    "tree": "86b581624c9bf1329fdcfbdafa4e9f71ef411e65",
     "dirty": false,
-    "source_scope": "repository source and coverage-tool revision 16bf6a8211ac7b8c345fa8ebe6d98acc2ec3ba6c",
-    "targets": ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"],
+    "source_scope": "repository source and coverage-tool revision 15da349ed581e9d8d471a50d967724887220b7d1; CI run 31699707347",
+    "targets": ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc", "aarch64-apple-darwin"],
     "profiles": {
       "linux_stable": {
-        "lines": {"covered": 849, "total": 849, "percent": 100.0},
+        "lines": {"covered": 850, "total": 850, "percent": 100.0},
         "regions": {"covered": 1484, "total": 1484, "percent": 100.0},
         "functions": {"covered": 121, "total": 121, "percent": 100.0}
       },
       "linux_branch": {
-        "lines": {"covered": 852, "total": 852, "percent": 100.0},
+        "lines": {"covered": 853, "total": 853, "percent": 100.0},
         "regions": {"covered": 1481, "total": 1481, "percent": 100.0},
         "branches": {"covered": 30, "total": 30, "percent": 100.0},
         "functions": {"covered": 121, "total": 121, "percent": 100.0}
       },
       "linux_condition_instrumentation": {
-        "lines": {"covered": 852, "total": 852, "percent": 100.0},
+        "lines": {"covered": 853, "total": 853, "percent": 100.0},
         "regions": {"covered": 1481, "total": 1481, "percent": 100.0},
         "branches": {"covered": 30, "total": 30, "percent": 100.0},
         "functions": {"covered": 121, "total": 121, "percent": 100.0},
@@ -70,17 +70,38 @@
         "branches": {"covered": 82, "total": 82, "percent": 100.0},
         "functions": {"covered": 146, "total": 146, "percent": 100.0},
         "independent_condition_total": false
+      },
+      "macos_stable": {
+        "lines": {"covered": 881, "total": 881, "percent": 100.0},
+        "regions": {"covered": 1517, "total": 1517, "percent": 100.0},
+        "functions": {"covered": 122, "total": 122, "percent": 100.0}
+      },
+      "macos_branch": {
+        "lines": {"covered": 884, "total": 884, "percent": 100.0},
+        "regions": {"covered": 1514, "total": 1514, "percent": 100.0},
+        "branches": {"covered": 32, "total": 32, "percent": 100.0},
+        "functions": {"covered": 122, "total": 122, "percent": 100.0}
+      },
+      "macos_condition_instrumentation": {
+        "lines": {"covered": 884, "total": 884, "percent": 100.0},
+        "regions": {"covered": 1514, "total": 1514, "percent": 100.0},
+        "branches": {"covered": 32, "total": 32, "percent": 100.0},
+        "functions": {"covered": 122, "total": 122, "percent": 100.0},
+        "independent_condition_total": false
       }
     },
     "run_ids": [
-      "20260813T073924Z-6860a95bdd57",
-      "20260813T073933Z-fb171c09153c",
-      "20260813T073941Z-db6f927ba49a",
-      "20260813T073618Z-e814e68b67a0",
-      "20260813T073630Z-5869f9dbf7d0",
-      "20260813T073641Z-dc3ec8cb562c"
+      "20260813T122254Z-eb36272149f9",
+      "20260813T122254Z-56cb5bc10b1b",
+      "20260813T122252Z-041e4ee93c5f",
+      "20260813T122323Z-9312e0c24354",
+      "20260813T122328Z-c85ae0177200",
+      "20260813T122332Z-4b550bb9c308",
+      "20260813T122345Z-7c69a9a8dffc",
+      "20260813T122408Z-ba42975fbcd0",
+      "20260813T122311Z-6fd0fc901298"
     ],
-    "status": "clean_exact_commit_local_disposable; not release evidence"
+    "status": "clean_exact_commit_ci_disposable; not release evidence"
   },
   "gaps": [
     {
@@ -107,11 +128,10 @@
       "id": "GAP-WINDOWS-NATIVE-ERRORS",
       "source_refs": ["src/windows.rs:68-95", "src/windows.rs:97-119", "src/windows.rs:123-142", "src/windows.rs:144-168", "src/windows.rs:223-237", "src/windows.rs:405-442", "src/windows/tests.rs:200-410", "tests/windows_appverifier.rs:1-89", "scripts/collect_windows_native_faults.py:1", "scripts/collect_windows_appverifier.py:1", "coverage/windows-native-faults.json:1", "coverage/windows-native-fault-review.json:1"],
       "classification": "native_failure_injection",
-      "observed_condition": "The technical harness covers deterministic result-adapter failures plus real Windows-returned access-denied, lock-contention, unavailable-volume, and invalid-handle outcomes across DuplicateHandle, allocation query/write, lock, and unlock boundaries. The provenance-bound collector retains native exits, host/toolchain identity, scenario oracles, and artifact hashes. Application Verifier low-resource simulation is optional user-mode robustness depth and fails closed when elevation is unavailable. Driver Verifier is inapplicable because this repository contains no kernel-mode driver. IR-WINDOWS-NATIVE-FAULTS-001 binds the clean Windows CI manifest for commit 70cbe5e61efae8b21acf4d75c98a42140de10ce9; the assigned reviewer accepted the shared-identity process rationale, completed all ten checks, recorded no findings, and approved the internal review condition.",
-      "required_action": "Retain the approved review record and bound native-fault evidence; if implementation, tests, collectors, validators, requirements, or assurance records change, create a new candidate and repeat the affected review.",
-      "status": "closed",
-      "credit": "none",
-      "closure_basis": "IR-WINDOWS-NATIVE-FAULTS-001 approved the exact candidate 70cbe5e61efae8b21acf4d75c98a42140de10ce9 against native-fault manifest SHA-256 f2d07ae6a07fcdb309be131f5cdbe027dae003d9a7c3918ce3d110e74a192723 with all ten checks passing, no findings, and an accepted independence declaration for this internal review condition."
+      "observed_condition": "The technical harness covers deterministic result-adapter failures plus real Windows-returned access-denied, lock-contention, unavailable-volume, and invalid-handle outcomes across DuplicateHandle, allocation query/write, lock, and unlock boundaries. The provenance-bound collector retains native exits, host/toolchain identity, scenario oracles, and artifact hashes. Application Verifier low-resource simulation is optional user-mode robustness depth and fails closed when elevation is unavailable. Driver Verifier is inapplicable because this repository contains no kernel-mode driver. The current CI manifest for commit 15da349ed581e9d8d471a50d967724887220b7d1 passes, but the prior approval was bound to candidate 70cbe5e61efae8b21acf4d75c98a42140de10ce9 and does not approve this changed candidate.",
+      "required_action": "Complete a fresh independent review of the current candidate and bound native-fault manifest before closing this gap; repeat the review whenever implementation, tests, collectors, validators, requirements, or assurance records change.",
+      "status": "open",
+      "credit": "none"
     },
     {
       "id": "GAP-WINDOWS-NATIVE-ADAPTERS",
@@ -121,7 +141,7 @@
       "required_action": "Retain the explicit adapter-failure matrix and its platform traceability; do not treat it as kernel fault injection or certification credit.",
       "status": "closed",
       "credit": "none",
-      "closure_basis": "windows::test::injects_native_failures_at_result_adapters exercises allocation, byte-space, cluster-geometry, volume-path, direct-space, handle-query, and duplicate result adapters with injected failure returns. It is recorded in verification-inventory.json and executed by the exact clean Windows stable, branch, and condition manifests at 16bf6a8211ac7b8c345fa8ebe6d98acc2ec3ba6c."
+      "closure_basis": "windows::test::injects_native_failures_at_result_adapters exercises allocation, byte-space, cluster-geometry, volume-path, direct-space, handle-query, and duplicate result adapters with injected failure returns. It is recorded in verification-inventory.json and executed by the exact clean Windows stable, branch, and condition CI manifests at 15da349ed581e9d8d471a50d967724887220b7d1 in run 31699707347."
     },
     {
       "id": "GAP-WINDOWS-PROVIDER-AVAILABILITY",
@@ -131,16 +151,17 @@
       "required_action": "Run on the supported Windows matrix and retain the API version, host, and provider outcome in the run manifest.",
       "status": "closed",
       "credit": "none",
-      "closure_basis": "The exact clean x86_64-pc-windows-msvc stable, branch, and condition manifests at 16bf6a8211ac7b8c345fa8ebe6d98acc2ec3ba6c retain windows-provider.json and host version 10.0.26100. Each records kernel32.dll, GetDiskSpaceInformationW, module_present=true, symbol_present=true, and outcome=available. This closes local internal provider observation only; it does not establish independence, tool qualification, authority credit, or certification acceptance."
+      "closure_basis": "The exact clean x86_64-pc-windows-msvc stable, branch, and condition CI manifests at 15da349ed581e9d8d471a50d967724887220b7d1 in run 31699707347 retain windows-provider.json and host version 10.0.26100. Each records kernel32.dll, GetDiskSpaceInformationW, module_present=true, symbol_present=true, and outcome=available. This closes local internal provider observation only; it does not establish independence, tool qualification, authority credit, or certification acceptance."
     },
     {
       "id": "GAP-MACOS-COVERAGE-MATRIX",
       "source_refs": ["support-matrix.json:1-20"],
       "classification": "cross_host_matrix",
-      "observed_condition": "The local evidence set cannot execute the configured aarch64-apple-darwin native coverage profiles.",
-      "required_action": "Retain the strict CI matrix gate and produce clean stable, branch, and condition-instrumentation manifests on the configured macOS Apple-silicon runner.",
-      "status": "open",
-      "credit": "none"
+      "observed_condition": "The current CI evidence set includes the configured aarch64-apple-darwin stable, branch, and condition-instrumentation coverage profiles.",
+      "required_action": "Retain the separate exact-commit macOS manifests and repeat the matrix on candidate changes; do not combine Apple denominators with other targets.",
+      "status": "closed",
+      "credit": "none",
+      "closure_basis": "CI run 31699707347 produced clean exact-commit stable, branch, and condition-instrumentation manifests for aarch64-apple-darwin at 15da349ed581e9d8d471a50d967724887220b7d1. All native exits passed and the three profiles closed their emitted line, region, branch, and function metrics; the condition profile retained independent_condition_total=false. This closes the internal configured matrix observation only and does not establish certification credit."
     },
     {
       "id": "GAP-MCDC-BASIS",
@@ -161,7 +182,7 @@
   "non_claims": [
     "The observed metrics came from dirty focused-only runs and are not release evidence.",
     "The historical focused metrics are superseded by the clean local snapshot.",
-    "The clean local snapshot is disposable internal evidence and does not satisfy the configured macOS matrix.",
+    "The clean CI snapshot is disposable internal evidence; its Apple matrix is present but is not release evidence.",
     "The branch metric is diagnostic branch coverage, not MC/DC.",
     "The condition-instrumentation profile does not provide an independent condition total."
   ]

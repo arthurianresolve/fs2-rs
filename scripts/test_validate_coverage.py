@@ -148,6 +148,13 @@ class CoverageRecordTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             validate_gap_register(invalid)
 
+    def test_gap_register_requires_apple_matrix_profile(self):
+        invalid = load_json(COVERAGE / "gap-register.json")
+        invalid["clean_local_snapshot"]["profiles"].pop("macos_stable")
+
+        with self.assertRaises(ValidationError):
+            validate_gap_register(invalid)
+
     def test_gap_register_rejects_native_fault_closure_before_review(self):
         invalid = load_json(COVERAGE / "gap-register.json")
         native = next(gap for gap in invalid["gaps"] if gap["id"] == "GAP-WINDOWS-NATIVE-ERRORS")
@@ -237,10 +244,10 @@ class CoverageRecordTests(unittest.TestCase):
         approved["updated_at"] = "2026-08-14T11:00:00+00:00"
         return approved
 
-    def test_native_fault_review_accepts_recorded_approval(self):
+    def test_native_fault_review_is_pending_for_current_candidate(self):
         self.assertEqual(
             validate_windows_native_fault_review(self.native_fault_review),
-            "independent_review_approved",
+            "independent_review_pending",
         )
 
     def test_native_fault_review_accepts_bound_candidate_before_reviewer_acceptance(self):
@@ -306,7 +313,7 @@ class CoverageRecordTests(unittest.TestCase):
 
     def test_native_fault_review_rejects_premature_approval(self):
         invalid = copy.deepcopy(self.native_fault_review)
-        invalid["assignment"]["reviewer_acceptance"] = "pending"
+        invalid["status"] = "approved"
 
         with self.assertRaises(ValidationError):
             validate_windows_native_fault_review(invalid)

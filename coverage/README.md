@@ -27,7 +27,7 @@ The records are deliberately split by concern:
 - `tool-assessment.json` records the intended functions, failure modes, and
   residual reliance for the coverage tools.
 - `gap-register.json` preserves the historical focused-run measurements,
-  records the clean local cross-host snapshot separately, and lists open
+  records the current clean cross-host CI snapshot separately, and lists open
   closure actions.  An open gap is not silently converted into a pass.
 - `run-manifest.schema.json` defines the provenance fields emitted by
   `scripts/collect_coverage.py`.
@@ -42,9 +42,9 @@ The records are deliberately split by concern:
 - `windows-native-fault-run.schema.json` and
   `windows-appverifier-run.schema.json` define fail-closed evidence records for
   those two Windows procedures.
-- `evidence-index.json` indexes the clean local snapshots for review, but keeps
-  them explicitly disposable and unpromoted until the configured matrix is
-  complete and placed in a controlled archive.
+- `evidence-index.json` indexes the current clean exact-commit CI snapshots for
+  review, but keeps them explicitly disposable and unpromoted until they are
+  placed in a controlled archive.
 
 Windows manifests also retain `windows-provider.json`.  The
 `records_provider_availability` test records whether `kernel32.dll` and
@@ -129,9 +129,14 @@ authorship, organizational or process separation, technical independence,
 independent expected results, common-mode dependencies, and the rationale for
 the shared GitHub identity.  The validator required that declaration, all ten
 checklist items passing, reciprocal and resolved findings, and a decision bound
-to the exact candidate and native-fault manifest digest.  The current record
-satisfies that internal review condition; it remains non-certification,
-non-qualification, and non-authority evidence.
+to the exact candidate and native-fault manifest digest.  The previous
+approval was bound to candidate `70cbe5e`; the current candidate `15da349`
+changed the reviewed source and assurance records.  The current record is
+rebound to the clean Windows manifest for `15da349` (SHA-256
+`8d22fea7c99a9181c4538fe82079207e453f67579fa260ed3341308df17cc464`) and is
+`assigned_ready_for_review`; it remains non-certification,
+non-qualification, and non-authority evidence until a fresh review is
+completed.
 
 If review findings change code, tests, collectors, validators, requirements,
 or assurance records, create and push a new candidate, regenerate clean native
@@ -149,11 +154,11 @@ this provenance is not eligible for the internal gate.
 
 ## Review state
 
-The overall coverage package remains `draft` or `not_ready`.  The local snapshot closes the
-emitted raw metrics and records provider availability for the Linux and
-Windows hosts exercised, but the configured Apple-silicon matrix, approved
+The overall coverage package remains `draft` or `not_ready`.  The current CI
+snapshot closes the emitted raw metrics for Linux, Windows, and the configured
+Apple-silicon matrix, and records Windows provider availability.  The current
+native-fault review is pending for candidate `15da349`; the approved
 certification basis, assigned software level, qualified coverage-tool
 determination, broader independence plan, and external archive remain open.
-The registered internal native-fault review condition is satisfied.  Those
-items remain explicit decisions rather than being inferred from passing tests
-or diagnostic branch percentages.
+These items remain explicit decisions rather than being inferred from passing
+tests or diagnostic branch percentages.
