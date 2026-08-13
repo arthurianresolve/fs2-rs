@@ -42,13 +42,13 @@
   "retrieval": {
     "procedure": "Download the named workflow artifact without modification, locate assurance-archive-manifest.json and its packaged canonical control record, run the registered verify command against the exact source commit, and retain the canonical generated result under coverage/retrieval-results plus its LF-normalized SHA-256. Historical self-contained verification uses the packaged control; an optional live-control comparison must use the exact control record from the package source commit.",
     "latest_result": {
-      "status": "pending_first_current_package",
-      "workflow_run_id": null,
-      "source_commit": null,
-      "manifest_sha256": null,
-      "result_sha256": null,
-      "verified_at": null,
-      "result_ref": null
+      "status": "pass_internal_staging",
+      "workflow_run_id": "31731799593",
+      "source_commit": "1508aa1b4249d20d27ad3e0239ace72e294e3bf6",
+      "manifest_sha256": "9636643b7c5efce6f304f5bacbe5af851f81526d5e1f8b9a33971ed5e86afc06",
+      "result_sha256": "45d139f97fa259a5eae06defefb33c78c907caf1ad2aa05c735a3d7390be8cde",
+      "verified_at": "2026-08-13T18:54:22Z",
+      "result_ref": "coverage/retrieval-results/ASSURANCE-1508aa1b4249-31731799593.json"
     },
     "failure_disposition": "retain the failed result, prohibit promotion, and regenerate only from a clean exact-commit workflow run after resolving the discrepancy"
   },

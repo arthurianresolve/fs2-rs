@@ -8,7 +8,7 @@
   "baseline": {
     "reference": "48ec3af6b807d9e70bd7d388baa8dbb1a3b69c40",
     "reference_kind": "current_predecessor_assurance_commit",
-    "working_tree_state": "new_internal_control_candidate_awaits_clean_exact_commit_binding",
+    "working_tree_state": "candidate_bound_to_clean_exact_commit_internal_staging; independent_review_pending",
     "exact_commit_required_for_evidence": true
   },
   "configuration_management_ref": "coverage/configuration-management.json",

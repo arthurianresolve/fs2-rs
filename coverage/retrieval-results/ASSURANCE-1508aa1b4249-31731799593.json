@@ -1,0 +1,20 @@
+{
+  "commit": "1508aa1b4249d20d27ad3e0239ace72e294e3bf6",
+  "discrepancies": [],
+  "external_archive_verified": false,
+  "file_count": 670,
+  "manifest_sha256": "9636643b7c5efce6f304f5bacbe5af851f81526d5e1f8b9a33971ed5e86afc06",
+  "non_claims": [
+    "This result verifies an internal staging package, not retrieval from a controlled external archive.",
+    "A pass does not establish retention, backup, disposition authority, certification credit, or authority acceptance."
+  ],
+  "package_id": "ASSURANCE-1508aa1b4249-31731799593",
+  "record_type": "assurance_archive_retrieval_result",
+  "schema_version": 1,
+  "scope": "internal_github_actions_staging",
+  "status": "pass",
+  "total_bytes": 474754862,
+  "tree": "d7e4d97dd0d621227e7892722d40c68a3024c1b2",
+  "verified_utc": "2026-08-13T18:54:22Z",
+  "workflow_run_id": "31731799593"
+}

@@ -1,20 +1,20 @@
 {
   "record_type": "evidence_index",
   "schema_version": 2,
-  "status": "not_ready",
+  "status": "draft",
   "owner": "fs2 DO-178C coverage workstream",
   "technical_baseline_id": "CM-DO178C-0002",
-  "archive_status": "internal_staging_pending",
+  "archive_status": "internal_staging_verified",
   "external_archive_uri": null,
   "assurance_package": {
-    "status": "pending_current_ci",
+    "status": "verified_internal_staging",
     "artifact_name": "assurance-evidence-package",
     "retention_days": 90,
-    "workflow_run_id": null,
-    "commit": null,
-    "tree": null,
-    "manifest_sha256": null,
-    "retrieval_result_sha256": null,
+    "workflow_run_id": "31731799593",
+    "commit": "1508aa1b4249d20d27ad3e0239ace72e294e3bf6",
+    "tree": "d7e4d97dd0d621227e7892722d40c68a3024c1b2",
+    "manifest_sha256": "9636643b7c5efce6f304f5bacbe5af851f81526d5e1f8b9a33971ed5e86afc06",
+    "retrieval_result_sha256": "45d139f97fa259a5eae06defefb33c78c907caf1ad2aa05c735a3d7390be8cde",
     "retrieval_record_ref": "coverage/archive-retrieval.json"
   },
   "runs": [
@@ -119,12 +119,11 @@
     }
   ],
   "open_items": [
-    "generate and retrieve the current exact-commit internal staging package",
     "complete the candidate-specific independent Windows native-fault review",
     "publish to and retrieve from an approved controlled external archive"
   ],
   "non_claims": [
-    "The indexed historical runs remain disposable internal evidence and are superseded when the current package is bound.",
+    "The indexed CM-DO178C-0002 runs remain historical disposable internal evidence; the separately bound CM-DO178C-0004 package is the current review candidate and is not yet independently approved.",
     "Internal package staging and retrieval do not constitute controlled external archiving or release evidence."
   ]
 }

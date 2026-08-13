@@ -2,7 +2,7 @@
   "record_type": "windows_native_fault_independent_review",
   "schema_version": 1,
   "id": "IR-WINDOWS-NATIVE-FAULTS-001",
-  "status": "assigned_awaiting_clean_baseline",
+  "status": "assigned_ready_for_review",
   "owner": "fs2 DO-178C coverage workstream",
   "assurance_context": "internal_assurance",
   "credit": "none",
@@ -36,13 +36,13 @@
     "repository": "arthurianresolve/fs2-rs",
     "branch": "DO-178C",
     "preparation_parent_commit": "48ec3af6b807d9e70bd7d388baa8dbb1a3b69c40",
-    "reviewed_commit": null,
-    "reviewed_tree": null,
-    "clean_native_fault_manifest_ref": null,
-    "clean_native_fault_manifest_sha256": null,
+    "reviewed_commit": "1508aa1b4249d20d27ad3e0239ace72e294e3bf6",
+    "reviewed_tree": "d7e4d97dd0d621227e7892722d40c68a3024c1b2",
+    "clean_native_fault_manifest_ref": "github-actions:run-31731799593/artifact-9193551574/windows-native-faults/windows-native-fault-manifest.json",
+    "clean_native_fault_manifest_sha256": "2c2f6a3af7fefcf210f56fa35d304c282c1289495a2e6f53ea7953970c0d4a04",
     "application_verifier_manifest_ref": null,
     "application_verifier_required_for_approval": false,
-    "state": "awaiting_committed_candidate_and_clean_ci_evidence"
+    "state": "clean_candidate_bound"
   },
   "review_scope": [
     "scenario completeness and API-boundary coverage",
@@ -98,10 +98,10 @@
     "current_effect": "none_review_incomplete",
     "independent_review_condition_satisfied": false,
     "gap_closure_permitted": false,
-    "remaining_conditions": ["bind the clean candidate evidence and complete a fresh independent review"]
+    "remaining_conditions": ["complete a fresh independent review of the bound candidate and record its decision"]
   },
   "created_at": "2026-08-13T09:50:29Z",
-  "updated_at": "2026-08-13T16:51:33Z",
+  "updated_at": "2026-08-13T18:54:36Z",
   "non_claims": [
     "Reviewer assignment is not reviewer acceptance, an independence determination, or review approval.",
     "The shared GitHub identity must be explicitly reassessed for the new candidate and cannot establish broader organizational independence or authority acceptance.",

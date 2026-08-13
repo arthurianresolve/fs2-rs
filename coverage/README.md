@@ -200,12 +200,13 @@ this provenance is not eligible for the internal gate.
 
 ## Review state
 
-The overall coverage package remains `draft` or `not_ready`.  The internal
+The overall coverage package remains `draft`.  The internal
 requirements baseline and detailed tool-function assessment are complete for
-their explicitly non-certification scope.  CM controls and archive tooling are
-implemented, but their current candidate and retrieval fields remain pending
-until clean CI evidence exists.  The native-fault independent review is also
-pending for that exact candidate.  The approved certification basis, assigned
+their explicitly non-certification scope.  CM-DO178C-0004 is bound to clean
+candidate `1508aa1`, passing 36-job CI run `31731799593`, and a downloaded,
+zero-discrepancy internal staging package.  The native-fault manifest for that
+candidate is bound and ready, but its independent review decision remains
+pending.  The approved certification basis, assigned
 software level, any qualification/TQL determination, broader organizational
 independence, controlled external archive, object-code analysis, release
 approval, and authority acceptance remain open.  Passing tests, internal
