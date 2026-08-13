@@ -17,6 +17,7 @@
     "cargo_llvm_cov",
     "command",
     "environment",
+    "provider",
     "native_exit",
     "status",
     "artifacts"
@@ -29,7 +30,17 @@
   "tree": "full 40-character hexadecimal tree",
   "dirty": "boolean; true is never release eligible",
   "host": {
-    "target": "Rust compiler host target; pass manifests must match the requested target"
+    "target": "Rust compiler host target; pass manifests must match the requested target",
+    "version": "host OS version string"
+  },
+  "provider": {
+    "schema_version": 1,
+    "api": "Windows provider symbol under observation",
+    "library": "Windows provider library under observation",
+    "module_present": "boolean on Windows, null when not applicable",
+    "symbol_present": "boolean on Windows, null when not applicable",
+    "outcome": ["available", "unavailable", "error", "not_run", "not_applicable", "invalid"],
+    "error_raw_os": "integer or null"
   },
   "artifact": {
     "path": "repository-relative staging path",

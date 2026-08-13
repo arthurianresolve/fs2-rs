@@ -699,7 +699,7 @@ def validate_manifest(path: Path, expected_commit: str | None = None) -> None:
         {
             "run_id", "repository", "branch", "commit", "tree", "dirty", "cargo_lock_sha256",
             "host", "target", "profile", "requested_toolchain", "resolved_toolchain",
-            "cargo_llvm_cov", "command", "environment", "native_exit", "status", "artifacts",
+            "cargo_llvm_cov", "command", "environment", "provider", "native_exit", "status", "artifacts",
         },
         label,
     )
@@ -717,6 +717,8 @@ def validate_manifest(path: Path, expected_commit: str | None = None) -> None:
     host = manifest["host"]
     if not isinstance(host, dict) or not isinstance(host.get("target"), str) or not host["target"]:
         fail(f"{label}.host.target must record the compiler host target")
+    if not isinstance(host.get("version"), str) or not host["version"]:
+        fail(f"{label}.host.version must record the host OS version")
     if manifest["status"] == "pass" and host["target"] != manifest["target"]:
         fail(f"{label} cannot claim native pass coverage for a non-native target")
     if manifest["profile"] not in {"stable", "branch", "condition"}:
@@ -727,6 +729,52 @@ def validate_manifest(path: Path, expected_commit: str | None = None) -> None:
         fail(f"{label}.command must be a non-empty string list")
     if not isinstance(manifest["environment"], dict):
         fail(f"{label}.environment must be an object")
+    provider = manifest["provider"]
+    if not isinstance(provider, dict):
+        fail(f"{label}.provider must be an object")
+    required_fields(
+        provider,
+        {
+            "schema_version",
+            "api",
+            "library",
+            "module_present",
+            "symbol_present",
+            "outcome",
+            "error_raw_os",
+        },
+        f"{label}.provider",
+    )
+    if (
+        provider["schema_version"] != 1
+        or provider["api"] != "GetDiskSpaceInformationW"
+        or provider["library"] != "kernel32.dll"
+    ):
+        fail(f"{label}.provider has an invalid Windows provider identity")
+    if provider["outcome"] not in {
+        "available",
+        "unavailable",
+        "error",
+        "not_run",
+        "not_applicable",
+        "invalid",
+    }:
+        fail(f"{label}.provider.outcome is invalid")
+    is_windows = manifest["target"].endswith("-pc-windows-msvc")
+    if is_windows:
+        if not isinstance(provider["module_present"], bool) or not isinstance(provider["symbol_present"], bool):
+            fail(f"{label}.provider presence values must be boolean on Windows")
+        if (
+            manifest["status"] in {"pass", "focused_only"}
+            and provider["outcome"] in {"not_run", "invalid"}
+        ):
+            fail(f"{label} cannot claim pass without a valid Windows provider probe")
+    elif provider["outcome"] != "not_applicable" or provider["module_present"] is not None or provider["symbol_present"] is not None:
+        fail(f"{label}.provider must be not_applicable outside Windows")
+    if provider["error_raw_os"] is not None and (
+        not isinstance(provider["error_raw_os"], int) or isinstance(provider["error_raw_os"], bool)
+    ):
+        fail(f"{label}.provider.error_raw_os must be an integer or null")
     native_exit = manifest["native_exit"]
     if native_exit is not None and (not isinstance(native_exit, int) or isinstance(native_exit, bool)):
         fail(f"{label}.native_exit must be an integer or null")
@@ -738,6 +786,7 @@ def validate_manifest(path: Path, expected_commit: str | None = None) -> None:
     if not isinstance(artifacts, list) or not artifacts:
         fail(f"{label}.artifacts must be non-empty")
     run_root = path.parent.resolve()
+    artifact_paths = set()
     for artifact in artifacts:
         if not isinstance(artifact, dict) or not all(key in artifact for key in ("path", "sha256", "bytes")):
             fail(f"{label} contains an incomplete artifact")
@@ -752,6 +801,13 @@ def validate_manifest(path: Path, expected_commit: str | None = None) -> None:
             fail(f"{label} contains an invalid artifact digest")
         if artifact["sha256"] != sha256(artifact_path) or artifact["bytes"] != artifact_path.stat().st_size:
             fail(f"{label} contains a stale artifact digest or size")
+        artifact_paths.add(artifact["path"])
+    if (
+        manifest["status"] in {"pass", "focused_only"}
+        and is_windows
+        and "windows-provider.json" not in artifact_paths
+    ):
+        fail(f"{label} is missing the Windows provider probe artifact")
 
 
 def validate_runs(runs_dir: Path, expected_commit: str | None, require_pass: bool) -> int:

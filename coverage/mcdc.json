@@ -20,8 +20,8 @@
   "decisions": [
     {
       "id": "MCDC-WIN-MODULE-AVAILABLE",
-      "source": "src/windows.rs:284-290",
-      "source_sha256": "99e9787c2d48338d15639c620605bb1dc75598f2f9b40835c570520a6b39aa54",
+      "source": "src/windows.rs:353-359",
+      "source_sha256": "7c04ae250a4c6f28abf195b367f2b461e921519569fe281351596f7d46fd5459",
       "symbol": "resolve_module_symbol",
       "requirement_ids": ["REQ-WIN-001"],
       "verification_ids": ["windows::test::resolves_module_symbols_only_when_the_module_is_available"],
@@ -39,8 +39,8 @@
     },
     {
       "id": "MCDC-WIN-HANDLE-OWNERSHIP",
-      "source": "src/windows.rs:489-496",
-      "source_sha256": "99e9787c2d48338d15639c620605bb1dc75598f2f9b40835c570520a6b39aa54",
+      "source": "src/windows.rs:558-565",
+      "source_sha256": "7c04ae250a4c6f28abf195b367f2b461e921519569fe281351596f7d46fd5459",
       "symbol": "owned_handle",
       "requirement_ids": ["REQ-WIN-002"],
       "verification_ids": ["windows::test::owns_only_valid_windows_handles"],
@@ -214,8 +214,8 @@
     },
     {
       "id": "MCDC-WIN-WIDE-PATH",
-      "source": "src/windows.rs:199-209",
-      "source_sha256": "99e9787c2d48338d15639c620605bb1dc75598f2f9b40835c570520a6b39aa54",
+      "source": "src/windows.rs:200-210",
+      "source_sha256": "7c04ae250a4c6f28abf195b367f2b461e921519569fe281351596f7d46fd5459",
       "symbol": "wide_path",
       "requirement_ids": ["REQ-WIN-004"],
       "verification_ids": ["windows::test::statistics_reject_embedded_null_paths", "windows::test::copies_only_exact_drive_roots"],
@@ -233,8 +233,8 @@
     },
     {
       "id": "MCDC-WIN-DUPLICATE",
-      "source": "src/windows.rs:91-95",
-      "source_sha256": "99e9787c2d48338d15639c620605bb1dc75598f2f9b40835c570520a6b39aa54",
+      "source": "src/windows.rs:92-98",
+      "source_sha256": "7c04ae250a4c6f28abf195b367f2b461e921519569fe281351596f7d46fd5459",
       "symbol": "duplicate_result",
       "requirement_ids": ["REQ-WIN-005"],
       "verification_ids": ["windows::test::maps_native_result_seams_without_faulting_the_os", "windows::test::duplicate_new_handle"],
@@ -252,8 +252,8 @@
     },
     {
       "id": "MCDC-WIN-DRIVE-ROOT",
-      "source": "src/windows.rs:225-232",
-      "source_sha256": "99e9787c2d48338d15639c620605bb1dc75598f2f9b40835c570520a6b39aa54",
+      "source": "src/windows.rs:226-234",
+      "source_sha256": "7c04ae250a4c6f28abf195b367f2b461e921519569fe281351596f7d46fd5459",
       "symbol": "valid_drive_root_components",
       "requirement_ids": ["REQ-WIN-003"],
       "verification_ids": ["windows::test::evaluates_drive_root_components_independently"],
@@ -286,8 +286,8 @@
     },
     {
       "id": "MCDC-WIN-MODERN-UNAVAILABLE",
-      "source": "src/windows.rs:335-340",
-      "source_sha256": "99e9787c2d48338d15639c620605bb1dc75598f2f9b40835c570520a6b39aa54",
+      "source": "src/windows.rs:404-409",
+      "source_sha256": "7c04ae250a4c6f28abf195b367f2b461e921519569fe281351596f7d46fd5459",
       "symbol": "modern_statvfs_unavailable",
       "requirement_ids": ["REQ-WIN-001"],
       "verification_ids": ["windows::test::modern_provider_only_falls_back_for_unavailable_errors"],
@@ -314,8 +314,8 @@
     },
     {
       "id": "MCDC-WIN-HANDLE-ATTRIBUTES",
-      "source": "src/windows.rs:427-437",
-      "source_sha256": "99e9787c2d48338d15639c620605bb1dc75598f2f9b40835c570520a6b39aa54",
+      "source": "src/windows.rs:496-507",
+      "source_sha256": "7c04ae250a4c6f28abf195b367f2b461e921519569fe281351596f7d46fd5459",
       "symbol": "handle_space_attributes_eligible",
       "requirement_ids": ["REQ-WIN-002"],
       "verification_ids": ["windows::test::handle_space_attributes_only_accept_online_regular_files"],
@@ -336,8 +336,8 @@
     },
     {
       "id": "MCDC-WIN-DIRECT-SPACE",
-      "source": "src/windows.rs:605-622",
-      "source_sha256": "99e9787c2d48338d15639c620605bb1dc75598f2f9b40835c570520a6b39aa54",
+      "source": "src/windows.rs:674-690",
+      "source_sha256": "7c04ae250a4c6f28abf195b367f2b461e921519569fe281351596f7d46fd5459",
       "symbol": "direct_space_result",
       "requirement_ids": ["REQ-STAT-001", "REQ-WIN-002"],
       "verification_ids": ["windows::test::maps_direct_space_results_and_rejects_invalid_domains"],

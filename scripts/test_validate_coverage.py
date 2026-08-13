@@ -193,6 +193,20 @@ class RunManifestTests(unittest.TestCase):
         report.write_text('{"data": []}\n', encoding="utf-8")
         stdout.write_text("test output\n", encoding="utf-8")
         stderr.write_text("warning output\n", encoding="utf-8")
+        (run_root / "windows-provider.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "api": "GetDiskSpaceInformationW",
+                    "library": "kernel32.dll",
+                    "module_present": True,
+                    "symbol_present": True,
+                    "outcome": "available",
+                    "error_raw_os": None,
+                }
+            ),
+            encoding="utf-8",
+        )
         lock_hash = sha256(ROOT / "Cargo.lock")
         return {
             "run_id": "test-run",
@@ -207,6 +221,7 @@ class RunManifestTests(unittest.TestCase):
                 "release": "test",
                 "machine": "test",
                 "python": "test",
+                "version": "test",
                 "target": "x86_64-pc-windows-msvc",
             },
             "target": "x86_64-pc-windows-msvc",
@@ -216,6 +231,15 @@ class RunManifestTests(unittest.TestCase):
             "cargo_llvm_cov": "cargo-llvm-cov test",
             "command": ["cargo", "+stable", "llvm-cov"],
             "environment": {"CARGO_INCREMENTAL": "0"},
+            "provider": {
+                "schema_version": 1,
+                "api": "GetDiskSpaceInformationW",
+                "library": "kernel32.dll",
+                "module_present": True,
+                "symbol_present": True,
+                "outcome": "available",
+                "error_raw_os": None,
+            },
             "native_exit": 0,
             "status": "pass",
             "artifacts": [],
@@ -227,7 +251,7 @@ class RunManifestTests(unittest.TestCase):
             manifest = self.make_manifest(run_root)
             manifest["artifacts"] = [
                 {"path": name, "sha256": sha256(run_root / name), "bytes": (run_root / name).stat().st_size}
-                for name in ("coverage.json", "stdout.log", "stderr.log")
+                for name in ("coverage.json", "stdout.log", "stderr.log", "windows-provider.json")
             ]
             path = run_root / "run-manifest.json"
             path.write_text(json.dumps(manifest), encoding="utf-8")
@@ -241,7 +265,7 @@ class RunManifestTests(unittest.TestCase):
             manifest["dirty"] = True
             manifest["artifacts"] = [
                 {"path": name, "sha256": sha256(run_root / name), "bytes": (run_root / name).stat().st_size}
-                for name in ("coverage.json", "stdout.log", "stderr.log")
+                for name in ("coverage.json", "stdout.log", "stderr.log", "windows-provider.json")
             ]
             path = run_root / "run-manifest.json"
             path.write_text(json.dumps(manifest), encoding="utf-8")
@@ -256,6 +280,24 @@ class RunManifestTests(unittest.TestCase):
             manifest["host"]["target"] = "x86_64-unknown-linux-gnu"
             manifest["artifacts"] = [
                 {"path": name, "sha256": sha256(run_root / name), "bytes": (run_root / name).stat().st_size}
+                for name in ("coverage.json", "stdout.log", "stderr.log", "windows-provider.json")
+            ]
+            path = run_root / "run-manifest.json"
+            path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            with self.assertRaises(ValidationError):
+                validate_manifest(path)
+
+    def test_manifest_rejects_pass_without_provider_artifact(self):
+        with tempfile.TemporaryDirectory(prefix="fs2-coverage-manifest-") as directory:
+            run_root = Path(directory)
+            manifest = self.make_manifest(run_root)
+            manifest["artifacts"] = [
+                {
+                    "path": name,
+                    "sha256": sha256(run_root / name),
+                    "bytes": (run_root / name).stat().st_size,
+                }
                 for name in ("coverage.json", "stdout.log", "stderr.log")
             ]
             path = run_root / "run-manifest.json"

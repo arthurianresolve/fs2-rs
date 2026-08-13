@@ -35,6 +35,13 @@ The records are deliberately split by concern:
   them explicitly disposable and unpromoted until the configured matrix is
   complete, independently reviewed, and placed in a controlled archive.
 
+Windows manifests also retain `windows-provider.json`.  The
+`records_provider_availability` test records whether `kernel32.dll` and
+`GetDiskSpaceInformationW` are present and whether the provider returned an
+available, unavailable, or error outcome.  The native failure tests inject
+return values at reviewed result adapters; they do not claim kernel or OS
+fault injection, independence, tool qualification, or certification credit.
+
 ## Local validation
 
 Run the record validator from the repository root:

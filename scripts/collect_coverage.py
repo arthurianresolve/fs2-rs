@@ -23,6 +23,8 @@ BRANCH = "DO-178C"
 BRANCH_TOOLCHAIN = "nightly-2026-07-23"
 TARGET_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+WINDOWS_PROVIDER_API = "GetDiskSpaceInformationW"
+WINDOWS_PROVIDER_LIBRARY = "kernel32.dll"
 
 PROFILES: dict[str, dict[str, Any]] = {
     "stable": {
@@ -81,6 +83,73 @@ def command_output(command: list[str]) -> str:
         detail = result.stderr.strip() or result.stdout.strip()
         raise CollectionError(f"{' '.join(command)} failed: {detail}")
     return (result.stdout.strip() or result.stderr.strip())
+
+
+def is_windows_target(target: str) -> bool:
+    return target.endswith("-pc-windows-msvc")
+
+
+def provider_probe_path(output_dir: Path) -> Path:
+    return output_dir / "windows-provider.json"
+
+
+def default_provider_record(target: str) -> dict[str, Any]:
+    if is_windows_target(target):
+        return {
+            "schema_version": 1,
+            "api": WINDOWS_PROVIDER_API,
+            "library": WINDOWS_PROVIDER_LIBRARY,
+            "module_present": False,
+            "symbol_present": False,
+            "outcome": "not_run",
+            "error_raw_os": None,
+        }
+    return {
+        "schema_version": 1,
+        "api": WINDOWS_PROVIDER_API,
+        "library": WINDOWS_PROVIDER_LIBRARY,
+        "module_present": None,
+        "symbol_present": None,
+        "outcome": "not_applicable",
+        "error_raw_os": None,
+    }
+
+
+def load_provider_record(path: Path) -> dict[str, Any]:
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise CollectionError(f"invalid Windows provider probe: {error}") from error
+    if not isinstance(record, dict):
+        raise CollectionError("Windows provider probe must be a JSON object")
+    required = {
+        "schema_version",
+        "api",
+        "library",
+        "module_present",
+        "symbol_present",
+        "outcome",
+        "error_raw_os",
+    }
+    if set(record) != required:
+        raise CollectionError(
+            f"Windows provider probe fields mismatch: expected {sorted(required)}, found {sorted(record)}"
+        )
+    if (
+        record["schema_version"] != 1
+        or record["api"] != WINDOWS_PROVIDER_API
+        or record["library"] != WINDOWS_PROVIDER_LIBRARY
+    ):
+        raise CollectionError("Windows provider probe identity is invalid")
+    if not isinstance(record["module_present"], bool) or not isinstance(record["symbol_present"], bool):
+        raise CollectionError("Windows provider probe presence values must be boolean")
+    if record["outcome"] not in {"available", "unavailable", "error"}:
+        raise CollectionError("Windows provider probe outcome is invalid")
+    if record["error_raw_os"] is not None and (
+        not isinstance(record["error_raw_os"], int) or isinstance(record["error_raw_os"], bool)
+    ):
+        raise CollectionError("Windows provider probe error_raw_os must be an integer or null")
+    return record
 
 
 def rustc_host_target(verbose_version: str) -> str:
@@ -144,6 +213,7 @@ def base_manifest(
     cargo_llvm_cov: str,
     command: list[str],
     environment: dict[str, str],
+    provider: dict[str, Any],
 ) -> dict[str, Any]:
     return {
         "run_id": run_id,
@@ -156,6 +226,7 @@ def base_manifest(
         "host": {
             "system": platform.system(),
             "release": platform.release(),
+            "version": platform.version(),
             "machine": platform.machine(),
             "python": platform.python_version(),
             "target": host_target,
@@ -167,6 +238,7 @@ def base_manifest(
         "cargo_llvm_cov": cargo_llvm_cov,
         "command": command,
         "environment": environment,
+        "provider": provider,
         "native_exit": None,
         "status": "provenance_error",
         "artifacts": [],
@@ -245,6 +317,8 @@ def run_profile(
     environment["RUST_BACKTRACE"] = "1"
     environment.pop("RUSTFLAGS", None)
     environment.update(configuration.get("environment", {}))
+    if is_windows_target(target):
+        environment["FS2_WINDOWS_PROVIDER_PROBE"] = str(provider_probe_path(output_dir))
     stdout_path = output_dir / "stdout.log"
     stderr_path = output_dir / "stderr.log"
     with stdout_path.open("w", encoding="utf-8", newline="\n") as stdout, stderr_path.open(
@@ -274,6 +348,7 @@ def collect(args: argparse.Namespace) -> int:
     run_id = f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:12]}"
     requested_toolchain = PROFILES[args.profile]["toolchain"]
     command = profile_command(args.profile, args.target, output_dir)
+    provider = default_provider_record(args.target)
     branch = ""
     actual_commit = expected_commit
     tree = "0" * 40
@@ -311,6 +386,27 @@ def collect(args: argparse.Namespace) -> int:
                 encoding="utf-8",
                 newline="\n",
             )
+        if is_windows_target(args.target):
+            probe_path = provider_probe_path(output_dir)
+            if probe_path.is_file():
+                try:
+                    provider = load_provider_record(probe_path)
+                except CollectionError as error:
+                    provider = default_provider_record(args.target)
+                    provider["outcome"] = "invalid"
+                    (output_dir / "provider-error.txt").write_text(
+                        f"{error}\n", encoding="utf-8", newline="\n"
+                    )
+                    if status in {"pass", "focused_only"}:
+                        status = "provenance_error"
+            elif status in {"pass", "focused_only"}:
+                provider["outcome"] = "invalid"
+                (output_dir / "provider-error.txt").write_text(
+                    "Windows provider probe artifact is missing\n",
+                    encoding="utf-8",
+                    newline="\n",
+                )
+                status = "provenance_error"
     except CollectionError as error:
         try:
             branch = git("branch", "--show-current")
@@ -346,6 +442,8 @@ def collect(args: argparse.Namespace) -> int:
         "collector": "scripts/collect_coverage.py",
     }
     environment.update(PROFILES[args.profile].get("environment", {}))
+    if is_windows_target(args.target):
+        environment["FS2_WINDOWS_PROVIDER_PROBE"] = str(provider_probe_path(output_dir))
     manifest = base_manifest(
         run_id=run_id,
         target=args.target,
@@ -361,6 +459,7 @@ def collect(args: argparse.Namespace) -> int:
         cargo_llvm_cov=cargo_llvm_cov,
         command=command,
         environment=environment,
+        provider=provider,
     )
     manifest["native_exit"] = native_exit
     manifest["status"] = status
