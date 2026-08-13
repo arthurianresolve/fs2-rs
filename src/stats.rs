@@ -542,13 +542,14 @@ mod tests {
 
     #[test]
     fn rejects_path_resolution_failure() {
-        let error = FsStatsQuery::new_path_with(Path::new("."), |_| {
+        fn fail_path_resolution(_: &Path) -> std::io::Result<std::path::PathBuf> {
             Err(std::io::Error::new(
                 ErrorKind::PermissionDenied,
                 "path resolution failed",
             ))
-        })
-        .unwrap_err();
+        }
+
+        let error = FsStatsQuery::new_path_with(Path::new("."), fail_path_resolution).unwrap_err();
 
         assert_eq!(error.kind(), ErrorKind::PermissionDenied);
     }

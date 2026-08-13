@@ -344,7 +344,7 @@ mod test {
 
     #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
     use super::linux_allocation_granularity;
-    use super::{SMALL_PATH_BUFFER_SIZE, statvfs, statvfs_cstr, with_c_path};
+    use super::{SMALL_PATH_BUFFER_SIZE, SpaceKind, space, statvfs, statvfs_cstr, with_c_path};
     use crate::{FileExt, lock_contended_error};
     use tempfile::tempdir;
 
@@ -377,6 +377,31 @@ mod test {
             let error = with_c_path(path, statvfs_cstr).unwrap_err();
             assert_eq!(error.kind(), ErrorKind::InvalidInput);
         }
+    }
+
+    #[test]
+    fn production_statvfs_handles_long_valid_paths() {
+        let tempdir = tempdir().unwrap();
+        let path = tempdir.path().join("a".repeat(180)).join("b".repeat(180));
+        fs::create_dir_all(&path).unwrap();
+
+        assert!(statvfs(&path).is_ok());
+    }
+
+    #[test]
+    fn production_statvfs_rejects_null_paths() {
+        let path = Path::new(OsStr::from_bytes(b"bad\0path"));
+        let error = statvfs(path).unwrap_err();
+
+        assert_eq!(error.kind(), ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn space_propagates_statvfs_errors() {
+        let tempdir = tempdir().unwrap();
+        let error = space(&tempdir.path().join("missing"), SpaceKind::Free).unwrap_err();
+
+        assert_eq!(error.kind(), ErrorKind::NotFound);
     }
 
     #[test]
