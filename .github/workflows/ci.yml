@@ -44,6 +44,26 @@ jobs:
         run: python scripts/validate_compatibility.py
       - run: cargo bench --manifest-path benchmarks/Cargo.toml --bench fs2 --no-run --locked --target ${{ matrix.target }}
 
+  windows-native-faults:
+    needs: support-matrix
+    if: github.event_name == 'push' && github.ref == 'refs/heads/DO-178C'
+    name: Windows native-fault evidence / Rust 1.88
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+        with:
+          toolchain: "1.88"
+      - name: Collect deterministic Windows native-fault evidence
+        run: python scripts/collect_windows_native_faults.py --output-dir target/windows-native-faults --expected-commit "$env:GITHUB_SHA"
+      - name: Validate native-fault evidence without claiming independent review
+        run: python scripts/validate_coverage.py --windows-native-fault-manifest target/windows-native-faults/windows-native-fault-manifest.json --expected-commit "$env:GITHUB_SHA" --require-pass
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: windows-native-faults
+          path: target/windows-native-faults
+          if-no-files-found: error
+
   cross_check:
     needs: support-matrix
     name: ${{ matrix.target }} / Rust ${{ matrix.toolchain }}

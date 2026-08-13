@@ -31,6 +31,17 @@ The records are deliberately split by concern:
   closure actions.  An open gap is not silently converted into a pass.
 - `run-manifest.schema.json` defines the provenance fields emitted by
   `scripts/collect_coverage.py`.
+- `windows-native-faults.json` separates deterministic Win32-boundary error
+  activation, optional user-mode Application Verifier depth, and the
+  inapplicable kernel-driver verification path.
+- `windows-native-fault-review.json` assigns the independent-review request,
+  discloses identity and common-mode risks, binds the eventual clean candidate,
+  records findings and checklist results, and prevents assignment from being
+  treated as approval.  Its schema is
+  `windows-native-fault-review.schema.json`.
+- `windows-native-fault-run.schema.json` and
+  `windows-appverifier-run.schema.json` define fail-closed evidence records for
+  those two Windows procedures.
 - `evidence-index.json` indexes the clean local snapshots for review, but keeps
   them explicitly disposable and unpromoted until the configured matrix is
   complete, independently reviewed, and placed in a controlled archive.
@@ -39,8 +50,12 @@ Windows manifests also retain `windows-provider.json`.  The
 `records_provider_availability` test records whether `kernel32.dll` and
 `GetDiskSpaceInformationW` are present and whether the provider returned an
 available, unavailable, or error outcome.  The native failure tests inject
-return values at reviewed result adapters; they do not claim kernel or OS
-fault injection, independence, tool qualification, or certification credit.
+return values at result adapters and separately activate real Windows-returned
+errors for access rights, lock contention, unavailable volumes, and invalid
+handles at the `DuplicateHandle`, allocation, lock, and unlock boundaries.
+Those deterministic scenarios are OS-mediated internal evidence; they are not
+kernel-mode Driver Verifier injection, independence, tool qualification, or
+certification credit.
 
 ## Local validation
 
@@ -49,6 +64,30 @@ Run the record validator from the repository root:
 ```text
 python scripts/validate_coverage.py
 ```
+
+Collect the deterministic Windows native-fault matrix from a clean exact-commit
+checkout, then validate its manifest:
+
+```text
+python scripts/collect_windows_native_faults.py --output-dir target/windows-native-faults --expected-commit <full-commit>
+python scripts/validate_coverage.py --windows-native-fault-manifest target/windows-native-faults/windows-native-fault-manifest.json --expected-commit <full-commit> --require-pass
+```
+
+Application Verifier low-resource simulation is optional robustness depth for
+the dedicated test process.  Its collector checks elevation before invoking
+the tool, records an indeterminate preflight without opening UAC when the host
+is not elevated, requires an observed baseline-to-injected `CreateFileW`
+transition, and always attempts removal of the exact generated image settings:
+
+```text
+python scripts/collect_windows_appverifier.py --output-dir target/windows-appverifier --expected-commit <full-commit>
+python scripts/validate_coverage.py --windows-appverifier-manifest target/windows-appverifier/windows-appverifier-manifest.json --expected-commit <full-commit> --require-pass
+```
+
+Run that optional procedure only on an elevated disposable Windows test host.
+Do not enable Driver Verifier against operating-system or filesystem drivers:
+this repository contains no kernel-mode driver for it to target, and such a run
+would not isolate fs2 behavior.
 
 Run a controlled local collection only from a clean, exact-commit checkout:
 
@@ -75,6 +114,28 @@ toolchain exist, the source-pair records remain internal, non-credit evidence.
 The CI staging gate adds `--require-pass`; focused, failed, indeterminate, or
 provenance-error manifests may be retained for analysis but cannot satisfy it.
 
+## Independent review sequence
+
+Commit and push the technical review candidate before performing the review.
+That order gives the reviewer one immutable source commit and lets the
+`windows-native-faults` CI job produce a clean exact-commit manifest.  Bind the
+review record to that commit, tree, manifest reference, and manifest SHA-256
+before changing its status to `in_review`.
+
+The assigned reviewer is `github:arthurianresolve`.  Assignment does not prove
+acceptance or independence.  The local publication identity is also
+`arthurianresolve`, so the reviewer must explicitly assess implementation
+authorship, organizational or process separation, technical independence,
+independent expected results, common-mode dependencies, and the rationale for
+the shared GitHub identity.  The validator rejects approval without that
+declaration, all ten checklist items passing, reciprocal and resolved findings,
+and a decision bound to the exact candidate and native-fault manifest digest.
+
+If review findings change code, tests, collectors, validators, requirements,
+or assurance records, create and push a new candidate, regenerate clean native
+evidence, rebind the review record, and repeat affected checks.  Record the
+completed review decision only after the final candidate is unchanged.
+
 Each run must retain the full commit, tree, lockfile hash, compiler host target,
 requested target, host, toolchain, tool version, command, native exit status,
 logs, raw report, and artifact hashes.  A pass manifest is valid only when the
@@ -90,6 +151,7 @@ The current records are `draft` or `not_ready`.  The local snapshot closes the
 emitted raw metrics and records provider availability for the Linux and
 Windows hosts exercised, but the configured Apple-silicon matrix, approved
 certification basis, assigned software level, qualified coverage-tool
-determination, independence plan, native OS fault-injection disposition, and
-external archive remain open.  Those items remain explicit decisions rather
-than being inferred from passing tests or diagnostic branch percentages.
+determination, independence plan, clean exact-commit native-fault evidence,
+independent native-fault review, and external archive remain open.  Those
+items remain explicit decisions rather than being inferred from passing tests
+or diagnostic branch percentages.

@@ -2,22 +2,28 @@ use std::env;
 use std::ffi::OsString;
 use std::fs;
 use std::io::{Error, ErrorKind};
+use std::mem::size_of;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::os::windows::io::{AsRawHandle, IntoRawHandle};
 use std::path::{Path, PathBuf};
 
 use windows_sys::Wdk::System::SystemServices::FILE_FS_FULL_SIZE_INFORMATION;
 use windows_sys::Win32::Foundation::{
-    ERROR_ACCESS_DENIED, ERROR_BAD_NETPATH, ERROR_BAD_PATHNAME, ERROR_CALL_NOT_IMPLEMENTED,
-    ERROR_DIRECTORY, ERROR_INVALID_DRIVE, ERROR_INVALID_FUNCTION, ERROR_INVALID_NAME,
-    ERROR_INVALID_PARAMETER, ERROR_NOT_SUPPORTED, ERROR_PATH_NOT_FOUND, GetHandleInformation,
-    HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE,
+    DUPLICATE_SAME_ACCESS, DuplicateHandle, ERROR_ACCESS_DENIED, ERROR_BAD_NETPATH,
+    ERROR_BAD_PATHNAME, ERROR_CALL_NOT_IMPLEMENTED, ERROR_DIRECTORY, ERROR_INVALID_DRIVE,
+    ERROR_INVALID_FUNCTION, ERROR_INVALID_HANDLE, ERROR_INVALID_NAME, ERROR_INVALID_PARAMETER,
+    ERROR_NOT_SUPPORTED, ERROR_PATH_NOT_FOUND, GetHandleInformation, HANDLE_FLAG_INHERIT,
+    INVALID_HANDLE_VALUE,
 };
 use windows_sys::Win32::Storage::FileSystem::{
-    DISK_SPACE_INFORMATION, FILE_ATTRIBUTE_ARCHIVE, FILE_ATTRIBUTE_DEVICE,
+    DISK_SPACE_INFORMATION, FILE_ALLOCATION_INFO, FILE_ATTRIBUTE_ARCHIVE, FILE_ATTRIBUTE_DEVICE,
     FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_OFFLINE, FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS,
-    FILE_ATTRIBUTE_RECALL_ON_OPEN, FILE_STANDARD_INFO, INVALID_FILE_ATTRIBUTES,
+    FILE_ATTRIBUTE_RECALL_ON_OPEN, FILE_STANDARD_INFO, FileAllocationInfo, FileStandardInfo,
+    GetFileInformationByHandleEx, INVALID_FILE_ATTRIBUTES, LOCKFILE_FAIL_IMMEDIATELY, LockFileEx,
+    SetFileInformationByHandle, UnlockFile,
 };
+use windows_sys::Win32::System::IO::OVERLAPPED;
+use windows_sys::Win32::System::Threading::GetCurrentProcess;
 
 use super::{
     ByteSpace, DirectSpace, E_NOTIMPL, ProviderOutcome, ProviderProbe, StatsQuery,
@@ -162,12 +168,12 @@ fn rejects_unresolvable_volume_paths() {
     let unavailable_drive = (b'A'..=b'Z')
         .map(char::from)
         .find(|letter| {
-            let root = format!("{}:\\", letter);
+            let root = format!("{letter}:\\");
             let mut canonical = [0; VOLUME_PATH_CAPACITY];
             volume_path(&wide_path(Path::new(&root)).unwrap(), &mut canonical).is_err()
         })
         .expect("Windows should expose at least one unavailable drive letter");
-    let unavailable_root = format!("{}:\\missing", unavailable_drive);
+    let unavailable_root = format!("{unavailable_drive}:\\missing");
 
     assert!(StatsQuery::new(Path::new(&unavailable_root)).is_err());
 }
@@ -177,12 +183,12 @@ fn space_rejects_unresolvable_volume_paths() {
     let unavailable_drive = (b'A'..=b'Z')
         .map(char::from)
         .find(|letter| {
-            let root = format!("{}:\\", letter);
+            let root = format!("{letter}:\\");
             let mut canonical = [0; VOLUME_PATH_CAPACITY];
             volume_path(&wide_path(Path::new(&root)).unwrap(), &mut canonical).is_err()
         })
         .expect("Windows should expose at least one unavailable drive letter");
-    let unavailable_root = format!("{}:\\missing", unavailable_drive);
+    let unavailable_root = format!("{unavailable_drive}:\\missing");
 
     assert!(space(Path::new(&unavailable_root), SpaceKind::Free).is_err());
 }
@@ -195,6 +201,210 @@ fn allocation_preserves_readonly_native_errors() {
 
     let readonly = fs::OpenOptions::new().read(true).open(path).unwrap();
     assert!(readonly.allocate(4096).is_err());
+}
+
+#[test]
+fn records_os_mediated_native_failures() {
+    let tempdir = tempdir().unwrap();
+
+    let allocation_path = tempdir.path().join("readonly-allocation");
+    fs::write(&allocation_path, []).unwrap();
+    let readonly = fs::OpenOptions::new()
+        .read(true)
+        .open(&allocation_path)
+        .unwrap();
+    let requested = readonly
+        .allocated_size()
+        .unwrap()
+        .checked_add(4096)
+        .unwrap();
+    let allocation_error = readonly.allocate(requested).unwrap_err();
+    assert_eq!(
+        allocation_error.raw_os_error(),
+        Some(ERROR_ACCESS_DENIED as i32)
+    );
+
+    let lock_path = tempdir.path().join("lock-contention");
+    let first = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&lock_path)
+        .unwrap();
+    let second = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&lock_path)
+        .unwrap();
+    first.fs2_lock_exclusive().unwrap();
+    let lock_error = second.fs2_try_lock_shared().unwrap_err();
+    assert_eq!(
+        lock_error.raw_os_error(),
+        lock_contended_error().raw_os_error()
+    );
+    first.fs2_unlock().unwrap();
+
+    let unavailable_root = (b'A'..=b'Z')
+        .map(|letter| format!("{}:\\\\", char::from(letter)))
+        .find(|root| !Path::new(root).exists())
+        .unwrap_or_else(|| r"\\?\Volume{00000000-0000-0000-0000-000000000000}\".to_owned());
+    let volume_error = space(Path::new(&unavailable_root), SpaceKind::Free).unwrap_err();
+    assert!(volume_error.raw_os_error().is_some());
+
+    let process = unsafe {
+        // SAFETY: `GetCurrentProcess` returns the calling process's pseudo-handle.
+        GetCurrentProcess()
+    };
+    let mut duplicate = std::ptr::null_mut();
+    let duplicate_result_code = unsafe {
+        // SAFETY: the null source handle is intentional fault activation;
+        // `process` is valid and `duplicate` is writable output storage.
+        DuplicateHandle(
+            process,
+            std::ptr::null_mut(),
+            process,
+            &mut duplicate,
+            0,
+            0,
+            DUPLICATE_SAME_ACCESS,
+        )
+    };
+    let duplicate_error = duplicate_result(duplicate_result_code, duplicate).unwrap_err();
+    assert_eq!(
+        duplicate_error.raw_os_error(),
+        Some(ERROR_INVALID_HANDLE as i32)
+    );
+
+    let mut standard_info = FILE_STANDARD_INFO::default();
+    let allocation_query_result = unsafe {
+        // SAFETY: the null handle is intentional fault activation and
+        // `standard_info` is valid writable output storage.
+        GetFileInformationByHandleEx(
+            std::ptr::null_mut(),
+            FileStandardInfo,
+            std::ptr::from_mut(&mut standard_info).cast(),
+            size_of::<FILE_STANDARD_INFO>() as u32,
+        )
+    };
+    let allocation_query_error = allocation_state_result(allocation_query_result, standard_info)
+        .err()
+        .expect("invalid handle must fail the allocation query");
+    assert_eq!(
+        allocation_query_error.raw_os_error(),
+        Some(ERROR_INVALID_HANDLE as i32)
+    );
+
+    let allocation_info = FILE_ALLOCATION_INFO {
+        AllocationSize: 4096,
+    };
+    let allocation_write_result = unsafe {
+        // SAFETY: the null handle is intentional fault activation and
+        // `allocation_info` is valid readable input storage.
+        SetFileInformationByHandle(
+            std::ptr::null_mut(),
+            FileAllocationInfo,
+            std::ptr::from_ref(&allocation_info).cast(),
+            size_of::<FILE_ALLOCATION_INFO>() as u32,
+        )
+    };
+    let allocation_write_error = win32_bool_result(allocation_write_result).unwrap_err();
+    assert_eq!(
+        allocation_write_error.raw_os_error(),
+        Some(ERROR_INVALID_HANDLE as i32)
+    );
+
+    let mut overlapped = OVERLAPPED::default();
+    let lock_result = unsafe {
+        // SAFETY: the null handle is intentional fault activation and
+        // `overlapped` is a valid zeroed structure.
+        LockFileEx(
+            std::ptr::null_mut(),
+            LOCKFILE_FAIL_IMMEDIATELY,
+            0,
+            u32::MAX,
+            u32::MAX,
+            &mut overlapped,
+        )
+    };
+    let invalid_lock_error = win32_bool_result(lock_result).unwrap_err();
+    assert_eq!(
+        invalid_lock_error.raw_os_error(),
+        Some(ERROR_INVALID_HANDLE as i32)
+    );
+
+    let unlock_result = unsafe {
+        // SAFETY: the null handle is intentional fault activation. The API is
+        // required to reject it without reading caller-owned memory.
+        UnlockFile(std::ptr::null_mut(), 0, 0, u32::MAX, u32::MAX)
+    };
+    let invalid_unlock_error = win32_bool_result(unlock_result).unwrap_err();
+    assert_eq!(
+        invalid_unlock_error.raw_os_error(),
+        Some(ERROR_INVALID_HANDLE as i32)
+    );
+
+    if let Some(output_path) = env::var_os("FS2_WINDOWS_NATIVE_FAULT_EVIDENCE") {
+        let errors = NativeFaultErrors {
+            allocation: allocation_error.raw_os_error().unwrap(),
+            lock: lock_error.raw_os_error().unwrap(),
+            volume: volume_error.raw_os_error().unwrap(),
+            duplicate: duplicate_error.raw_os_error().unwrap(),
+            allocation_query: allocation_query_error.raw_os_error().unwrap(),
+            allocation_write: allocation_write_error.raw_os_error().unwrap(),
+            invalid_lock: invalid_lock_error.raw_os_error().unwrap(),
+            invalid_unlock: invalid_unlock_error.raw_os_error().unwrap(),
+        };
+        write_native_fault_evidence(Path::new(&output_path), errors).unwrap();
+    }
+}
+
+struct NativeFaultErrors {
+    allocation: i32,
+    lock: i32,
+    volume: i32,
+    duplicate: i32,
+    allocation_query: i32,
+    allocation_write: i32,
+    invalid_lock: i32,
+    invalid_unlock: i32,
+}
+
+fn write_native_fault_evidence(path: &Path, errors: NativeFaultErrors) -> std::io::Result<()> {
+    let contents = format!(
+        concat!(
+            "{{\n",
+            "  \"schema_version\": 1,\n",
+            "  \"evidence_class\": \"internal_engineering\",\n",
+            "  \"fault_model\": \"os_mediated_error_activation\",\n",
+            "  \"status\": \"pass\",\n",
+            "  \"scenarios\": [\n",
+            "    {{\"id\": \"WIN-NATIVE-ALLOC-READONLY\", \"api_boundary\": \"SetFileInformationByHandle\", \"activation\": \"read_only_file_handle\", \"expected_raw_os\": 5, \"actual_raw_os\": {}}},\n",
+            "    {{\"id\": \"WIN-NATIVE-LOCK-CONTENTION\", \"api_boundary\": \"LockFileEx\", \"activation\": \"exclusive_lock_owned_by_peer_handle\", \"expected_raw_os\": 33, \"actual_raw_os\": {}}},\n",
+            "    {{\"id\": \"WIN-NATIVE-VOLUME-UNAVAILABLE\", \"api_boundary\": \"Windows volume and space providers\", \"activation\": \"unavailable_volume_root\", \"expected_raw_os\": null, \"actual_raw_os\": {}}},\n",
+            "    {{\"id\": \"WIN-WIN32-DUPLICATE-INVALID-HANDLE\", \"api_boundary\": \"DuplicateHandle\", \"activation\": \"null_source_handle\", \"expected_raw_os\": 6, \"actual_raw_os\": {}}},\n",
+            "    {{\"id\": \"WIN-WIN32-ALLOCATION-QUERY-INVALID-HANDLE\", \"api_boundary\": \"GetFileInformationByHandleEx\", \"activation\": \"null_file_handle\", \"expected_raw_os\": 6, \"actual_raw_os\": {}}},\n",
+            "    {{\"id\": \"WIN-WIN32-ALLOCATION-WRITE-INVALID-HANDLE\", \"api_boundary\": \"SetFileInformationByHandle\", \"activation\": \"null_file_handle\", \"expected_raw_os\": 6, \"actual_raw_os\": {}}},\n",
+            "    {{\"id\": \"WIN-WIN32-LOCK-INVALID-HANDLE\", \"api_boundary\": \"LockFileEx\", \"activation\": \"null_file_handle\", \"expected_raw_os\": 6, \"actual_raw_os\": {}}},\n",
+            "    {{\"id\": \"WIN-WIN32-UNLOCK-INVALID-HANDLE\", \"api_boundary\": \"UnlockFile\", \"activation\": \"null_file_handle\", \"expected_raw_os\": 6, \"actual_raw_os\": {}}}\n",
+            "  ],\n",
+            "  \"limitations\": [\n",
+            "    \"The unavailable-volume scenario accepts the native error selected by the host provider chain.\",\n",
+            "    \"Invalid-handle scenarios activate deterministic Windows API failure paths; they are not kernel-mode Driver Verifier injection.\",\n",
+            "    \"This record does not establish independent review, tool qualification, certification credit, or authority acceptance.\"\n",
+            "  ]\n",
+            "}}\n"
+        ),
+        errors.allocation,
+        errors.lock,
+        errors.volume,
+        errors.duplicate,
+        errors.allocation_query,
+        errors.allocation_write,
+        errors.invalid_lock,
+        errors.invalid_unlock
+    );
+    fs::write(path, contents)
 }
 
 #[test]

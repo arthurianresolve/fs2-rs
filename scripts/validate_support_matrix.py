@@ -430,6 +430,51 @@ def validate_coverage_workflow(jobs: dict) -> None:
     ):
         fail("coverage-gate must require the complete native coverage matrix")
 
+    native_faults = jobs.get("windows-native-faults")
+    if not isinstance(native_faults, dict):
+        fail("windows-native-faults job is missing")
+    if native_faults.get("needs") != "support-matrix" or native_faults.get("runs-on") != "windows-latest":
+        fail("windows-native-faults job has an invalid dependency or runner")
+    if native_faults.get("if") != "github.event_name == 'push' && github.ref == 'refs/heads/DO-178C'":
+        fail("windows-native-faults evidence must run only for the pushed DO-178C branch head")
+    native_steps = native_faults.get("steps")
+    if not isinstance(native_steps, list):
+        fail("windows-native-faults job must define steps")
+    native_commands = [
+        step.get("run", "")
+        for step in native_steps
+        if isinstance(step, dict) and isinstance(step.get("run"), str)
+    ]
+    if not any(
+        "python scripts/collect_windows_native_faults.py" in command
+        and "--expected-commit" in command
+        for command in native_commands
+    ):
+        fail("windows-native-faults job must collect exact-commit evidence")
+    if not any(
+        "python scripts/validate_coverage.py" in command
+        and "--windows-native-fault-manifest" in command
+        and "--require-pass" in command
+        for command in native_commands
+    ):
+        fail("windows-native-faults job must require a passing native-fault manifest")
+    native_uploads = [
+        step
+        for step in native_steps
+        if isinstance(step, dict)
+        and isinstance(step.get("uses"), str)
+        and "actions/upload-artifact@" in step["uses"]
+    ]
+    if len(native_uploads) != 1:
+        fail("windows-native-faults job must upload exactly one artifact")
+    native_upload = native_uploads[0].get("with", {})
+    if (
+        native_upload.get("name") != "windows-native-faults"
+        or native_upload.get("path") != "target/windows-native-faults"
+        or native_upload.get("if-no-files-found") != "error"
+    ):
+        fail("windows-native-faults artifact retention settings are incomplete")
+
 
 def matrices(registry: SupportRegistry) -> dict[str, dict[str, list[dict[str, str]]]]:
     generated: dict[str, dict[str, list[dict[str, str]]]] = {}

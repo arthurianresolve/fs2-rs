@@ -1,0 +1,41 @@
+{
+  "record_type": "windows_native_fault_independent_review_schema",
+  "schema_version": 1,
+  "required": [
+    "record_type",
+    "schema_version",
+    "id",
+    "status",
+    "owner",
+    "assurance_context",
+    "credit",
+    "assignment",
+    "independence",
+    "candidate_baseline",
+    "review_scope",
+    "review_inputs",
+    "procedure_revision",
+    "checklist",
+    "findings",
+    "decision",
+    "closure_effect",
+    "created_at",
+    "updated_at",
+    "non_claims"
+  ],
+  "enums": {
+    "status": [
+      "assigned_awaiting_clean_baseline",
+      "assigned_ready_for_review",
+      "in_review",
+      "changes_requested",
+      "approved",
+      "rejected"
+    ],
+    "reviewer_acceptance": ["pending", "accepted", "declined"],
+    "independence_status": ["declaration_pending", "accepted", "rejected"],
+    "check_status": ["not_reviewed", "pass", "fail"],
+    "decision_status": ["pending", "recorded"]
+  },
+  "promotion_rule": "Assignment is not review acceptance or independent approval. Approval requires a clean exact-commit native-fault manifest, reviewer acceptance, an explicit accepted independence declaration, every mandatory check passing, all findings closed, and a decision bound to the reviewed commit and evidence digest."
+}

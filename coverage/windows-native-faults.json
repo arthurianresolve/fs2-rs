@@ -1,0 +1,126 @@
+{
+  "record_type": "windows_native_fault_assessment",
+  "schema_version": 1,
+  "status": "assessment_open",
+  "owner": "fs2 DO-178C coverage workstream",
+  "claim_class": "internal_engineering_evidence",
+  "credit": "none",
+  "review_status": "independent_review_pending",
+  "external_references": [
+    {
+      "id": "MICROSOFT-APPLICATION-VERIFIER",
+      "title": "Application Verifier",
+      "url": "https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/application-verifier",
+      "source_role": "advisory_tool_scope_not_approved_certification_basis"
+    },
+    {
+      "id": "MICROSOFT-DRIVER-VERIFIER",
+      "title": "verifier",
+      "url": "https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/verifier",
+      "source_role": "advisory_tool_scope_not_approved_certification_basis"
+    },
+    {
+      "id": "MICROSOFT-SYSTEMATIC-LOW-RESOURCE-SIMULATION",
+      "title": "Systematic Low Resource Simulation",
+      "url": "https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/systematic-low-resource-simulation",
+      "source_role": "advisory_tool_scope_not_approved_certification_basis"
+    },
+    {
+      "id": "MICROSOFT-SYSTEM-ERROR-CODES-0-499",
+      "title": "System Error Codes (0-499) (WinError.h)",
+      "url": "https://learn.microsoft.com/en-us/windows/win32/debug/system-error-codes--0-499-",
+      "source_role": "advisory_expected_result_input_not_approved_certification_basis"
+    }
+  ],
+  "tool_disposition": {
+    "application_verifier": {
+      "applicability": "optional_user_mode_robustness",
+      "layer": "low_resource_simulation",
+      "target": "dedicated fs2 test process",
+      "activation_oracle": "A baseline CreateFileW control succeeds and the same control fails with a native error while the configured layer is active.",
+      "execution_constraint": "Configuration requires an elevated disposable Windows test host and must be removed after the targeted process exits."
+    },
+    "driver_verifier": {
+      "applicability": "not_applicable_no_kernel_driver",
+      "target": null,
+      "basis": "fs2 is a user-mode Rust library and this repository builds no kernel-mode driver that Driver Verifier can target.",
+      "safety_disposition": "Do not enable Driver Verifier against unrelated operating-system or filesystem drivers as fs2 evidence."
+    }
+  },
+  "scenarios": [
+    {
+      "id": "WIN-NATIVE-ALLOC-READONLY",
+      "verification_id": "windows::test::records_os_mediated_native_failures",
+      "mechanism": "os_mediated_error_activation",
+      "api_boundary": "SetFileInformationByHandle",
+      "oracle": "ERROR_ACCESS_DENIED"
+    },
+    {
+      "id": "WIN-NATIVE-LOCK-CONTENTION",
+      "verification_id": "windows::test::records_os_mediated_native_failures",
+      "mechanism": "os_mediated_error_activation",
+      "api_boundary": "LockFileEx",
+      "oracle": "ERROR_LOCK_VIOLATION"
+    },
+    {
+      "id": "WIN-NATIVE-VOLUME-UNAVAILABLE",
+      "verification_id": "windows::test::records_os_mediated_native_failures",
+      "mechanism": "os_mediated_error_activation",
+      "api_boundary": "Windows volume and space providers",
+      "oracle": "nonzero native error"
+    },
+    {
+      "id": "WIN-WIN32-DUPLICATE-INVALID-HANDLE",
+      "verification_id": "windows::test::records_os_mediated_native_failures",
+      "mechanism": "win32_boundary_invalid_handle_activation",
+      "api_boundary": "DuplicateHandle",
+      "oracle": "ERROR_INVALID_HANDLE"
+    },
+    {
+      "id": "WIN-WIN32-ALLOCATION-QUERY-INVALID-HANDLE",
+      "verification_id": "windows::test::records_os_mediated_native_failures",
+      "mechanism": "win32_boundary_invalid_handle_activation",
+      "api_boundary": "GetFileInformationByHandleEx",
+      "oracle": "ERROR_INVALID_HANDLE"
+    },
+    {
+      "id": "WIN-WIN32-ALLOCATION-WRITE-INVALID-HANDLE",
+      "verification_id": "windows::test::records_os_mediated_native_failures",
+      "mechanism": "win32_boundary_invalid_handle_activation",
+      "api_boundary": "SetFileInformationByHandle",
+      "oracle": "ERROR_INVALID_HANDLE"
+    },
+    {
+      "id": "WIN-WIN32-LOCK-INVALID-HANDLE",
+      "verification_id": "windows::test::records_os_mediated_native_failures",
+      "mechanism": "win32_boundary_invalid_handle_activation",
+      "api_boundary": "LockFileEx",
+      "oracle": "ERROR_INVALID_HANDLE"
+    },
+    {
+      "id": "WIN-WIN32-UNLOCK-INVALID-HANDLE",
+      "verification_id": "windows::test::records_os_mediated_native_failures",
+      "mechanism": "win32_boundary_invalid_handle_activation",
+      "api_boundary": "UnlockFile",
+      "oracle": "ERROR_INVALID_HANDLE"
+    },
+    {
+      "id": "WIN-APPVERIFIER-FILE-LOW-RESOURCE",
+      "verification_id": "appverifier_file_fault_is_observed",
+      "mechanism": "application_verifier_low_resource_simulation",
+      "api_boundary": "CreateFileW and fs2 file-space query",
+      "oracle": "baseline control succeeds; configured control fails with a native error; fs2 exits normally"
+    }
+  ],
+  "closure_conditions": [
+    "A clean exact-commit Windows native-fault run must retain the scenario output, commands, native exit, host, toolchain, and artifact hashes.",
+    "The deterministic result-adapter matrix and the real Windows-returned error matrix must both remain mapped.",
+    "Application Verifier evidence is optional robustness depth and cannot substitute for deterministic native-boundary scenarios.",
+    "An independent reviewer must approve scenario completeness, expected results, execution evidence, and the Driver Verifier applicability disposition before GAP-WINDOWS-NATIVE-ERRORS can close."
+  ],
+  "non_claims": [
+    "The scenario matrix is not kernel-mode Driver Verifier injection.",
+    "No independent review has been performed or approved.",
+    "The record does not establish tool qualification, certification credit, MC/DC, object-code coverage, or authority acceptance."
+  ]
+}

@@ -24,6 +24,11 @@ from validate_coverage import (
     validate_static_records,
     validate_surface,
     validate_tool_assessment,
+    validate_windows_appverifier_manifest,
+    validate_native_fault_payload,
+    validate_windows_native_fault_assessment,
+    validate_windows_native_fault_manifest,
+    validate_windows_native_fault_review,
     check_status,
     parse_cargo_test_list,
 )
@@ -37,6 +42,10 @@ class CoverageRecordTests(unittest.TestCase):
         self.decisions = load_json(COVERAGE / "decision-inventory.json")
         self.policy = load_json(COVERAGE / "policy.json")
         self.tool = load_json(COVERAGE / "tool-assessment.json")
+        self.native_faults = load_json(COVERAGE / "windows-native-faults.json")
+        self.native_fault_review = load_json(
+            COVERAGE / "windows-native-fault-review.json"
+        )
 
     def test_static_records_are_valid(self):
         validate_static_records()
@@ -44,6 +53,13 @@ class CoverageRecordTests(unittest.TestCase):
     def test_context_rejects_certification_credit(self):
         invalid = copy.deepcopy(self.context)
         invalid["certification_credit"] = "accepted"
+
+        with self.assertRaises(ValidationError):
+            validate_context(invalid)
+
+    def test_context_rejects_unapproved_independence_claim(self):
+        invalid = copy.deepcopy(self.context)
+        invalid["independence_status"] = "accepted"
 
         with self.assertRaises(ValidationError):
             validate_context(invalid)
@@ -131,6 +147,150 @@ class CoverageRecordTests(unittest.TestCase):
 
         with self.assertRaises(ValidationError):
             validate_gap_register(invalid)
+
+    def test_gap_register_rejects_native_fault_closure_before_review(self):
+        invalid = load_json(COVERAGE / "gap-register.json")
+        native = next(gap for gap in invalid["gaps"] if gap["id"] == "GAP-WINDOWS-NATIVE-ERRORS")
+        native["status"] = "closed"
+        native["closure_basis"] = "technical tests passed"
+
+        with self.assertRaises(ValidationError):
+            validate_gap_register(invalid)
+
+    def test_native_fault_assessment_rejects_driver_verifier_claim(self):
+        invalid = copy.deepcopy(self.native_faults)
+        invalid["tool_disposition"]["driver_verifier"]["applicability"] = "applicable"
+
+        with self.assertRaises(ValidationError):
+            validate_windows_native_fault_assessment(invalid, {"windows::test::records_os_mediated_native_failures", "appverifier_file_fault_is_observed"})
+
+    def test_native_fault_assessment_rejects_unapproved_review(self):
+        invalid = copy.deepcopy(self.native_faults)
+        invalid["review_status"] = "approved"
+
+        with self.assertRaises(ValidationError):
+            validate_windows_native_fault_assessment(invalid, {"windows::test::records_os_mediated_native_failures", "appverifier_file_fault_is_observed"})
+
+    def test_native_fault_assessment_rejects_promoted_external_basis(self):
+        invalid = copy.deepcopy(self.native_faults)
+        invalid["external_references"][0]["source_role"] = "approved_certification_basis"
+
+        with self.assertRaises(ValidationError):
+            validate_windows_native_fault_assessment(invalid, {"windows::test::records_os_mediated_native_failures", "appverifier_file_fault_is_observed"})
+
+    def test_native_fault_assessment_rejects_external_reference_drift(self):
+        invalid = copy.deepcopy(self.native_faults)
+        invalid["external_references"][0]["url"] = "https://example.invalid/application-verifier"
+
+        with self.assertRaises(ValidationError):
+            validate_windows_native_fault_assessment(invalid, {"windows::test::records_os_mediated_native_failures", "appverifier_file_fault_is_observed"})
+
+    def approved_native_fault_review(self) -> dict:
+        approved = copy.deepcopy(self.native_fault_review)
+        approved["status"] = "approved"
+        approved["assignment"]["reviewer_acceptance"] = "accepted"
+        approved["independence"].update(
+            {
+                "status": "accepted",
+                "implementation_authorship": "confirmed",
+                "organizational_independence": "confirmed",
+                "technical_independence": "confirmed",
+                "expected_results_independently_established": "confirmed",
+                "common_mode_independence": "confirmed",
+                "same_identity_rationale": "The reviewer documented role separation and reconciled the shared publication identity.",
+                "declaration_ref": "review-evidence:independence-declaration-001",
+                "declared_at": "2026-08-14T10:00:00+00:00",
+            }
+        )
+        approved["candidate_baseline"].update(
+            {
+                "reviewed_commit": "1" * 40,
+                "reviewed_tree": "2" * 40,
+                "clean_native_fault_manifest_ref": "github-actions:run-1/artifact/windows-native-faults",
+                "clean_native_fault_manifest_sha256": "3" * 64,
+                "state": "clean_candidate_bound",
+            }
+        )
+        for check in approved["checklist"]:
+            check["status"] = "pass"
+        approved["decision"] = {
+            "status": "recorded",
+            "outcome": "approve",
+            "reviewer_login": "arthurianresolve",
+            "reviewed_commit": "1" * 40,
+            "native_fault_manifest_sha256": "3" * 64,
+            "attestation": "I independently reviewed every registered objective and accept the internal result.",
+            "decision_ref": "review-evidence:decision-001",
+            "decided_at": "2026-08-14T11:00:00+00:00",
+        }
+        approved["closure_effect"] = {
+            "gap_id": "GAP-WINDOWS-NATIVE-ERRORS",
+            "current_effect": "independent_review_condition_satisfied",
+            "independent_review_condition_satisfied": True,
+            "gap_closure_permitted": True,
+            "remaining_conditions": [],
+        }
+        approved["updated_at"] = "2026-08-14T11:00:00+00:00"
+        return approved
+
+    def test_native_fault_review_accepts_assigned_reviewer(self):
+        self.assertEqual(
+            validate_windows_native_fault_review(self.native_fault_review),
+            "independent_review_pending",
+        )
+
+    def test_native_fault_review_accepts_bound_candidate_before_reviewer_acceptance(self):
+        ready = copy.deepcopy(self.native_fault_review)
+        ready["status"] = "assigned_ready_for_review"
+        ready["candidate_baseline"].update(
+            {
+                "reviewed_commit": "1" * 40,
+                "reviewed_tree": "2" * 40,
+                "clean_native_fault_manifest_ref": "github-actions:run-1/artifact/windows-native-faults",
+                "clean_native_fault_manifest_sha256": "3" * 64,
+                "state": "clean_candidate_bound",
+            }
+        )
+        ready["closure_effect"]["current_effect"] = "none_review_incomplete"
+
+        self.assertEqual(
+            validate_windows_native_fault_review(ready),
+            "independent_review_pending",
+        )
+
+    def test_native_fault_review_rejects_reviewer_identity_drift(self):
+        invalid = copy.deepcopy(self.native_fault_review)
+        invalid["assignment"]["reviewer"]["login"] = "someone-else"
+
+        with self.assertRaises(ValidationError):
+            validate_windows_native_fault_review(invalid)
+
+    def test_native_fault_review_rejects_premature_approval(self):
+        invalid = copy.deepcopy(self.native_fault_review)
+        invalid["status"] = "approved"
+
+        with self.assertRaises(ValidationError):
+            validate_windows_native_fault_review(invalid)
+
+    def test_native_fault_review_accepts_complete_approval_transition(self):
+        self.assertEqual(
+            validate_windows_native_fault_review(self.approved_native_fault_review()),
+            "independent_review_approved",
+        )
+
+    def test_native_fault_review_rejects_missing_same_identity_rationale(self):
+        invalid = self.approved_native_fault_review()
+        invalid["independence"]["same_identity_rationale"] = None
+
+        with self.assertRaises(ValidationError):
+            validate_windows_native_fault_review(invalid)
+
+    def test_native_fault_payload_rejects_activation_drift(self):
+        payload = WindowsFaultManifestTests().native_payload()
+        payload["scenarios"][0]["activation"] = "adapter_stub"
+
+        with self.assertRaises(ValidationError):
+            validate_native_fault_payload(payload, "test payload", True)
 
     def test_invalid_fixture_is_rejected(self):
         invalid = load_json(COVERAGE / "fixtures" / "invalid-unknown-status.json")
@@ -306,6 +466,229 @@ class RunManifestTests(unittest.TestCase):
             with self.assertRaises(ValidationError):
                 validate_manifest(path)
 
+
+class WindowsFaultManifestTests(unittest.TestCase):
+    def native_payload(self) -> dict:
+        return {
+            "schema_version": 1,
+            "evidence_class": "internal_engineering",
+            "fault_model": "os_mediated_error_activation",
+            "status": "pass",
+            "scenarios": [
+                {"id": "WIN-NATIVE-ALLOC-READONLY", "api_boundary": "SetFileInformationByHandle", "activation": "read_only_file_handle", "expected_raw_os": 5, "actual_raw_os": 5},
+                {"id": "WIN-NATIVE-LOCK-CONTENTION", "api_boundary": "LockFileEx", "activation": "exclusive_lock_owned_by_peer_handle", "expected_raw_os": 33, "actual_raw_os": 33},
+                {"id": "WIN-NATIVE-VOLUME-UNAVAILABLE", "api_boundary": "Windows volume and space providers", "activation": "unavailable_volume_root", "expected_raw_os": None, "actual_raw_os": 2},
+                {"id": "WIN-WIN32-DUPLICATE-INVALID-HANDLE", "api_boundary": "DuplicateHandle", "activation": "null_source_handle", "expected_raw_os": 6, "actual_raw_os": 6},
+                {"id": "WIN-WIN32-ALLOCATION-QUERY-INVALID-HANDLE", "api_boundary": "GetFileInformationByHandleEx", "activation": "null_file_handle", "expected_raw_os": 6, "actual_raw_os": 6},
+                {"id": "WIN-WIN32-ALLOCATION-WRITE-INVALID-HANDLE", "api_boundary": "SetFileInformationByHandle", "activation": "null_file_handle", "expected_raw_os": 6, "actual_raw_os": 6},
+                {"id": "WIN-WIN32-LOCK-INVALID-HANDLE", "api_boundary": "LockFileEx", "activation": "null_file_handle", "expected_raw_os": 6, "actual_raw_os": 6},
+                {"id": "WIN-WIN32-UNLOCK-INVALID-HANDLE", "api_boundary": "UnlockFile", "activation": "null_file_handle", "expected_raw_os": 6, "actual_raw_os": 6},
+            ],
+            "limitations": ["one", "two", "three"],
+        }
+
+    def test_native_fault_manifest_is_fail_closed_for_review(self):
+        with tempfile.TemporaryDirectory(prefix="fs2-native-fault-manifest-") as directory:
+            run_root = Path(directory)
+            payload = self.native_payload()
+            (run_root / "windows-native-faults.json").write_text(json.dumps(payload), encoding="utf-8")
+            (run_root / "stdout.log").write_text("pass\n", encoding="utf-8")
+            (run_root / "stderr.log").write_text("", encoding="utf-8")
+            manifest = {
+                "record_type": "windows_native_fault_run",
+                "schema_version": 1,
+                "run_id": "test-native-fault",
+                "repository": "arthurianresolve/fs2-rs",
+                "branch": "DO-178C",
+                "commit": "d1e0e22eaed156e2420058f52f119e10330e24df",
+                "tree": "2" * 40,
+                "dirty": False,
+                "cargo_lock_sha256": canonical_text_sha256(ROOT / "Cargo.lock"),
+                "host": {"system": "Windows", "release": "test", "version": "test", "machine": "AMD64", "python": "test", "target": "x86_64-pc-windows-msvc"},
+                "target": "x86_64-pc-windows-msvc",
+                "requested_toolchain": "1.88",
+                "resolved_toolchain": "rustc test\nhost: x86_64-pc-windows-msvc",
+                "test_id": "windows::test::records_os_mediated_native_failures",
+                "command": ["cargo", "+1.88", "test", "--package", "fs2", "--lib", "--target", "x86_64-pc-windows-msvc", "--locked", "windows::test::records_os_mediated_native_failures", "--", "--exact", "--test-threads=1", "--nocapture"],
+                "environment": {"CARGO_INCREMENTAL": "0", "RUST_BACKTRACE": "1", "FS2_WINDOWS_NATIVE_FAULT_EVIDENCE": str(run_root / "windows-native-faults.json")},
+                "native_exit": 0,
+                "native_faults": payload,
+                "review_status": "independent_review_pending",
+                "status": "pass",
+                "created_utc": "2026-08-13T10:00:00+00:00",
+                "artifacts": [
+                    {"path": name, "sha256": sha256(run_root / name), "bytes": (run_root / name).stat().st_size}
+                    for name in ("windows-native-faults.json", "stdout.log", "stderr.log")
+                ],
+            }
+            path = run_root / "windows-native-fault-manifest.json"
+            path.write_text(json.dumps(manifest), encoding="utf-8")
+            validate_windows_native_fault_manifest(path, manifest["commit"])
+
+            manifest["review_status"] = "approved"
+            path.write_text(json.dumps(manifest), encoding="utf-8")
+            with self.assertRaises(ValidationError):
+                validate_windows_native_fault_manifest(path)
+
+    def test_appverifier_indeterminate_manifest_retains_preflight_reason(self):
+        with tempfile.TemporaryDirectory(prefix="fs2-appverifier-manifest-") as directory:
+            run_root = Path(directory)
+            reason = run_root / "preflight-error.txt"
+            reason.write_text("elevation required\n", encoding="utf-8")
+            manifest = {
+                "record_type": "windows_appverifier_run",
+                "schema_version": 1,
+                "run_id": "test-appverifier",
+                "repository": "arthurianresolve/fs2-rs",
+                "branch": "DO-178C",
+                "commit": "d1e0e22eaed156e2420058f52f119e10330e24df",
+                "tree": "0" * 40,
+                "dirty": True,
+                "cargo_lock_sha256": canonical_text_sha256(ROOT / "Cargo.lock"),
+                "host": {"system": "Windows", "release": "test", "version": "test", "machine": "AMD64", "python": "test", "target": "x86_64-pc-windows-msvc", "administrator": False},
+                "target": "x86_64-pc-windows-msvc",
+                "requested_toolchain": "1.88",
+                "resolved_toolchain": "rustc test\nhost: x86_64-pc-windows-msvc",
+                "application_verifier": {"path": "appverif.exe", "version": "test", "sha256": "0" * 64},
+                "probe": {"test_target": "windows_appverifier", "test_id": "appverifier_file_fault_is_observed", "binary": None, "sha256": None},
+                "configuration": {"layer": "lowres", "file_probability": 1000000, "timeout_ms": 0, "target_image": "fs2-windows-appverifier-probe.exe"},
+                "commands": {
+                    "build": ["cargo", "+1.88", "test", "--package", "fs2", "--target", "x86_64-pc-windows-msvc", "--locked", "--test", "windows_appverifier", "--no-run", "--message-format=json"],
+                    "probe": [str(run_root / "fs2-windows-appverifier-probe.exe"), "--exact", "appverifier_file_fault_is_observed", "--nocapture"],
+                    "initial_delete": ["appverif.exe", "-delete", "settings", "-for", "fs2-windows-appverifier-probe.exe"],
+                    "initial_query": ["appverif.exe", "-query", "lowres", "-for", "fs2-windows-appverifier-probe.exe"],
+                    "configure": ["appverif.exe", "-enable", "lowres", "-for", "fs2-windows-appverifier-probe.exe", "-with", "file=1000000", "timeout=0"],
+                    "query": ["appverif.exe", "-query", "lowres", "-for", "fs2-windows-appverifier-probe.exe"],
+                    "cleanup_delete": ["appverif.exe", "-delete", "settings", "-for", "fs2-windows-appverifier-probe.exe"],
+                    "cleanup_query": ["appverif.exe", "-query", "lowres", "-for", "fs2-windows-appverifier-probe.exe"],
+                },
+                "controlled_environment": {
+                    "baseline": {"FS2_APPVERIFIER_PROBE_PATH": str(ROOT / "Cargo.toml")},
+                    "injected": {"FS2_APPVERIFIER_PROBE_PATH": str(ROOT / "Cargo.toml"), "FS2_EXPECT_APPVERIFIER_FILE_FAULT": "1"},
+                },
+                "initial_state": {"delete_native_exit": None, "query_native_exit": None, "query_observation": None, "verified_absent": False},
+                "baseline": {"native_exit": None, "observation": None},
+                "configured_state": {"enable_native_exit": None, "query_native_exit": None, "query_observation": None, "verified": False},
+                "injected": {"native_exit": None, "observation": None},
+                "cleanup": {"delete_native_exit": None, "query_native_exit": None, "query_observation": None, "verified_absent": False},
+                "review_status": "independent_review_pending",
+                "status": "indeterminate",
+                "created_utc": "2026-08-13T10:00:00+00:00",
+                "artifacts": [{"path": reason.name, "sha256": sha256(reason), "bytes": reason.stat().st_size}],
+            }
+            path = run_root / "windows-appverifier-manifest.json"
+            path.write_text(json.dumps(manifest), encoding="utf-8")
+            validate_windows_appverifier_manifest(path, manifest["commit"])
+
+            manifest["artifacts"] = []
+            path.write_text(json.dumps(manifest), encoding="utf-8")
+            with self.assertRaises(ValidationError):
+                validate_windows_appverifier_manifest(path)
+
+    def test_appverifier_pass_requires_verified_configuration_lifecycle(self):
+        with tempfile.TemporaryDirectory(prefix="fs2-appverifier-pass-") as directory:
+            run_root = Path(directory)
+            artifact_names = (
+                "build-stdout.jsonl",
+                "build-stderr.log",
+                "fs2-windows-appverifier-probe.exe",
+                "initial-delete-stdout.log",
+                "initial-delete-stderr.log",
+                "initial-query-stdout.log",
+                "initial-query-stderr.log",
+                "baseline-stdout.log",
+                "baseline-stderr.log",
+                "configure-stdout.log",
+                "configure-stderr.log",
+                "query-stdout.log",
+                "query-stderr.log",
+                "injected-stdout.log",
+                "injected-stderr.log",
+                "cleanup-delete-stdout.log",
+                "cleanup-delete-stderr.log",
+                "cleanup-query-stdout.log",
+                "cleanup-query-stderr.log",
+            )
+            for name in artifact_names:
+                (run_root / name).write_bytes(f"{name}\n".encode())
+            probe_path = run_root / "fs2-windows-appverifier-probe.exe"
+            absent = {
+                "lowres_enabled": False,
+                "file_probability": None,
+                "timeout_ms": None,
+            }
+            configured = {
+                "lowres_enabled": True,
+                "file_probability": 1000000,
+                "timeout_ms": 0,
+            }
+            verifier_path = "appverif.exe"
+            query_command = [
+                verifier_path,
+                "-query",
+                "lowres",
+                "-for",
+                "fs2-windows-appverifier-probe.exe",
+            ]
+            delete_command = [
+                verifier_path,
+                "-delete",
+                "settings",
+                "-for",
+                "fs2-windows-appverifier-probe.exe",
+            ]
+            manifest = {
+                "record_type": "windows_appverifier_run",
+                "schema_version": 1,
+                "run_id": "test-appverifier-pass",
+                "repository": "arthurianresolve/fs2-rs",
+                "branch": "DO-178C",
+                "commit": "d1e0e22eaed156e2420058f52f119e10330e24df",
+                "tree": "2" * 40,
+                "dirty": False,
+                "cargo_lock_sha256": canonical_text_sha256(ROOT / "Cargo.lock"),
+                "host": {"system": "Windows", "release": "test", "version": "test", "machine": "AMD64", "python": "test", "target": "x86_64-pc-windows-msvc", "administrator": True},
+                "target": "x86_64-pc-windows-msvc",
+                "requested_toolchain": "1.88",
+                "resolved_toolchain": "rustc test\nhost: x86_64-pc-windows-msvc",
+                "application_verifier": {"path": verifier_path, "version": "test", "sha256": "0" * 64},
+                "probe": {"test_target": "windows_appverifier", "test_id": "appverifier_file_fault_is_observed", "binary": probe_path.name, "sha256": sha256(probe_path)},
+                "configuration": {"layer": "lowres", "file_probability": 1000000, "timeout_ms": 0, "target_image": probe_path.name},
+                "commands": {
+                    "build": ["cargo", "+1.88", "test", "--package", "fs2", "--target", "x86_64-pc-windows-msvc", "--locked", "--test", "windows_appverifier", "--no-run", "--message-format=json"],
+                    "probe": [str(probe_path), "--exact", "appverifier_file_fault_is_observed", "--nocapture"],
+                    "initial_delete": delete_command,
+                    "initial_query": query_command,
+                    "configure": [verifier_path, "-enable", "lowres", "-for", probe_path.name, "-with", "file=1000000", "timeout=0"],
+                    "query": query_command,
+                    "cleanup_delete": delete_command,
+                    "cleanup_query": query_command,
+                },
+                "controlled_environment": {
+                    "baseline": {"FS2_APPVERIFIER_PROBE_PATH": str(ROOT / "Cargo.toml")},
+                    "injected": {"FS2_APPVERIFIER_PROBE_PATH": str(ROOT / "Cargo.toml"), "FS2_EXPECT_APPVERIFIER_FILE_FAULT": "1"},
+                },
+                "initial_state": {"delete_native_exit": 0, "query_native_exit": 0, "query_observation": absent, "verified_absent": True},
+                "baseline": {"native_exit": 0, "observation": {"schema_version": 1, "fault_expected": False, "control_create_file": "success", "control_raw_os_error": None, "fs2_outcome": "success", "fs2_raw_os_error": None}},
+                "configured_state": {"enable_native_exit": 0, "query_native_exit": 0, "query_observation": configured, "verified": True},
+                "injected": {"native_exit": 0, "observation": {"schema_version": 1, "fault_expected": True, "control_create_file": "error", "control_raw_os_error": 8, "fs2_outcome": "success", "fs2_raw_os_error": None}},
+                "cleanup": {"delete_native_exit": 0, "query_native_exit": 0, "query_observation": absent, "verified_absent": True},
+                "review_status": "independent_review_pending",
+                "status": "pass",
+                "artifacts": [
+                    {"path": name, "sha256": sha256(run_root / name), "bytes": (run_root / name).stat().st_size}
+                    for name in artifact_names
+                ],
+                "created_utc": "2026-08-13T10:00:00+00:00",
+            }
+            path = run_root / "windows-appverifier-manifest.json"
+            path.write_text(json.dumps(manifest), encoding="utf-8")
+            validate_windows_appverifier_manifest(path, manifest["commit"])
+
+            manifest["cleanup"]["verified_absent"] = False
+            path.write_text(json.dumps(manifest), encoding="utf-8")
+            with self.assertRaises(ValidationError):
+                validate_windows_appverifier_manifest(path)
 
 if __name__ == "__main__":
     unittest.main()

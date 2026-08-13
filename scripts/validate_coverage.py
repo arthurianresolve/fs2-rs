@@ -15,6 +15,7 @@ import os
 import re
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +37,11 @@ REQUIRED_RECORDS = (
     "gap-register.json",
     "verification-inventory.json",
     "mcdc.json",
+    "windows-native-faults.json",
+    "windows-native-fault-review.json",
+    "windows-native-fault-review.schema.json",
+    "windows-native-fault-run.schema.json",
+    "windows-appverifier-run.schema.json",
 )
 VALID_RECORD_STATUSES = {"draft", "assessment_open", "not_ready"}
 VALID_MANIFEST_STATUSES = {
@@ -161,7 +167,11 @@ def validate_context(context: dict[str, Any]) -> None:
         fail(f"{label} must declare no certification credit")
     if context["approved_basis_refs"] != []:
         fail(f"{label} contains an unapproved basis reference")
-    if context["mcdc_status"] != "not_assessed" or context["tool_credit"] != "internal_only":
+    if (
+        context["mcdc_status"] != "not_assessed"
+        or context["tool_credit"] != "internal_only"
+        or context["independence_status"] != "not_assessed"
+    ):
         fail(f"{label} contains an unsupported assurance claim")
     baseline = context["baseline"]
     if not isinstance(baseline, dict):
@@ -421,7 +431,9 @@ def validate_tool_assessment(tool: dict[str, Any]) -> None:
                 fail(f"{item_label}.{field} is invalid")
 
 
-def validate_evidence_index(index: dict[str, Any]) -> None:
+def validate_evidence_index(
+    index: dict[str, Any], independent_review_approved: bool = False
+) -> None:
     label = "coverage/evidence-index.json"
     required_fields(index, {"record_type", "schema_version", "status", "owner", "archive_status", "external_archive_uri", "runs", "open_items", "non_claims"}, label)
     check_status(index, label)
@@ -458,6 +470,17 @@ def validate_evidence_index(index: dict[str, Any]) -> None:
         provenance.add((run["commit"], run["tree"]))
     if len(provenance) != 1:
         fail(f"{label}.runs must share one exact commit and tree snapshot")
+    open_items = index["open_items"]
+    if not isinstance(open_items, list) or not open_items or not all(
+        isinstance(item, str) and item.strip() for item in open_items
+    ):
+        fail(f"{label}.open_items must be a non-empty string list")
+    has_native_review_item = any(
+        "native-fault" in item.lower() and "review" in item.lower()
+        for item in open_items
+    )
+    if independent_review_approved == has_native_review_item:
+        fail(f"{label}.open_items is inconsistent with the native-fault review state")
 
 
 def validate_verification_inventory(inventory: dict[str, Any]) -> set[str]:
@@ -520,7 +543,17 @@ def validate_test_inventory() -> None:
     commands = {
         "unit": ["cargo", "test", "--package", "fs2", "--lib", "--locked", "--", "--list"],
         "integration": [
-            "cargo", "test", "--package", "fs2", "--test", "upstream_compat", "--locked", "--", "--list"
+            "cargo",
+            "test",
+            "--package",
+            "fs2",
+            "--test",
+            "upstream_compat",
+            "--test",
+            "windows_appverifier",
+            "--locked",
+            "--",
+            "--list",
         ],
         "doctest": ["cargo", "test", "--package", "fs2", "--doc", "--locked", "--", "--list"],
     }
@@ -567,7 +600,9 @@ def validate_test_inventory() -> None:
             )
 
 
-def validate_gap_register(gaps: dict[str, Any]) -> None:
+def validate_gap_register(
+    gaps: dict[str, Any], independent_review_approved: bool = False
+) -> None:
     label = "coverage/gap-register.json"
     required_fields(gaps, {"record_type", "schema_version", "status", "owner", "baseline", "observed_metrics", "historical_internal_metrics", "clean_local_snapshot", "gaps", "closure_rules", "non_claims"}, label)
     check_status(gaps, label)
@@ -656,6 +691,1225 @@ def validate_gap_register(gaps: dict[str, Any]) -> None:
     for field in ("closure_rules", "non_claims"):
         if not isinstance(gaps[field], list) or not gaps[field] or not all(isinstance(value, str) and value for value in gaps[field]):
             fail(f"{label}.{field} must be a non-empty string list")
+    native_gap = next(
+        (record for record in records if record["id"] == "GAP-WINDOWS-NATIVE-ERRORS"),
+        None,
+    )
+    if native_gap is None:
+        fail(f"{label} must retain the Windows native-error gap")
+    if independent_review_approved:
+        if (
+            native_gap["status"] != "closed"
+            or "IR-WINDOWS-NATIVE-FAULTS-001" not in native_gap.get("closure_basis", "")
+        ):
+            fail(f"{label} approved native-error closure lacks its review basis")
+    elif (
+        native_gap["status"] != "open"
+        or "independent" not in native_gap["required_action"].lower()
+    ):
+        fail(f"{label} must retain the Windows native-error gap until independent review")
+
+
+NATIVE_FAULT_SCENARIOS = {
+    "WIN-NATIVE-ALLOC-READONLY": ("SetFileInformationByHandle", "os_mediated_error_activation", "ERROR_ACCESS_DENIED"),
+    "WIN-NATIVE-LOCK-CONTENTION": ("LockFileEx", "os_mediated_error_activation", "ERROR_LOCK_VIOLATION"),
+    "WIN-NATIVE-VOLUME-UNAVAILABLE": ("Windows volume and space providers", "os_mediated_error_activation", "nonzero native error"),
+    "WIN-WIN32-DUPLICATE-INVALID-HANDLE": ("DuplicateHandle", "win32_boundary_invalid_handle_activation", "ERROR_INVALID_HANDLE"),
+    "WIN-WIN32-ALLOCATION-QUERY-INVALID-HANDLE": ("GetFileInformationByHandleEx", "win32_boundary_invalid_handle_activation", "ERROR_INVALID_HANDLE"),
+    "WIN-WIN32-ALLOCATION-WRITE-INVALID-HANDLE": ("SetFileInformationByHandle", "win32_boundary_invalid_handle_activation", "ERROR_INVALID_HANDLE"),
+    "WIN-WIN32-LOCK-INVALID-HANDLE": ("LockFileEx", "win32_boundary_invalid_handle_activation", "ERROR_INVALID_HANDLE"),
+    "WIN-WIN32-UNLOCK-INVALID-HANDLE": ("UnlockFile", "win32_boundary_invalid_handle_activation", "ERROR_INVALID_HANDLE"),
+    "WIN-APPVERIFIER-FILE-LOW-RESOURCE": ("CreateFileW and fs2 file-space query", "application_verifier_low_resource_simulation", "baseline control succeeds; configured control fails with a native error; fs2 exits normally"),
+}
+
+NATIVE_FAULT_PAYLOAD_SCENARIOS = {
+    "WIN-NATIVE-ALLOC-READONLY": ("SetFileInformationByHandle", "read_only_file_handle", 5),
+    "WIN-NATIVE-LOCK-CONTENTION": ("LockFileEx", "exclusive_lock_owned_by_peer_handle", 33),
+    "WIN-NATIVE-VOLUME-UNAVAILABLE": ("Windows volume and space providers", "unavailable_volume_root", None),
+    "WIN-WIN32-DUPLICATE-INVALID-HANDLE": ("DuplicateHandle", "null_source_handle", 6),
+    "WIN-WIN32-ALLOCATION-QUERY-INVALID-HANDLE": ("GetFileInformationByHandleEx", "null_file_handle", 6),
+    "WIN-WIN32-ALLOCATION-WRITE-INVALID-HANDLE": ("SetFileInformationByHandle", "null_file_handle", 6),
+    "WIN-WIN32-LOCK-INVALID-HANDLE": ("LockFileEx", "null_file_handle", 6),
+    "WIN-WIN32-UNLOCK-INVALID-HANDLE": ("UnlockFile", "null_file_handle", 6),
+}
+
+WINDOWS_FAULT_REFERENCE_URLS = {
+    "MICROSOFT-APPLICATION-VERIFIER": "https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/application-verifier",
+    "MICROSOFT-DRIVER-VERIFIER": "https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/verifier",
+    "MICROSOFT-SYSTEMATIC-LOW-RESOURCE-SIMULATION": "https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/systematic-low-resource-simulation",
+    "MICROSOFT-SYSTEM-ERROR-CODES-0-499": "https://learn.microsoft.com/en-us/windows/win32/debug/system-error-codes--0-499-",
+}
+
+WINDOWS_FAULT_REFERENCE_ROLES = {
+    identifier: (
+        "advisory_expected_result_input_not_approved_certification_basis"
+        if identifier == "MICROSOFT-SYSTEM-ERROR-CODES-0-499"
+        else "advisory_tool_scope_not_approved_certification_basis"
+    )
+    for identifier in WINDOWS_FAULT_REFERENCE_URLS
+}
+
+WINDOWS_NATIVE_FAULT_REVIEW_FIELDS = {
+    "record_type",
+    "schema_version",
+    "id",
+    "status",
+    "owner",
+    "assurance_context",
+    "credit",
+    "assignment",
+    "independence",
+    "candidate_baseline",
+    "review_scope",
+    "review_inputs",
+    "procedure_revision",
+    "checklist",
+    "findings",
+    "decision",
+    "closure_effect",
+    "created_at",
+    "updated_at",
+    "non_claims",
+}
+
+WINDOWS_NATIVE_FAULT_REVIEW_STATUSES = {
+    "assigned_awaiting_clean_baseline",
+    "assigned_ready_for_review",
+    "in_review",
+    "changes_requested",
+    "approved",
+    "rejected",
+}
+
+WINDOWS_NATIVE_FAULT_REVIEW_INPUTS = {
+    "coverage/windows-native-faults.json": "scenario and verifier applicability owner",
+    "coverage/requirements.json": "requirements trace owner",
+    "coverage/verification-inventory.json": "verification identity owner",
+    "coverage/decision-inventory.json": "decision trace owner",
+    "coverage/tool-assessment.json": "tool function and fallback owner",
+    "coverage/gap-register.json": "gap and closure owner",
+    "src/windows/tests.rs": "deterministic and OS-mediated native-fault procedure",
+    "tests/windows_appverifier.rs": "optional Application Verifier probe",
+    "scripts/collect_windows_native_faults.py": "native-fault evidence collector",
+    "scripts/collect_windows_appverifier.py": "optional verifier lifecycle collector",
+    "scripts/validate_coverage.py": "fail-closed record and evidence validator",
+    ".github/workflows/ci.yml": "clean branch-head evidence execution",
+}
+
+WINDOWS_NATIVE_FAULT_REVIEW_CHECKS = {
+    f"IR-WNF-{number:03d}" for number in range(1, 11)
+}
+
+NATIVE_FAULT_MANIFEST_FIELDS = {
+    "record_type",
+    "schema_version",
+    "run_id",
+    "repository",
+    "branch",
+    "commit",
+    "tree",
+    "dirty",
+    "cargo_lock_sha256",
+    "host",
+    "target",
+    "requested_toolchain",
+    "resolved_toolchain",
+    "test_id",
+    "command",
+    "environment",
+    "native_exit",
+    "native_faults",
+    "review_status",
+    "status",
+    "artifacts",
+    "created_utc",
+}
+
+APPVERIFIER_MANIFEST_FIELDS = {
+    "record_type",
+    "schema_version",
+    "run_id",
+    "repository",
+    "branch",
+    "commit",
+    "tree",
+    "dirty",
+    "cargo_lock_sha256",
+    "host",
+    "target",
+    "requested_toolchain",
+    "resolved_toolchain",
+    "application_verifier",
+    "probe",
+    "configuration",
+    "commands",
+    "controlled_environment",
+    "initial_state",
+    "baseline",
+    "configured_state",
+    "injected",
+    "cleanup",
+    "review_status",
+    "status",
+    "artifacts",
+    "created_utc",
+}
+
+NATIVE_FAULT_COMMAND = [
+    "cargo",
+    "+1.88",
+    "test",
+    "--package",
+    "fs2",
+    "--lib",
+    "--target",
+    "x86_64-pc-windows-msvc",
+    "--locked",
+    "windows::test::records_os_mediated_native_failures",
+    "--",
+    "--exact",
+    "--test-threads=1",
+    "--nocapture",
+]
+
+
+def validate_created_utc(value: Any, label: str) -> None:
+    if not isinstance(value, str):
+        fail(f"{label} must be an ISO-8601 timestamp")
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        fail(f"{label} must be an ISO-8601 timestamp")
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        fail(f"{label} must include a timezone offset")
+
+
+def portable_path_name(value: Any) -> str | None:
+    if not isinstance(value, str) or not value:
+        return None
+    return value.replace("\\", "/").rsplit("/", 1)[-1]
+
+
+def validate_appverifier_observation(
+    observation: Any, *, expected_fault: bool, label: str
+) -> None:
+    fields = {
+        "schema_version",
+        "fault_expected",
+        "control_create_file",
+        "control_raw_os_error",
+        "fs2_outcome",
+        "fs2_raw_os_error",
+    }
+    if not isinstance(observation, dict) or set(observation) != fields:
+        fail(f"{label} has invalid probe fields")
+    if observation["schema_version"] != 1 or observation["fault_expected"] is not expected_fault:
+        fail(f"{label} has the wrong probe identity or fault expectation")
+    control_error = observation["control_raw_os_error"]
+    if expected_fault:
+        if (
+            observation["control_create_file"] != "error"
+            or not isinstance(control_error, int)
+            or isinstance(control_error, bool)
+            or control_error <= 0
+        ):
+            fail(f"{label} did not observe a positive native control failure")
+    elif observation["control_create_file"] != "success" or control_error is not None:
+        fail(f"{label} did not retain a successful unconfigured control")
+    fs2_outcome = observation["fs2_outcome"]
+    fs2_error = observation["fs2_raw_os_error"]
+    if fs2_outcome == "success":
+        if fs2_error is not None:
+            fail(f"{label} records a native error for a successful fs2 outcome")
+    elif fs2_outcome == "error":
+        if (
+            not isinstance(fs2_error, int)
+            or isinstance(fs2_error, bool)
+            or fs2_error <= 0
+        ):
+            fail(f"{label} does not retain a positive fs2 native error")
+    else:
+        fail(f"{label}.fs2_outcome is invalid")
+    if not expected_fault and fs2_outcome != "success":
+        fail(f"{label} baseline fs2 call did not succeed")
+
+
+def validate_appverifier_query_observation(observation: Any, label: str) -> None:
+    if observation is None:
+        return
+    if not isinstance(observation, dict) or set(observation) != {
+        "lowres_enabled",
+        "file_probability",
+        "timeout_ms",
+    }:
+        fail(f"{label} has invalid query fields")
+    if not isinstance(observation["lowres_enabled"], bool):
+        fail(f"{label}.lowres_enabled must be boolean")
+    for field in ("file_probability", "timeout_ms"):
+        value = observation[field]
+        if value is not None and (
+            not isinstance(value, int) or isinstance(value, bool) or value < 0
+        ):
+            fail(f"{label}.{field} must be a non-negative integer or null")
+
+
+def validate_windows_native_fault_review(review: dict[str, Any]) -> str:
+    label = "coverage/windows-native-fault-review.json"
+    if set(review) != WINDOWS_NATIVE_FAULT_REVIEW_FIELDS:
+        fail(f"{label} fields do not match the registered review contract")
+    if (
+        review["record_type"] != "windows_native_fault_independent_review"
+        or review["schema_version"] != 1
+        or review["id"] != "IR-WINDOWS-NATIVE-FAULTS-001"
+    ):
+        fail(f"{label} has the wrong identity")
+    if review["status"] not in WINDOWS_NATIVE_FAULT_REVIEW_STATUSES:
+        fail(f"{label}.status is invalid")
+    if (
+        review["owner"] != "fs2 DO-178C coverage workstream"
+        or review["assurance_context"] != "internal_assurance"
+        or review["credit"] != "none"
+    ):
+        fail(f"{label} contains an unsupported assurance claim")
+    validate_created_utc(review["created_at"], f"{label}.created_at")
+    validate_created_utc(review["updated_at"], f"{label}.updated_at")
+    if datetime.fromisoformat(review["updated_at"]) < datetime.fromisoformat(review["created_at"]):
+        fail(f"{label}.updated_at precedes created_at")
+
+    assignment = review["assignment"]
+    if not isinstance(assignment, dict) or set(assignment) != {
+        "reviewer",
+        "assignment_status",
+        "reviewer_acceptance",
+        "assigned_at",
+        "assignment_basis",
+    }:
+        fail(f"{label}.assignment is invalid")
+    reviewer = assignment["reviewer"]
+    if reviewer != {
+        "identity_provider": "github",
+        "login": "arthurianresolve",
+        "account_id": 268402532,
+        "node_id": "U_kgDOD_9_ZA",
+        "profile_url": "https://github.com/arthurianresolve",
+    }:
+        fail(f"{label}.assignment.reviewer is not the resolved GitHub identity")
+    if assignment["assignment_status"] != "assigned":
+        fail(f"{label} must retain the explicit reviewer assignment")
+    if assignment["reviewer_acceptance"] not in {"pending", "accepted", "declined"}:
+        fail(f"{label}.assignment.reviewer_acceptance is invalid")
+    if assignment["assignment_basis"] != "explicit_user_direction":
+        fail(f"{label}.assignment.assignment_basis is invalid")
+    validate_created_utc(assignment["assigned_at"], f"{label}.assignment.assigned_at")
+
+    independence = review["independence"]
+    independence_fields = {
+        "status",
+        "identity_observation",
+        "implementation_authorship",
+        "organizational_independence",
+        "technical_independence",
+        "expected_results_independently_established",
+        "common_mode_independence",
+        "conflicts_of_interest",
+        "same_identity_rationale",
+        "declaration_ref",
+        "declared_at",
+    }
+    if not isinstance(independence, dict) or set(independence) != independence_fields:
+        fail(f"{label}.independence is invalid")
+    if independence["status"] not in {"declaration_pending", "accepted", "rejected"}:
+        fail(f"{label}.independence.status is invalid")
+    if (
+        not isinstance(independence["identity_observation"], str)
+        or "matches the local Git commit identity" not in independence["identity_observation"]
+    ):
+        fail(f"{label}.independence must disclose the same-identity observation")
+    independence_dimensions = (
+        "implementation_authorship",
+        "organizational_independence",
+        "technical_independence",
+        "expected_results_independently_established",
+        "common_mode_independence",
+    )
+    valid_independence_values = {"not_assessed", "confirmed", "not_independent"}
+    if any(independence[field] not in valid_independence_values for field in independence_dimensions):
+        fail(f"{label}.independence contains an invalid dimension result")
+    conflicts = independence["conflicts_of_interest"]
+    if not isinstance(conflicts, list) or not all(
+        isinstance(conflict, str) and conflict.strip() for conflict in conflicts
+    ):
+        fail(f"{label}.independence.conflicts_of_interest is invalid")
+    if independence["status"] == "declaration_pending":
+        if any(independence[field] != "not_assessed" for field in independence_dimensions):
+            fail(f"{label} cannot record independence conclusions before a declaration")
+        if any(
+            independence[field] is not None
+            for field in ("same_identity_rationale", "declaration_ref", "declared_at")
+        ):
+            fail(f"{label} pending independence must not contain an attestation")
+    else:
+        if not isinstance(independence["same_identity_rationale"], str) or not independence["same_identity_rationale"].strip():
+            fail(f"{label}.independence must resolve the same-identity risk")
+        if not isinstance(independence["declaration_ref"], str) or not independence["declaration_ref"].strip():
+            fail(f"{label}.independence.declaration_ref must be non-empty")
+        validate_created_utc(independence["declared_at"], f"{label}.independence.declared_at")
+        if independence["status"] == "accepted" and (
+            any(independence[field] != "confirmed" for field in independence_dimensions)
+            or conflicts
+        ):
+            fail(f"{label} cannot accept incomplete or conflicted independence")
+        if independence["status"] == "rejected" and not any(
+            independence[field] == "not_independent" for field in independence_dimensions
+        ):
+            fail(f"{label} rejected independence must identify a failed dimension")
+
+    baseline = review["candidate_baseline"]
+    baseline_fields = {
+        "repository",
+        "branch",
+        "preparation_parent_commit",
+        "reviewed_commit",
+        "reviewed_tree",
+        "clean_native_fault_manifest_ref",
+        "clean_native_fault_manifest_sha256",
+        "application_verifier_manifest_ref",
+        "application_verifier_required_for_approval",
+        "state",
+    }
+    if not isinstance(baseline, dict) or set(baseline) != baseline_fields:
+        fail(f"{label}.candidate_baseline is invalid")
+    if (
+        baseline["repository"] != "arthurianresolve/fs2-rs"
+        or baseline["branch"] != "DO-178C"
+        or not COMMIT_RE.fullmatch(str(baseline["preparation_parent_commit"]))
+        or baseline["application_verifier_required_for_approval"] is not False
+    ):
+        fail(f"{label}.candidate_baseline has invalid repository or planning provenance")
+    baseline_bound = baseline["state"] == "clean_candidate_bound"
+    if baseline["state"] not in {
+        "awaiting_committed_candidate_and_clean_ci_evidence",
+        "clean_candidate_bound",
+    }:
+        fail(f"{label}.candidate_baseline.state is invalid")
+    if baseline_bound:
+        if (
+            not COMMIT_RE.fullmatch(str(baseline["reviewed_commit"]))
+            or not COMMIT_RE.fullmatch(str(baseline["reviewed_tree"]))
+            or baseline["reviewed_commit"] == "0" * 40
+            or baseline["reviewed_tree"] == "0" * 40
+            or not isinstance(baseline["clean_native_fault_manifest_ref"], str)
+            or not baseline["clean_native_fault_manifest_ref"].strip()
+            or not SHA256_RE.fullmatch(str(baseline["clean_native_fault_manifest_sha256"]))
+        ):
+            fail(f"{label}.candidate_baseline does not bind clean native-fault evidence")
+        appverifier_ref = baseline["application_verifier_manifest_ref"]
+        if appverifier_ref is not None and (
+            not isinstance(appverifier_ref, str) or not appverifier_ref.strip()
+        ):
+            fail(f"{label}.candidate_baseline.application_verifier_manifest_ref is invalid")
+    elif any(
+        baseline[field] is not None
+        for field in (
+            "reviewed_commit",
+            "reviewed_tree",
+            "clean_native_fault_manifest_ref",
+            "clean_native_fault_manifest_sha256",
+            "application_verifier_manifest_ref",
+        )
+    ):
+        fail(f"{label} cannot bind partial candidate evidence")
+
+    scope = review["review_scope"]
+    if not isinstance(scope, list) or len(scope) != 9 or len(set(scope)) != len(scope) or not all(
+        isinstance(item, str) and item.strip() for item in scope
+    ):
+        fail(f"{label}.review_scope must contain nine unique objectives")
+    inputs = review["review_inputs"]
+    if not isinstance(inputs, list) or len(inputs) != len(WINDOWS_NATIVE_FAULT_REVIEW_INPUTS):
+        fail(f"{label}.review_inputs is incomplete")
+    observed_inputs: dict[str, str] = {}
+    for index, item in enumerate(inputs):
+        item_label = f"{label}.review_inputs[{index}]"
+        if not isinstance(item, dict) or set(item) != {"path", "role"}:
+            fail(f"{item_label} is invalid")
+        path = item["path"]
+        if path in observed_inputs or WINDOWS_NATIVE_FAULT_REVIEW_INPUTS.get(path) != item["role"]:
+            fail(f"{item_label} has an unexpected or duplicate input")
+        source_path(path, f"{item_label}.path")
+        observed_inputs[path] = item["role"]
+    if observed_inputs != WINDOWS_NATIVE_FAULT_REVIEW_INPUTS:
+        fail(f"{label}.review_inputs does not match the registered review surface")
+    if review["procedure_revision"] != 1:
+        fail(f"{label}.procedure_revision is invalid")
+
+    findings = review["findings"]
+    if not isinstance(findings, list):
+        fail(f"{label}.findings must be a list")
+    finding_ids: set[str] = set()
+    open_findings: set[str] = set()
+    for index, finding in enumerate(findings):
+        finding_label = f"{label}.findings[{index}]"
+        if not isinstance(finding, dict) or set(finding) != {
+            "id",
+            "severity",
+            "status",
+            "check_ids",
+            "description",
+            "resolution",
+            "resolution_ref",
+        }:
+            fail(f"{finding_label} is invalid")
+        identifier = finding["id"]
+        if (
+            not isinstance(identifier, str)
+            or not re.fullmatch(r"IR-WNF-FINDING-\d{3}", identifier)
+            or identifier in finding_ids
+        ):
+            fail(f"{finding_label}.id is invalid or duplicated")
+        finding_ids.add(identifier)
+        if finding["severity"] not in {"minor", "major", "critical"}:
+            fail(f"{finding_label}.severity is invalid")
+        if finding["status"] not in {"open", "resolved"}:
+            fail(f"{finding_label}.status is invalid")
+        check_ids = finding["check_ids"]
+        if (
+            not isinstance(check_ids, list)
+            or not check_ids
+            or len(set(check_ids)) != len(check_ids)
+            or not set(check_ids).issubset(WINDOWS_NATIVE_FAULT_REVIEW_CHECKS)
+        ):
+            fail(f"{finding_label}.check_ids is invalid")
+        if not isinstance(finding["description"], str) or not finding["description"].strip():
+            fail(f"{finding_label}.description must be non-empty")
+        if finding["status"] == "open":
+            open_findings.add(identifier)
+            if finding["resolution"] is not None or finding["resolution_ref"] is not None:
+                fail(f"{finding_label} open finding cannot claim resolution")
+        elif (
+            not isinstance(finding["resolution"], str)
+            or not finding["resolution"].strip()
+            or not isinstance(finding["resolution_ref"], str)
+            or not finding["resolution_ref"].strip()
+        ):
+            fail(f"{finding_label} resolved finding must retain resolution evidence")
+
+    checklist = review["checklist"]
+    if not isinstance(checklist, list) or len(checklist) != len(WINDOWS_NATIVE_FAULT_REVIEW_CHECKS):
+        fail(f"{label}.checklist is incomplete")
+    observed_checks: set[str] = set()
+    check_statuses: dict[str, str] = {}
+    referenced_findings: set[str] = set()
+    for index, check in enumerate(checklist):
+        check_label = f"{label}.checklist[{index}]"
+        if not isinstance(check, dict) or set(check) != {
+            "id",
+            "objective",
+            "status",
+            "finding_refs",
+        }:
+            fail(f"{check_label} is invalid")
+        identifier = check["id"]
+        if identifier not in WINDOWS_NATIVE_FAULT_REVIEW_CHECKS or identifier in observed_checks:
+            fail(f"{check_label}.id is unexpected or duplicated")
+        observed_checks.add(identifier)
+        if not isinstance(check["objective"], str) or not check["objective"].strip():
+            fail(f"{check_label}.objective must be non-empty")
+        if check["status"] not in {"not_reviewed", "pass", "fail"}:
+            fail(f"{check_label}.status is invalid")
+        refs = check["finding_refs"]
+        if not isinstance(refs, list) or len(set(refs)) != len(refs) or not set(refs).issubset(finding_ids):
+            fail(f"{check_label}.finding_refs is invalid")
+        if check["status"] == "fail" and not refs:
+            fail(f"{check_label} failed check must reference a finding")
+        referenced_findings.update(refs)
+        check_statuses[identifier] = check["status"]
+    if observed_checks != WINDOWS_NATIVE_FAULT_REVIEW_CHECKS:
+        fail(f"{label}.checklist does not match the registered objectives")
+    if referenced_findings != finding_ids:
+        fail(f"{label}.findings and checklist references are not reciprocal")
+
+    decision = review["decision"]
+    decision_fields = {
+        "status",
+        "outcome",
+        "reviewer_login",
+        "reviewed_commit",
+        "native_fault_manifest_sha256",
+        "attestation",
+        "decision_ref",
+        "decided_at",
+    }
+    if not isinstance(decision, dict) or set(decision) != decision_fields:
+        fail(f"{label}.decision is invalid")
+    if decision["status"] not in {"pending", "recorded"}:
+        fail(f"{label}.decision.status is invalid")
+    if decision["status"] == "pending":
+        if any(decision[field] is not None for field in decision_fields - {"status"}):
+            fail(f"{label} pending decision must not contain decision data")
+    else:
+        if decision["outcome"] not in {"approve", "reject", "changes_requested"}:
+            fail(f"{label}.decision.outcome is invalid")
+        if decision["reviewer_login"] != reviewer["login"]:
+            fail(f"{label}.decision reviewer does not match the assignment")
+        if (
+            not baseline_bound
+            or decision["reviewed_commit"] != baseline["reviewed_commit"]
+            or decision["native_fault_manifest_sha256"]
+            != baseline["clean_native_fault_manifest_sha256"]
+        ):
+            fail(f"{label}.decision is not bound to the candidate evidence")
+        for field in ("attestation", "decision_ref"):
+            if not isinstance(decision[field], str) or not decision[field].strip():
+                fail(f"{label}.decision.{field} must be non-empty")
+        validate_created_utc(decision["decided_at"], f"{label}.decision.decided_at")
+
+    closure = review["closure_effect"]
+    if not isinstance(closure, dict) or set(closure) != {
+        "gap_id",
+        "current_effect",
+        "independent_review_condition_satisfied",
+        "gap_closure_permitted",
+        "remaining_conditions",
+    }:
+        fail(f"{label}.closure_effect is invalid")
+    if closure["gap_id"] != "GAP-WINDOWS-NATIVE-ERRORS":
+        fail(f"{label}.closure_effect has the wrong gap")
+    if not isinstance(closure["remaining_conditions"], list) or not all(
+        isinstance(item, str) and item.strip() for item in closure["remaining_conditions"]
+    ):
+        fail(f"{label}.closure_effect.remaining_conditions is invalid")
+    for field in ("independent_review_condition_satisfied", "gap_closure_permitted"):
+        if not isinstance(closure[field], bool):
+            fail(f"{label}.closure_effect.{field} must be boolean")
+
+    status = review["status"]
+    if status == "assigned_awaiting_clean_baseline":
+        if (
+            baseline_bound
+            or assignment["reviewer_acceptance"] == "declined"
+            or independence["status"] != "declaration_pending"
+            or decision["status"] != "pending"
+            or any(value != "not_reviewed" for value in check_statuses.values())
+            or findings
+        ):
+            fail(f"{label} assigned state contains premature review results")
+    elif status == "assigned_ready_for_review":
+        if (
+            not baseline_bound
+            or assignment["reviewer_acceptance"] == "declined"
+            or independence["status"] != "declaration_pending"
+            or decision["status"] != "pending"
+            or any(value != "not_reviewed" for value in check_statuses.values())
+            or findings
+        ):
+            fail(f"{label} ready state requires clean evidence without review results")
+    elif status == "in_review":
+        if (
+            not baseline_bound
+            or assignment["reviewer_acceptance"] != "accepted"
+            or independence["status"] != "accepted"
+            or decision["status"] != "pending"
+        ):
+            fail(f"{label} cannot enter review without accepted assignment, independence, and clean evidence")
+    elif status == "changes_requested":
+        if (
+            not baseline_bound
+            or assignment["reviewer_acceptance"] != "accepted"
+            or independence["status"] != "accepted"
+            or decision["status"] != "recorded"
+            or decision["outcome"] != "changes_requested"
+            or not (open_findings or "fail" in check_statuses.values())
+        ):
+            fail(f"{label} changes-requested state lacks a bound adverse review decision")
+    elif status == "rejected":
+        if decision["status"] != "recorded" or decision["outcome"] != "reject":
+            fail(f"{label} rejected state lacks a recorded rejection")
+    elif status == "approved":
+        if (
+            not baseline_bound
+            or assignment["reviewer_acceptance"] != "accepted"
+            or independence["status"] != "accepted"
+            or decision["status"] != "recorded"
+            or decision["outcome"] != "approve"
+            or any(value != "pass" for value in check_statuses.values())
+            or findings and (open_findings or len(findings) != len(finding_ids))
+        ):
+            fail(f"{label} cannot approve incomplete or unresolved review work")
+
+    approved = status == "approved"
+    if approved:
+        if closure != {
+            "gap_id": "GAP-WINDOWS-NATIVE-ERRORS",
+            "current_effect": "independent_review_condition_satisfied",
+            "independent_review_condition_satisfied": True,
+            "gap_closure_permitted": True,
+            "remaining_conditions": [],
+        }:
+            fail(f"{label}.closure_effect does not match the approved review")
+    elif (
+        closure["current_effect"] not in {"none_assignment_only", "none_review_incomplete"}
+        or closure["independent_review_condition_satisfied"]
+        or closure["gap_closure_permitted"]
+        or not closure["remaining_conditions"]
+    ):
+        fail(f"{label} cannot imply closure before approval")
+    non_claims = review["non_claims"]
+    if not isinstance(non_claims, list) or len(non_claims) < 4 or not all(
+        isinstance(item, str) and item.strip() for item in non_claims
+    ):
+        fail(f"{label}.non_claims is incomplete")
+    if not any("assignment is not" in item.lower() for item in non_claims):
+        fail(f"{label}.non_claims must separate assignment from approval")
+
+    if status == "approved":
+        return "independent_review_approved"
+    if status == "rejected":
+        return "independent_review_rejected"
+    return "independent_review_pending"
+
+
+def validate_windows_native_fault_assessment(
+    assessment: dict[str, Any],
+    verification_ids: set[str],
+    expected_review_status: str = "independent_review_pending",
+) -> None:
+    label = "coverage/windows-native-faults.json"
+    required_fields(
+        assessment,
+        {
+            "record_type",
+            "schema_version",
+            "status",
+            "owner",
+            "claim_class",
+            "credit",
+            "review_status",
+            "external_references",
+            "tool_disposition",
+            "scenarios",
+            "closure_conditions",
+            "non_claims",
+        },
+        label,
+    )
+    check_status(assessment, label)
+    if assessment["record_type"] != "windows_native_fault_assessment" or assessment["schema_version"] != 1:
+        fail(f"{label} has the wrong record type or schema version")
+    if assessment["claim_class"] != "internal_engineering_evidence" or assessment["credit"] != "none":
+        fail(f"{label} contains an unsupported assurance claim")
+    if assessment["review_status"] != expected_review_status:
+        fail(f"{label}.review_status is inconsistent with the review record")
+    references = assessment["external_references"]
+    if not isinstance(references, list) or len(references) != len(WINDOWS_FAULT_REFERENCE_URLS):
+        fail(f"{label}.external_references must retain the registered Microsoft sources")
+    observed_references: set[str] = set()
+    for index, reference in enumerate(references):
+        item_label = f"{label}.external_references[{index}]"
+        if not isinstance(reference, dict):
+            fail(f"{item_label} must be an object")
+        required_fields(reference, {"id", "title", "url", "source_role"}, item_label)
+        identifier = reference["id"]
+        if identifier not in WINDOWS_FAULT_REFERENCE_URLS or identifier in observed_references:
+            fail(f"{item_label}.id is unexpected or duplicated")
+        observed_references.add(identifier)
+        if reference["url"] != WINDOWS_FAULT_REFERENCE_URLS[identifier]:
+            fail(f"{item_label}.url has drifted from the registered official source")
+        if reference["source_role"] != WINDOWS_FAULT_REFERENCE_ROLES[identifier]:
+            fail(f"{item_label} must not claim an approved certification basis")
+        if not isinstance(reference["title"], str) or not reference["title"].strip():
+            fail(f"{item_label}.title must be a non-empty string")
+    if observed_references != set(WINDOWS_FAULT_REFERENCE_URLS):
+        fail(f"{label}.external_references is incomplete")
+    tools = assessment["tool_disposition"]
+    if not isinstance(tools, dict) or set(tools) != {"application_verifier", "driver_verifier"}:
+        fail(f"{label}.tool_disposition must classify both Windows verifier facilities")
+    appverifier = tools["application_verifier"]
+    driver_verifier = tools["driver_verifier"]
+    if not isinstance(appverifier, dict) or appverifier.get("applicability") != "optional_user_mode_robustness":
+        fail(f"{label} must keep Application Verifier optional and user-mode scoped")
+    if (
+        not isinstance(driver_verifier, dict)
+        or driver_verifier.get("applicability") != "not_applicable_no_kernel_driver"
+        or driver_verifier.get("target") is not None
+    ):
+        fail(f"{label} must not claim Driver Verifier coverage without a kernel driver")
+    records = assessment["scenarios"]
+    if not isinstance(records, list) or len(records) != len(NATIVE_FAULT_SCENARIOS):
+        fail(f"{label}.scenarios must contain the complete native-fault matrix")
+    observed: set[str] = set()
+    for index, record in enumerate(records):
+        item_label = f"{label}.scenarios[{index}]"
+        if not isinstance(record, dict):
+            fail(f"{item_label} must be an object")
+        required_fields(record, {"id", "verification_id", "mechanism", "api_boundary", "oracle"}, item_label)
+        identifier = record["id"]
+        if identifier not in NATIVE_FAULT_SCENARIOS or identifier in observed:
+            fail(f"{item_label}.id is unexpected or duplicated")
+        observed.add(identifier)
+        api, mechanism, oracle = NATIVE_FAULT_SCENARIOS[identifier]
+        if record["api_boundary"] != api or record["mechanism"] != mechanism or record["oracle"] != oracle:
+            fail(f"{item_label} has drifted from the registered scenario contract")
+        if record["verification_id"] not in verification_ids:
+            fail(f"{item_label} references an unknown verification")
+    if observed != set(NATIVE_FAULT_SCENARIOS):
+        fail(f"{label}.scenarios is incomplete")
+    for field in ("closure_conditions", "non_claims"):
+        values = assessment[field]
+        if not isinstance(values, list) or not values or not all(isinstance(value, str) and value for value in values):
+            fail(f"{label}.{field} must be a non-empty string list")
+    if not any("independent reviewer" in value.lower() for value in assessment["closure_conditions"]):
+        fail(f"{label}.closure_conditions must retain independent review")
+
+
+def validate_native_fault_payload(payload: dict[str, Any], label: str, require_pass: bool) -> None:
+    required_fields(
+        payload,
+        {"schema_version", "evidence_class", "fault_model", "status", "scenarios", "limitations"},
+        label,
+    )
+    if (
+        payload["schema_version"] != 1
+        or payload["evidence_class"] != "internal_engineering"
+        or payload["fault_model"] != "os_mediated_error_activation"
+    ):
+        fail(f"{label} has an invalid identity")
+    if require_pass and payload["status"] != "pass":
+        fail(f"{label} must be pass for a promotable run")
+    scenarios = payload["scenarios"]
+    expected = NATIVE_FAULT_PAYLOAD_SCENARIOS
+    if require_pass and (not isinstance(scenarios, list) or len(scenarios) != len(expected)):
+        fail(f"{label}.scenarios is incomplete")
+    observed: set[str] = set()
+    for index, scenario in enumerate(scenarios):
+        item_label = f"{label}.scenarios[{index}]"
+        if not isinstance(scenario, dict):
+            fail(f"{item_label} must be an object")
+        required_fields(
+            scenario,
+            {"id", "api_boundary", "activation", "expected_raw_os", "actual_raw_os"},
+            item_label,
+        )
+        identifier = scenario["id"]
+        if identifier not in expected or identifier in observed:
+            fail(f"{item_label} has an unexpected identity or API boundary")
+        observed.add(identifier)
+        api_boundary, activation, registered_error = expected[identifier]
+        if (
+            scenario["api_boundary"] != api_boundary
+            or scenario["activation"] != activation
+            or scenario["expected_raw_os"] != registered_error
+        ):
+            fail(f"{item_label} has drifted from the registered activation contract")
+        actual = scenario["actual_raw_os"]
+        expected_error = registered_error
+        if not isinstance(actual, int) or isinstance(actual, bool) or actual <= 0:
+            fail(f"{item_label}.actual_raw_os must be a positive native error")
+        if expected_error is not None and actual != expected_error:
+            fail(f"{item_label} did not return its expected native error")
+    if require_pass and observed != set(expected):
+        fail(f"{label}.scenarios does not contain the registered matrix")
+    limitations = payload["limitations"]
+    if not isinstance(limitations, list) or (require_pass and len(limitations) < 3):
+        fail(f"{label}.limitations is incomplete")
+
+
+def validate_windows_native_fault_manifest(
+    path: Path, expected_commit: str | None = None
+) -> None:
+    manifest = load_json(path)
+    label = str(path.relative_to(ROOT)) if path.is_relative_to(ROOT) else str(path)
+    required_fields(manifest, NATIVE_FAULT_MANIFEST_FIELDS, label)
+    if manifest["record_type"] != "windows_native_fault_run" or manifest["schema_version"] != 1:
+        fail(f"{label} has the wrong record type or schema version")
+    if manifest["repository"] != "arthurianresolve/fs2-rs":
+        fail(f"{label} has the wrong repository")
+    if manifest["branch"] != "DO-178C" and manifest["status"] != "provenance_error":
+        fail(f"{label}.branch must be DO-178C")
+    for field, pattern in (("commit", COMMIT_RE), ("tree", COMMIT_RE), ("cargo_lock_sha256", SHA256_RE)):
+        if not isinstance(manifest[field], str) or not pattern.fullmatch(manifest[field]):
+            fail(f"{label}.{field} has invalid provenance")
+    if expected_commit is not None and manifest["commit"] != expected_commit:
+        fail(f"{label}.commit does not match expected commit {expected_commit}")
+    if not isinstance(manifest["run_id"], str) or not manifest["run_id"].strip():
+        fail(f"{label}.run_id must be non-empty")
+    validate_created_utc(manifest["created_utc"], f"{label}.created_utc")
+    if manifest["target"] != "x86_64-pc-windows-msvc" or manifest["test_id"] != "windows::test::records_os_mediated_native_failures":
+        fail(f"{label} has the wrong target or test identity")
+    if manifest["requested_toolchain"] != "1.88":
+        fail(f"{label}.requested_toolchain must remain pinned to 1.88")
+    if not isinstance(manifest["resolved_toolchain"], str) or "host: x86_64-pc-windows-msvc" not in manifest["resolved_toolchain"]:
+        fail(f"{label}.resolved_toolchain does not identify the native compiler host")
+    if manifest["review_status"] != "independent_review_pending":
+        fail(f"{label} cannot claim independent review")
+    if manifest["status"] not in VALID_MANIFEST_STATUSES:
+        fail(f"{label}.status is invalid")
+    if not isinstance(manifest["dirty"], bool):
+        fail(f"{label}.dirty must be boolean")
+    host = manifest["host"]
+    if not isinstance(host, dict):
+        fail(f"{label}.host must be an object")
+    for field in ("system", "release", "version", "machine", "python", "target"):
+        if not isinstance(host.get(field), str) or not host[field]:
+            fail(f"{label}.host.{field} must be non-empty")
+    successful = manifest["status"] in {"pass", "focused_only"}
+    if successful and (host["system"] != "Windows" or host["target"] != manifest["target"]):
+        fail(f"{label} cannot claim native evidence on a non-native host")
+    if successful and (manifest["tree"] == "0" * 40 or manifest["cargo_lock_sha256"] == "0" * 64):
+        fail(f"{label} successful evidence must retain non-placeholder provenance")
+    if manifest["status"] == "pass" and (manifest["dirty"] or manifest["native_exit"] != 0):
+        fail(f"{label} cannot be pass with dirty provenance or non-zero exit")
+    if manifest["status"] == "focused_only" and (not manifest["dirty"] or manifest["native_exit"] != 0):
+        fail(f"{label} focused evidence must identify a dirty run with zero native exit")
+    if manifest["command"] != NATIVE_FAULT_COMMAND:
+        fail(f"{label}.command has drifted from the registered native-fault procedure")
+    environment = manifest["environment"]
+    if not isinstance(environment, dict) or set(environment) != {
+        "CARGO_INCREMENTAL",
+        "RUST_BACKTRACE",
+        "FS2_WINDOWS_NATIVE_FAULT_EVIDENCE",
+    }:
+        fail(f"{label}.environment must retain exactly the controlled overrides")
+    if environment["CARGO_INCREMENTAL"] != "0" or environment["RUST_BACKTRACE"] != "1":
+        fail(f"{label}.environment has unsafe Cargo or diagnostic overrides")
+    if portable_path_name(environment["FS2_WINDOWS_NATIVE_FAULT_EVIDENCE"]) != "windows-native-faults.json":
+        fail(f"{label}.environment has the wrong native-fault evidence target")
+    payload = manifest["native_faults"]
+    if not isinstance(payload, dict):
+        fail(f"{label}.native_faults must be an object")
+    validate_native_fault_payload(payload, f"{label}.native_faults", successful)
+    artifacts = manifest["artifacts"]
+    if not isinstance(artifacts, list) or not artifacts:
+        fail(f"{label}.artifacts must be non-empty")
+    run_root = path.parent.resolve()
+    artifact_paths: set[str] = set()
+    for artifact in artifacts:
+        if not isinstance(artifact, dict) or set(artifact) != {"path", "sha256", "bytes"}:
+            fail(f"{label} contains an incomplete artifact")
+        if not isinstance(artifact["path"], str) or not artifact["path"] or artifact["path"] in artifact_paths:
+            fail(f"{label} contains an invalid or duplicate artifact path")
+        if not isinstance(artifact["bytes"], int) or isinstance(artifact["bytes"], bool) or artifact["bytes"] < 0:
+            fail(f"{label} contains an invalid artifact size")
+        artifact_path = (run_root / artifact["path"]).resolve()
+        try:
+            artifact_path.relative_to(run_root)
+        except ValueError:
+            fail(f"{label} contains an artifact outside its run directory")
+        if not artifact_path.is_file():
+            fail(f"{label} references missing artifact: {artifact['path']}")
+        if not isinstance(artifact["sha256"], str) or not SHA256_RE.fullmatch(artifact["sha256"]):
+            fail(f"{label} contains an invalid artifact digest")
+        if artifact["sha256"] != sha256(artifact_path) or artifact["bytes"] != artifact_path.stat().st_size:
+            fail(f"{label} contains a stale artifact digest or size")
+        artifact_paths.add(artifact["path"])
+    if successful and not {"windows-native-faults.json", "stdout.log", "stderr.log"}.issubset(artifact_paths):
+        fail(f"{label} is missing required native-fault artifacts")
+    if manifest["status"] == "indeterminate" and "timeout.txt" not in artifact_paths:
+        fail(f"{label} must retain the native-fault timeout reason")
+
+
+def validate_windows_appverifier_manifest(
+    path: Path, expected_commit: str | None = None
+) -> None:
+    manifest = load_json(path)
+    label = str(path.relative_to(ROOT)) if path.is_relative_to(ROOT) else str(path)
+    required_fields(manifest, APPVERIFIER_MANIFEST_FIELDS, label)
+    if manifest["record_type"] != "windows_appverifier_run" or manifest["schema_version"] != 1:
+        fail(f"{label} has the wrong record type or schema version")
+    if manifest["repository"] != "arthurianresolve/fs2-rs":
+        fail(f"{label} has the wrong repository")
+    if manifest["branch"] != "DO-178C" and manifest["status"] != "provenance_error":
+        fail(f"{label}.branch must be DO-178C")
+    for field, pattern in (("commit", COMMIT_RE), ("tree", COMMIT_RE), ("cargo_lock_sha256", SHA256_RE)):
+        if not isinstance(manifest[field], str) or not pattern.fullmatch(manifest[field]):
+            fail(f"{label}.{field} has invalid provenance")
+    if expected_commit is not None and manifest["commit"] != expected_commit:
+        fail(f"{label}.commit does not match expected commit {expected_commit}")
+    if not isinstance(manifest["run_id"], str) or not manifest["run_id"].strip():
+        fail(f"{label}.run_id must be non-empty")
+    validate_created_utc(manifest["created_utc"], f"{label}.created_utc")
+    if manifest["target"] != "x86_64-pc-windows-msvc":
+        fail(f"{label}.target is invalid")
+    if manifest["requested_toolchain"] != "1.88":
+        fail(f"{label}.requested_toolchain must remain pinned to 1.88")
+    if not isinstance(manifest["resolved_toolchain"], str) or "host: x86_64-pc-windows-msvc" not in manifest["resolved_toolchain"]:
+        fail(f"{label}.resolved_toolchain does not identify the native compiler host")
+    if manifest["review_status"] != "independent_review_pending":
+        fail(f"{label} cannot claim independent review")
+    if manifest["status"] not in VALID_MANIFEST_STATUSES:
+        fail(f"{label}.status is invalid")
+    if not isinstance(manifest["dirty"], bool):
+        fail(f"{label}.dirty must be boolean")
+    host = manifest["host"]
+    if not isinstance(host, dict) or not isinstance(host.get("administrator"), bool):
+        fail(f"{label}.host must record the administrator preflight")
+    for field in ("system", "release", "version", "machine", "python", "target"):
+        if not isinstance(host.get(field), str) or not host[field]:
+            fail(f"{label}.host.{field} must be non-empty")
+    verifier = manifest["application_verifier"]
+    if not isinstance(verifier, dict) or set(verifier) != {"path", "version", "sha256"}:
+        fail(f"{label}.application_verifier is invalid")
+    if not isinstance(verifier["path"], str) or not verifier["path"]:
+        fail(f"{label}.application_verifier.path must be non-empty")
+    if not isinstance(verifier["version"], str) or not verifier["version"]:
+        fail(f"{label}.application_verifier.version must be non-empty")
+    if not isinstance(verifier["sha256"], str) or not SHA256_RE.fullmatch(verifier["sha256"]):
+        fail(f"{label}.application_verifier.sha256 is invalid")
+    configuration = manifest["configuration"]
+    if configuration != {
+        "layer": "lowres",
+        "file_probability": 1000000,
+        "timeout_ms": 0,
+        "target_image": "fs2-windows-appverifier-probe.exe",
+    }:
+        fail(f"{label}.configuration has drifted from the targeted file-fault contract")
+    commands = manifest["commands"]
+    command_fields = {
+        "build",
+        "probe",
+        "initial_delete",
+        "initial_query",
+        "configure",
+        "query",
+        "cleanup_delete",
+        "cleanup_query",
+    }
+    if not isinstance(commands, dict) or set(commands) != command_fields:
+        fail(f"{label}.commands must retain the complete AppVerifier procedure")
+    expected_build = [
+        "cargo",
+        "+1.88",
+        "test",
+        "--package",
+        "fs2",
+        "--target",
+        "x86_64-pc-windows-msvc",
+        "--locked",
+        "--test",
+        "windows_appverifier",
+        "--no-run",
+        "--message-format=json",
+    ]
+    expected_delete = [
+        verifier["path"],
+        "-delete",
+        "settings",
+        "-for",
+        "fs2-windows-appverifier-probe.exe",
+    ]
+    expected_configure = [
+        verifier["path"],
+        "-enable",
+        "lowres",
+        "-for",
+        "fs2-windows-appverifier-probe.exe",
+        "-with",
+        "file=1000000",
+        "timeout=0",
+    ]
+    expected_query = [
+        verifier["path"],
+        "-query",
+        "lowres",
+        "-for",
+        "fs2-windows-appverifier-probe.exe",
+    ]
+    probe_command = commands["probe"]
+    if (
+        commands["build"] != expected_build
+        or commands["initial_delete"] != expected_delete
+        or commands["initial_query"] != expected_query
+        or commands["configure"] != expected_configure
+        or commands["query"] != expected_query
+        or commands["cleanup_delete"] != expected_delete
+        or commands["cleanup_query"] != expected_query
+        or not isinstance(probe_command, list)
+        or len(probe_command) != 4
+        or portable_path_name(probe_command[0]) != "fs2-windows-appverifier-probe.exe"
+        or probe_command[1:] != ["--exact", "appverifier_file_fault_is_observed", "--nocapture"]
+    ):
+        fail(f"{label}.commands has drifted from the targeted AppVerifier procedure")
+    controlled_environment = manifest["controlled_environment"]
+    if not isinstance(controlled_environment, dict) or set(controlled_environment) != {"baseline", "injected"}:
+        fail(f"{label}.controlled_environment must retain baseline and injected overrides")
+    baseline_environment = controlled_environment["baseline"]
+    injected_environment = controlled_environment["injected"]
+    if (
+        not isinstance(baseline_environment, dict)
+        or set(baseline_environment) != {"FS2_APPVERIFIER_PROBE_PATH"}
+        or portable_path_name(baseline_environment["FS2_APPVERIFIER_PROBE_PATH"]) != "Cargo.toml"
+        or not isinstance(injected_environment, dict)
+        or injected_environment
+        != {
+            **baseline_environment,
+            "FS2_EXPECT_APPVERIFIER_FILE_FAULT": "1",
+        }
+    ):
+        fail(f"{label}.controlled_environment has drifted from the probe contract")
+    initial_state = manifest["initial_state"]
+    configured_state = manifest["configured_state"]
+    cleanup = manifest["cleanup"]
+    if not isinstance(initial_state, dict) or set(initial_state) != {
+        "delete_native_exit",
+        "query_native_exit",
+        "query_observation",
+        "verified_absent",
+    }:
+        fail(f"{label}.initial_state is invalid")
+    if not isinstance(configured_state, dict) or set(configured_state) != {
+        "enable_native_exit",
+        "query_native_exit",
+        "query_observation",
+        "verified",
+    }:
+        fail(f"{label}.configured_state is invalid")
+    if not isinstance(cleanup, dict) or set(cleanup) != {
+        "delete_native_exit",
+        "query_native_exit",
+        "query_observation",
+        "verified_absent",
+    }:
+        fail(f"{label}.cleanup is invalid")
+    if not isinstance(initial_state["verified_absent"], bool):
+        fail(f"{label}.initial_state.verified_absent must be boolean")
+    if not isinstance(configured_state["verified"], bool):
+        fail(f"{label}.configured_state.verified must be boolean")
+    if not isinstance(cleanup["verified_absent"], bool):
+        fail(f"{label}.cleanup.verified_absent must be boolean")
+    validate_appverifier_query_observation(
+        initial_state["query_observation"], f"{label}.initial_state.query_observation"
+    )
+    validate_appverifier_query_observation(
+        configured_state["query_observation"],
+        f"{label}.configured_state.query_observation",
+    )
+    validate_appverifier_query_observation(
+        cleanup["query_observation"], f"{label}.cleanup.query_observation"
+    )
+    probe = manifest["probe"]
+    if (
+        not isinstance(probe, dict)
+        or set(probe) != {"test_target", "test_id", "binary", "sha256"}
+        or probe.get("test_target") != "windows_appverifier"
+        or probe.get("test_id") != "appverifier_file_fault_is_observed"
+    ):
+        fail(f"{label}.probe has the wrong test identity")
+    successful = manifest["status"] in {"pass", "focused_only"}
+    if successful:
+        if host["administrator"] is not True or host["system"] != "Windows" or host.get("target") != manifest["target"]:
+            fail(f"{label} cannot claim an injected run without elevated native execution")
+        if manifest["tree"] == "0" * 40 or manifest["cargo_lock_sha256"] == "0" * 64:
+            fail(f"{label} successful evidence must retain non-placeholder provenance")
+        if manifest["status"] == "pass" and manifest["dirty"]:
+            fail(f"{label} cannot be pass with dirty provenance")
+        if manifest["status"] == "focused_only" and not manifest["dirty"]:
+            fail(f"{label} focused evidence must identify a dirty run")
+        if probe.get("binary") != "fs2-windows-appverifier-probe.exe":
+            fail(f"{label}.probe.binary is invalid")
+        if not isinstance(probe.get("sha256"), str) or not SHA256_RE.fullmatch(probe["sha256"]):
+            fail(f"{label}.probe.sha256 is invalid")
+        absent_observation = {
+            "lowres_enabled": False,
+            "file_probability": None,
+            "timeout_ms": None,
+        }
+        configured_observation = {
+            "lowres_enabled": True,
+            "file_probability": 1000000,
+            "timeout_ms": 0,
+        }
+        if initial_state != {
+            "delete_native_exit": 0,
+            "query_native_exit": 0,
+            "query_observation": absent_observation,
+            "verified_absent": True,
+        }:
+            fail(f"{label} did not verify an unconfigured baseline state")
+        if configured_state != {
+            "enable_native_exit": 0,
+            "query_native_exit": 0,
+            "query_observation": configured_observation,
+            "verified": True,
+        }:
+            fail(f"{label} did not verify the configured lowres state")
+        baseline = manifest["baseline"]
+        injected = manifest["injected"]
+        if baseline.get("native_exit") != 0 or injected.get("native_exit") != 0:
+            fail(f"{label} successful probes must have zero native exits")
+        validate_appverifier_observation(
+            baseline.get("observation"),
+            expected_fault=False,
+            label=f"{label}.baseline.observation",
+        )
+        validate_appverifier_observation(
+            injected.get("observation"),
+            expected_fault=True,
+            label=f"{label}.injected.observation",
+        )
+        if cleanup != {
+            "delete_native_exit": 0,
+            "query_native_exit": 0,
+            "query_observation": absent_observation,
+            "verified_absent": True,
+        }:
+            fail(f"{label} did not verify Application Verifier cleanup")
+    artifacts = manifest["artifacts"]
+    if not isinstance(artifacts, list) or not artifacts:
+        fail(f"{label}.artifacts must be non-empty")
+    run_root = path.parent.resolve()
+    artifact_paths: set[str] = set()
+    for artifact in artifacts:
+        if not isinstance(artifact, dict) or set(artifact) != {"path", "sha256", "bytes"}:
+            fail(f"{label} contains an incomplete artifact")
+        if not isinstance(artifact["path"], str) or not artifact["path"] or artifact["path"] in artifact_paths:
+            fail(f"{label} contains an invalid or duplicate artifact path")
+        if not isinstance(artifact["bytes"], int) or isinstance(artifact["bytes"], bool) or artifact["bytes"] < 0:
+            fail(f"{label} contains an invalid artifact size")
+        artifact_path = (run_root / artifact["path"]).resolve()
+        try:
+            artifact_path.relative_to(run_root)
+        except ValueError:
+            fail(f"{label} contains an artifact outside its run directory")
+        if not artifact_path.is_file():
+            fail(f"{label} references missing artifact: {artifact['path']}")
+        if artifact["sha256"] != sha256(artifact_path) or artifact["bytes"] != artifact_path.stat().st_size:
+            fail(f"{label} contains a stale artifact digest or size")
+        artifact_paths.add(artifact["path"])
+    if successful:
+        required_artifacts = {
+            "build-stdout.jsonl",
+            "build-stderr.log",
+            "fs2-windows-appverifier-probe.exe",
+            "initial-delete-stdout.log",
+            "initial-delete-stderr.log",
+            "initial-query-stdout.log",
+            "initial-query-stderr.log",
+            "baseline-stdout.log",
+            "baseline-stderr.log",
+            "configure-stdout.log",
+            "configure-stderr.log",
+            "query-stdout.log",
+            "query-stderr.log",
+            "injected-stdout.log",
+            "injected-stderr.log",
+            "cleanup-delete-stdout.log",
+            "cleanup-delete-stderr.log",
+            "cleanup-query-stdout.log",
+            "cleanup-query-stderr.log",
+        }
+        if not required_artifacts.issubset(artifact_paths):
+            fail(f"{label} is missing required AppVerifier evidence artifacts")
+        probe_artifact = next(
+            artifact
+            for artifact in artifacts
+            if artifact["path"] == "fs2-windows-appverifier-probe.exe"
+        )
+        if probe_artifact["sha256"] != probe["sha256"]:
+            fail(f"{label}.probe.sha256 does not match the retained executable")
+    if manifest["status"] == "indeterminate" and not (
+        {"preflight-error.txt", "timeout.txt"} & artifact_paths
+    ):
+        fail(f"{label} must retain the indeterminate preflight or timeout reason")
 
 
 def validate_static_records() -> None:
@@ -687,8 +1941,74 @@ def validate_static_records() -> None:
         fail(f"coverage/surface.json references unknown decisions: {sorted(unknown_surface_decisions)}")
     validate_policy(records["policy.json"])
     validate_tool_assessment(records["tool-assessment.json"])
-    validate_evidence_index(records["evidence-index.json"])
-    validate_gap_register(records["gap-register.json"])
+    expected_review_status = validate_windows_native_fault_review(
+        records["windows-native-fault-review.json"]
+    )
+    independent_review_approved = expected_review_status == "independent_review_approved"
+    validate_evidence_index(
+        records["evidence-index.json"], independent_review_approved
+    )
+    validate_gap_register(records["gap-register.json"], independent_review_approved)
+    validate_windows_native_fault_assessment(
+        records["windows-native-faults.json"],
+        verifications,
+        expected_review_status,
+    )
+    review_schema = records["windows-native-fault-review.schema.json"]
+    if (
+        review_schema.get("record_type")
+        != "windows_native_fault_independent_review_schema"
+        or review_schema.get("schema_version") != 1
+        or set(review_schema.get("required", []))
+        != WINDOWS_NATIVE_FAULT_REVIEW_FIELDS
+        or review_schema.get("enums")
+        != {
+            "status": [
+                "assigned_awaiting_clean_baseline",
+                "assigned_ready_for_review",
+                "in_review",
+                "changes_requested",
+                "approved",
+                "rejected",
+            ],
+            "reviewer_acceptance": ["pending", "accepted", "declined"],
+            "independence_status": ["declaration_pending", "accepted", "rejected"],
+            "check_status": ["not_reviewed", "pass", "fail"],
+            "decision_status": ["pending", "recorded"],
+        }
+        or not isinstance(review_schema.get("promotion_rule"), str)
+        or "Assignment is not review acceptance" not in review_schema["promotion_rule"]
+    ):
+        fail("coverage/windows-native-fault-review.schema.json has the wrong identity")
+    fault_schema = records["windows-native-fault-run.schema.json"]
+    if (
+        fault_schema.get("record_type") != "windows_native_fault_run_schema"
+        or fault_schema.get("schema_version") != 1
+        or set(fault_schema.get("required", [])) != NATIVE_FAULT_MANIFEST_FIELDS
+        or fault_schema.get("enums")
+        != {
+            "status": ["pass", "fail", "indeterminate", "provenance_error", "focused_only"],
+            "review_status": ["independent_review_pending"],
+        }
+        or fault_schema.get("target") != "x86_64-pc-windows-msvc"
+        or not isinstance(fault_schema.get("promotion_rule"), str)
+        or "independent review" not in fault_schema["promotion_rule"]
+    ):
+        fail("coverage/windows-native-fault-run.schema.json has the wrong identity")
+    appverifier_schema = records["windows-appverifier-run.schema.json"]
+    if (
+        appverifier_schema.get("record_type") != "windows_appverifier_run_schema"
+        or appverifier_schema.get("schema_version") != 1
+        or set(appverifier_schema.get("required", [])) != APPVERIFIER_MANIFEST_FIELDS
+        or appverifier_schema.get("enums")
+        != {
+            "status": ["pass", "fail", "indeterminate", "provenance_error", "focused_only"],
+            "review_status": ["independent_review_pending"],
+        }
+        or not isinstance(appverifier_schema.get("promotion_rule"), str)
+        or "independent review" not in appverifier_schema["promotion_rule"]
+    ):
+        fail("coverage/windows-appverifier-run.schema.json has the wrong identity")
 
 
 def validate_manifest(path: Path, expected_commit: str | None = None) -> None:
@@ -825,6 +2145,8 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--runs-dir", type=Path)
     parser.add_argument("--manifest", type=Path)
+    parser.add_argument("--windows-native-fault-manifest", type=Path)
+    parser.add_argument("--windows-appverifier-manifest", type=Path)
     parser.add_argument("--expected-commit")
     parser.add_argument("--require-pass", action="store_true")
     parser.add_argument(
@@ -840,14 +2162,35 @@ def main() -> int:
         expected_commit = args.expected_commit or os.environ.get("GITHUB_SHA")
         if expected_commit is not None and not COMMIT_RE.fullmatch(expected_commit):
             fail("expected commit must be a full 40-character hexadecimal commit")
-        if args.runs_dir and args.manifest:
-            fail("--runs-dir and --manifest are mutually exclusive")
+        requested_manifests = sum(
+            value is not None
+            for value in (
+                args.runs_dir,
+                args.manifest,
+                args.windows_native_fault_manifest,
+                args.windows_appverifier_manifest,
+            )
+        )
+        if requested_manifests > 1:
+            fail("manifest selection arguments are mutually exclusive")
         if args.runs_dir:
             count = validate_runs(args.runs_dir.resolve(), expected_commit, args.require_pass)
             print(f"coverage records and {count} run manifest(s) are valid")
         elif args.manifest:
             validate_manifest(args.manifest.resolve(), expected_commit)
             print("coverage records and run manifest are valid")
+        elif args.windows_native_fault_manifest:
+            path = args.windows_native_fault_manifest.resolve()
+            validate_windows_native_fault_manifest(path, expected_commit)
+            if args.require_pass and load_json(path)["status"] != "pass":
+                fail(f"{path} is not promotable: status must be pass")
+            print("coverage records and Windows native-fault manifest are valid")
+        elif args.windows_appverifier_manifest:
+            path = args.windows_appverifier_manifest.resolve()
+            validate_windows_appverifier_manifest(path, expected_commit)
+            if args.require_pass and load_json(path)["status"] != "pass":
+                fail(f"{path} is not promotable: status must be pass")
+            print("coverage records and Windows Application Verifier manifest are valid")
         else:
             print("coverage records are valid; no run manifests were requested")
     except (ValidationError, OSError) as error:

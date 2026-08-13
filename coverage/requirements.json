@@ -20,7 +20,7 @@
       "statement": "allocate shall request physical reservation when the requested length exceeds the current allocation.",
       "source_refs": ["src/allocation.rs:16-21", "src/unix.rs:55-107", "src/windows.rs:125-177"],
       "platforms": ["unix", "windows"],
-      "verification_ids": ["allocation::tests::allocates_physical_space_when_needed", "test::allocate"],
+      "verification_ids": ["allocation::tests::allocates_physical_space_when_needed", "test::allocate", "windows::test::records_os_mediated_native_failures"],
       "expected_result": "The platform allocation operation succeeds or returns its documented unsupported/error result.",
       "status": "mapped",
       "review": {"status": "internal_review_open", "reviewer": null}
@@ -60,7 +60,7 @@
       "statement": "exclusive locks shall prevent shared and exclusive acquisition by another file handle until released.",
       "source_refs": ["src/lock.rs:16-28", "src/lock_contract.rs:47-62"],
       "platforms": ["unix", "windows"],
-      "verification_ids": ["lock_contract::exclusive_locks_block_shared_and_exclusive_locks"],
+      "verification_ids": ["lock_contract::exclusive_locks_block_shared_and_exclusive_locks", "windows::test::records_os_mediated_native_failures"],
       "expected_result": "Both contending non-blocking acquisitions report contention, and acquisition succeeds after release.",
       "status": "mapped",
       "review": {"status": "internal_review_open", "reviewer": null}
@@ -130,7 +130,7 @@
       "statement": "Windows file-space queries shall use the alternate handle provider only for eligible online regular files.",
       "source_refs": ["src/windows.rs:390-520"],
       "platforms": ["windows"],
-      "verification_ids": ["windows::test::handle_space_attributes_only_accept_online_regular_files", "windows::test::handle_space_only_resolves_online_files", "windows::test::handle_space_projects_valid_file_counters", "windows::test::handle_space_rejects_invalid_file_counters"],
+      "verification_ids": ["windows::test::handle_space_attributes_only_accept_online_regular_files", "windows::test::handle_space_only_resolves_online_files", "windows::test::handle_space_projects_valid_file_counters", "windows::test::handle_space_rejects_invalid_file_counters", "appverifier_file_fault_is_observed"],
       "expected_result": "Eligible files use the handle query; directories, offline files, and invalid counters follow the documented alternate/error path.",
       "status": "mapped",
       "review": {"status": "internal_review_open", "reviewer": null}
@@ -140,7 +140,7 @@
       "statement": "Windows exact drive-root handling shall preserve provider errors while resolving volume counters only for path-resolution failures.",
       "source_refs": ["src/windows.rs:465-615"],
       "platforms": ["windows"],
-      "verification_ids": ["windows::test::copies_only_exact_drive_roots", "windows::test::exact_drive_root_matches_canonical_resolution", "windows::test::exact_drive_root_only_resolves_volume_for_path_errors", "windows::test::exact_drive_root_preserves_provider_errors", "windows::test::exact_drive_root_scalar_errors_match_canonical_resolution", "windows::test::exact_drive_root_scalars_match_snapshot"],
+      "verification_ids": ["windows::test::copies_only_exact_drive_roots", "windows::test::exact_drive_root_matches_canonical_resolution", "windows::test::exact_drive_root_only_resolves_volume_for_path_errors", "windows::test::exact_drive_root_preserves_provider_errors", "windows::test::exact_drive_root_scalar_errors_match_canonical_resolution", "windows::test::exact_drive_root_scalars_match_snapshot", "windows::test::records_os_mediated_native_failures"],
       "expected_result": "Drive-root and non-root paths return equivalent valid counters, with non-path provider errors preserved.",
       "status": "mapped",
       "review": {"status": "internal_review_open", "reviewer": null}
@@ -160,7 +160,7 @@
       "statement": "Windows duplicated handles shall preserve the intended inheritance and lock-independence semantics.",
       "source_refs": ["src/windows.rs:145-190", "src/windows/tests.rs:506-692"],
       "platforms": ["windows"],
-      "verification_ids": ["windows::test::duplicate_new_handle", "windows::test::duplicate_preserves_legacy_handle_inheritance", "windows::test::lock_duplicate_handle_independence", "windows::test::lock_duplicate_cleanup"],
+      "verification_ids": ["windows::test::duplicate_new_handle", "windows::test::duplicate_preserves_legacy_handle_inheritance", "windows::test::lock_duplicate_handle_independence", "windows::test::lock_duplicate_cleanup", "windows::test::records_os_mediated_native_failures"],
       "expected_result": "The duplicate is usable, has the recorded inheritance behavior, and does not create an invalid lock lifecycle.",
       "status": "mapped",
       "review": {"status": "internal_review_open", "reviewer": null}

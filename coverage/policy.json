@@ -10,6 +10,7 @@
     "source_level_decisions_are_inventoried",
     "line_region_branch_condition_instrumentation_and_function_metrics_are_reported_separately",
     "exact_commit_tree_lockfile_host_target_and_toolchain_are_recorded",
+    "windows_native_failure_scenarios_are_provenance_bound_and_independently_reviewed",
     "failed_and_indeterminate_runs_are_retained",
     "coverage_artifacts_are_staged_outside_git_history"
   ],
@@ -52,6 +53,7 @@
     "dirty or mixed-source run used as release evidence",
     "missing requirements or decision mapping",
     "failed, timed-out, or indeterminate execution",
+    "missing or unreviewed Windows native-fault disposition",
     "unreviewed denominator exclusion",
     "open approved-basis, independence, tool-assurance, or archive decision"
   ],

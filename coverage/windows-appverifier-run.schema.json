@@ -1,0 +1,38 @@
+{
+  "record_type": "windows_appverifier_run_schema",
+  "schema_version": 1,
+  "required": [
+    "record_type",
+    "schema_version",
+    "run_id",
+    "repository",
+    "branch",
+    "commit",
+    "tree",
+    "dirty",
+    "cargo_lock_sha256",
+    "host",
+    "target",
+    "requested_toolchain",
+    "resolved_toolchain",
+    "application_verifier",
+    "probe",
+    "configuration",
+    "commands",
+    "controlled_environment",
+    "initial_state",
+    "baseline",
+    "configured_state",
+    "injected",
+    "cleanup",
+    "review_status",
+    "status",
+    "artifacts",
+    "created_utc"
+  ],
+  "enums": {
+    "status": ["pass", "fail", "indeterminate", "provenance_error", "focused_only"],
+    "review_status": ["independent_review_pending"]
+  },
+  "promotion_rule": "Application Verifier is optional user-mode robustness evidence. A pass requires baseline success, observed injected failure, complete cleanup, clean exact-commit provenance, and later independent review."
+}
