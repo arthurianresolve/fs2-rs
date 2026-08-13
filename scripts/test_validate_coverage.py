@@ -15,12 +15,17 @@ from validate_coverage import (
     canonical_source_sha256,
     load_json,
     validate_context,
+    validate_archive_control,
+    validate_archive_retrieval,
+    validate_assurance_control_links,
+    validate_configuration_management,
     validate_decisions,
     validate_evidence_index,
     validate_gap_register,
     validate_manifest,
     validate_policy,
     validate_requirements,
+    validate_requirements_review,
     validate_static_records,
     validate_surface,
     validate_tool_assessment,
@@ -42,6 +47,15 @@ class CoverageRecordTests(unittest.TestCase):
         self.decisions = load_json(COVERAGE / "decision-inventory.json")
         self.policy = load_json(COVERAGE / "policy.json")
         self.tool = load_json(COVERAGE / "tool-assessment.json")
+        self.requirements_review = load_json(COVERAGE / "requirements-review.json")
+        self.configuration_management = load_json(
+            COVERAGE / "configuration-management.json"
+        )
+        self.archive_control = load_json(COVERAGE / "archive-control.json")
+        self.archive_retrieval = load_json(COVERAGE / "archive-retrieval.json")
+        self.verification_inventory = load_json(
+            COVERAGE / "verification-inventory.json"
+        )
         self.native_faults = load_json(COVERAGE / "windows-native-faults.json")
         self.native_fault_review = load_json(
             COVERAGE / "windows-native-fault-review.json"
@@ -70,6 +84,49 @@ class CoverageRecordTests(unittest.TestCase):
 
         with self.assertRaises(ValidationError):
             validate_requirements(invalid)
+
+    def test_requirements_reject_out_of_range_source_span(self):
+        invalid = copy.deepcopy(self.requirements)
+        invalid["requirements"][0]["source_refs"] = ["src/allocation.rs:1-9999"]
+
+        with self.assertRaises(ValidationError):
+            validate_requirements(invalid)
+
+    def test_requirements_review_rejects_stale_requirements_digest(self):
+        invalid = copy.deepcopy(self.requirements_review)
+        invalid["reviewed_artifacts"]["requirements"]["sha256"] = "0" * 64
+
+        with self.assertRaises(ValidationError):
+            validate_requirements_review(
+                invalid,
+                self.requirements,
+                self.verification_inventory,
+                {record["id"] for record in self.requirements["requirements"]},
+            )
+
+    def test_requirements_review_rejects_independence_claim(self):
+        invalid = copy.deepcopy(self.requirements_review)
+        invalid["reviewer"]["independent"] = True
+
+        with self.assertRaises(ValidationError):
+            validate_requirements_review(
+                invalid,
+                self.requirements,
+                self.verification_inventory,
+                {record["id"] for record in self.requirements["requirements"]},
+            )
+
+    def test_requirements_review_rejects_incomplete_inventory(self):
+        invalid = copy.deepcopy(self.requirements_review)
+        invalid["requirements"].pop()
+
+        with self.assertRaises(ValidationError):
+            validate_requirements_review(
+                invalid,
+                self.requirements,
+                self.verification_inventory,
+                {record["id"] for record in self.requirements["requirements"]},
+            )
 
     def test_surface_rejects_stale_hash(self):
         invalid = copy.deepcopy(self.surface)
@@ -133,6 +190,90 @@ class CoverageRecordTests(unittest.TestCase):
 
         with self.assertRaises(ValidationError):
             validate_tool_assessment(invalid)
+
+    def test_tool_assessment_rejects_topology_drift(self):
+        invalid = copy.deepcopy(self.tool)
+        invalid["topology"].pop()
+
+        with self.assertRaises(ValidationError):
+            validate_tool_assessment(invalid)
+
+    def test_tool_assessment_rejects_independent_fallback_claim(self):
+        invalid = copy.deepcopy(self.tool)
+        invalid["functions"][0]["fallback"]["independent"] = True
+
+        with self.assertRaises(ValidationError):
+            validate_tool_assessment(invalid)
+
+    def test_tool_assessment_rejects_proposed_tql_without_basis(self):
+        invalid = copy.deepcopy(self.tool)
+        invalid["functions"][0]["proposed_tql"] = "TQL-5"
+
+        with self.assertRaises(ValidationError):
+            validate_tool_assessment(invalid)
+
+    def test_configuration_management_rejects_partial_candidate_binding(self):
+        invalid = copy.deepcopy(self.configuration_management)
+        invalid["candidate"]["commit"] = "1" * 40
+
+        with self.assertRaises(ValidationError):
+            validate_configuration_management(invalid)
+
+    def test_configuration_management_rejects_release_candidate_claim(self):
+        invalid = copy.deepcopy(self.configuration_management)
+        invalid["release_control"]["current_state"] = "release_candidate"
+
+        with self.assertRaises(ValidationError):
+            validate_configuration_management(invalid)
+
+    def test_archive_control_rejects_external_archive_claim(self):
+        invalid = copy.deepcopy(self.archive_control)
+        invalid["external_archive"]["status"] = "archived"
+
+        with self.assertRaises(ValidationError):
+            validate_archive_control(invalid)
+
+    def test_archive_control_rejects_missing_required_artifact(self):
+        invalid = copy.deepcopy(self.archive_control)
+        invalid["internal_staging"]["required_artifacts"].pop(
+            "windows-native-faults"
+        )
+
+        with self.assertRaises(ValidationError):
+            validate_archive_control(invalid)
+
+    def test_archive_retrieval_rejects_partial_pending_result(self):
+        invalid = copy.deepcopy(self.archive_retrieval)
+        invalid["source_commit"] = "1" * 40
+
+        with self.assertRaises(ValidationError):
+            validate_archive_retrieval(invalid)
+
+    def test_assurance_controls_reject_mixed_pending_states(self):
+        invalid_retrieval = copy.deepcopy(self.archive_retrieval)
+        invalid_retrieval["result"] = "pass"
+
+        with self.assertRaises(ValidationError):
+            validate_assurance_control_links(
+                self.context,
+                self.configuration_management,
+                self.archive_control,
+                invalid_retrieval,
+                load_json(COVERAGE / "evidence-index.json"),
+            )
+
+    def test_assurance_controls_reject_context_baseline_drift(self):
+        invalid_context = copy.deepcopy(self.context)
+        invalid_context["baseline"]["reference"] = "1" * 40
+
+        with self.assertRaises(ValidationError):
+            validate_assurance_control_links(
+                invalid_context,
+                self.configuration_management,
+                self.archive_control,
+                self.archive_retrieval,
+                load_json(COVERAGE / "evidence-index.json"),
+            )
 
     def test_evidence_index_rejects_local_promotion(self):
         invalid = load_json(COVERAGE / "evidence-index.json")
@@ -244,10 +385,10 @@ class CoverageRecordTests(unittest.TestCase):
         approved["updated_at"] = "2026-08-14T11:00:00+00:00"
         return approved
 
-    def test_native_fault_review_accepts_current_candidate_approval(self):
+    def test_native_fault_review_accepts_current_candidate_pending_state(self):
         self.assertEqual(
             validate_windows_native_fault_review(self.native_fault_review),
-            "independent_review_approved",
+            "independent_review_pending",
         )
 
     def test_native_fault_review_accepts_bound_candidate_before_reviewer_acceptance(self):
@@ -312,7 +453,7 @@ class CoverageRecordTests(unittest.TestCase):
             validate_windows_native_fault_review(invalid)
 
     def test_native_fault_review_rejects_premature_approval(self):
-        invalid = copy.deepcopy(self.native_fault_review)
+        invalid = self.approved_native_fault_review()
         invalid["assignment"]["reviewer_acceptance"] = "pending"
 
         with self.assertRaises(ValidationError):

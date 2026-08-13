@@ -1,29 +1,32 @@
 {
   "record_type": "assurance_context",
-  "schema_version": 1,
+  "schema_version": 2,
   "status": "draft",
   "owner": "fs2 DO-178C coverage workstream",
   "repository": "arthurianresolve/fs2-rs",
   "branch": "DO-178C",
   "baseline": {
-    "reference": "d1e0e22eaed156e2420058f52f119e10330e24df",
-    "reference_kind": "pre-implementation-full-commit",
-    "working_tree_state": "implementation_changes_are_bound_to_the_parent_for_exact_commit_review",
+    "reference": "48ec3af6b807d9e70bd7d388baa8dbb1a3b69c40",
+    "reference_kind": "current_predecessor_assurance_commit",
+    "working_tree_state": "new_internal_control_candidate_awaits_clean_exact_commit_binding",
     "exact_commit_required_for_evidence": true
   },
+  "configuration_management_ref": "coverage/configuration-management.json",
+  "archive_control_ref": "coverage/archive-control.json",
+  "requirements_review_ref": "coverage/requirements-review.json",
   "planning_target_level": "DAL_B",
   "assigned_software_level": null,
   "certification_credit": "none",
   "approved_basis_refs": [],
-  "requirements_status": "derived_internal",
+  "requirements_status": "approved_internal",
   "mcdc_status": "not_assessed",
   "tool_credit": "internal_only",
   "independence_status": "not_assessed",
   "open_items": [
     "approve the applicable certification basis and assigned software level",
-    "approve the requirements and verification baseline",
-    "complete tool-use assessment and decide whether qualification is needed",
-    "define the remaining configuration-management, archive, and broader independence controls",
+    "decide any future certification use of each tool function and whether qualification is required",
+    "complete the candidate-specific independent Windows native-fault review",
+    "approve the controlled external archive, retention, disposition, and broader independence controls",
     "perform target-specific applicability and object-code analysis as required"
   ]
 }

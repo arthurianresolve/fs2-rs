@@ -128,11 +128,10 @@
       "id": "GAP-WINDOWS-NATIVE-ERRORS",
       "source_refs": ["src/windows.rs:68-95", "src/windows.rs:97-119", "src/windows.rs:123-142", "src/windows.rs:144-168", "src/windows.rs:223-237", "src/windows.rs:405-442", "src/windows/tests.rs:200-410", "tests/windows_appverifier.rs:1-89", "scripts/collect_windows_native_faults.py:1", "scripts/collect_windows_appverifier.py:1", "coverage/windows-native-faults.json:1", "coverage/windows-native-fault-review.json:1"],
       "classification": "native_failure_injection",
-      "observed_condition": "The technical harness covers deterministic result-adapter failures plus real Windows-returned access-denied, lock-contention, unavailable-volume, and invalid-handle outcomes across DuplicateHandle, allocation query/write, lock, and unlock boundaries. The provenance-bound collector retains native exits, host/toolchain identity, scenario oracles, and artifact hashes. Application Verifier low-resource simulation is optional user-mode robustness depth and fails closed when elevation is unavailable. Driver Verifier is inapplicable because this repository contains no kernel-mode driver. IR-WINDOWS-NATIVE-FAULTS-001 approved the current candidate 15da349ed581e9d8d471a50d967724887220b7d1 against its clean Windows CI manifest; the approval is limited to this internal review condition.",
-      "required_action": "Retain the approved review record and bound native-fault evidence; if implementation, tests, collectors, validators, requirements, or assurance records change, create a new candidate and repeat the affected review.",
-      "status": "closed",
-      "credit": "none",
-      "closure_basis": "IR-WINDOWS-NATIVE-FAULTS-001 approved exact candidate 15da349ed581e9d8d471a50d967724887220b7d1 against native-fault manifest SHA-256 8d22fea7c99a9181c4538fe82079207e453f67579fa260ed3341308df17cc464 with all ten checks passing, no findings, and an accepted independence declaration for this internal review condition."
+      "observed_condition": "The technical harness covers deterministic result-adapter failures plus real Windows-returned access-denied, lock-contention, unavailable-volume, and invalid-handle outcomes across DuplicateHandle, allocation query/write, lock, and unlock boundaries. The provenance-bound collector retains native exits, host/toolchain identity, scenario oracles, and artifact hashes. Application Verifier low-resource simulation is optional user-mode robustness depth and fails closed when elevation is unavailable. Driver Verifier is inapplicable because this repository contains no kernel-mode driver. The prior internal approval remains bound to candidate 15da349ed581e9d8d471a50d967724887220b7d1 and does not cover the changed requirements, tool assessment, validator, workflow, or assurance records.",
+      "required_action": "Create a new clean exact-commit candidate, bind its native-fault manifest, and complete a fresh independent review before closing this candidate-specific condition.",
+      "status": "open",
+      "credit": "none"
     },
     {
       "id": "GAP-WINDOWS-NATIVE-ADAPTERS",
@@ -163,6 +162,53 @@
       "status": "closed",
       "credit": "none",
       "closure_basis": "CI run 31699707347 produced clean exact-commit stable, branch, and condition-instrumentation manifests for aarch64-apple-darwin at 15da349ed581e9d8d471a50d967724887220b7d1. All native exits passed and the three profiles closed their emitted line, region, branch, and function metrics; the condition profile retained independent_condition_total=false. This closes the internal configured matrix observation only and does not establish certification credit."
+    },
+    {
+      "id": "GAP-REQUIREMENTS-BASELINE",
+      "source_refs": ["coverage/requirements.json:1", "coverage/requirements-review.json:1", "coverage/verification-inventory.json:1"],
+      "classification": "requirements_review",
+      "observed_condition": "All seventeen derived internal requirements now have reviewed statements, current in-range source traces, resolved verification identities, observable expected results, platform dispositions, and a digest-bound review record.",
+      "required_action": "Retain REQ-REVIEW-DO178C-001, fail on content or source-hash drift, and repeat affected review after requirement, source, or verification changes.",
+      "status": "closed",
+      "credit": "none",
+      "closure_basis": "REQ-REVIEW-DO178C-001 resolved the stale-source-reference finding and accepted all seventeen records for the internal requirements baseline; certification-program and authority acceptance remain open."
+    },
+    {
+      "id": "GAP-TOOL-FUNCTION-ASSESSMENT",
+      "source_refs": ["coverage/tool-assessment.json:1", "scripts/test_validate_coverage.py:1", "scripts/test_assurance_archive.py:1"],
+      "classification": "tool_assurance",
+      "observed_condition": "Each of the six tool functions now records exact intended and prohibited uses, I/O and topology, affected process, activity effect, failure escape and detection, fallback scope and common mode, residual reliance, known problems, review evidence, and revalidation triggers.",
+      "required_action": "Retain the approved internal non-reliance decision and reassess exact functions if an approved basis proposes certification credit, activity elimination, or qualification.",
+      "status": "closed",
+      "credit": "none",
+      "closure_basis": "Tool assessment schema version 2 closes completeness of the internal per-function assessment while leaving all proposed/approved TQL values null and qualification_status=not_qualified."
+    },
+    {
+      "id": "GAP-CONFIGURATION-MANAGEMENT",
+      "source_refs": ["coverage/configuration-management.json:1", ".github/workflows/ci.yml:1"],
+      "classification": "configuration_management",
+      "observed_condition": "Stable baseline IDs, immutable commit/tree identities, supersession, change-impact categories, revalidation triggers, and promotion states are implemented, but the new candidate is not yet bound to a clean CI package.",
+      "required_action": "Commit the implementation candidate, complete required CI, and bind CM-DO178C-0004 to its exact commit, tree, workflow run, package manifest, and retrieval result.",
+      "status": "open",
+      "credit": "none"
+    },
+    {
+      "id": "GAP-INTERNAL-ARCHIVE-RETRIEVAL",
+      "source_refs": ["coverage/archive-control.json:1", "coverage/archive-retrieval.json:1", "scripts/assurance_archive.py:1", "scripts/test_assurance_archive.py:1", ".github/workflows/ci.yml:1"],
+      "classification": "internal_lifecycle_data_staging",
+      "observed_condition": "The package and verifier enforce exact artifact inventory, canonical safe paths, per-file SHA-256 and byte counts, control-record and Git provenance, and fail-closed retrieval results; the first current CI package has not yet been retrieved.",
+      "required_action": "Generate the current exact-commit package, download it from GitHub Actions staging, run the registered verifier, and bind the result.",
+      "status": "open",
+      "credit": "none"
+    },
+    {
+      "id": "GAP-EXTERNAL-ARCHIVE",
+      "source_refs": ["coverage/archive-control.json:1", "coverage/evidence-index.json:1"],
+      "classification": "lifecycle_data_authority",
+      "observed_condition": "No approved controlled external archive, archive owner, access approval, backup policy, retention period, retention authority, disposition authority, or accepted external retrieval result exists.",
+      "required_action": "Obtain the missing archive-authority decisions, publish a verified immutable package to that archive, and execute an accepted retrieval drill.",
+      "status": "open",
+      "credit": "none"
     },
     {
       "id": "GAP-MCDC-BASIS",

@@ -1,10 +1,22 @@
 {
   "record_type": "evidence_index",
-  "schema_version": 1,
+  "schema_version": 2,
   "status": "not_ready",
   "owner": "fs2 DO-178C coverage workstream",
-  "archive_status": "not_archived",
+  "technical_baseline_id": "CM-DO178C-0002",
+  "archive_status": "internal_staging_pending",
   "external_archive_uri": null,
+  "assurance_package": {
+    "status": "pending_current_ci",
+    "artifact_name": "assurance-evidence-package",
+    "retention_days": 90,
+    "workflow_run_id": null,
+    "commit": null,
+    "tree": null,
+    "manifest_sha256": null,
+    "retrieval_result_sha256": null,
+    "retrieval_record_ref": "coverage/archive-retrieval.json"
+  },
   "runs": [
     {
       "run_id": "20260813T122254Z-eb36272149f9",
@@ -107,11 +119,12 @@
     }
   ],
   "open_items": [
-    "review and accept the nine clean exact-commit run manifests for internal use",
-    "publish to a controlled external archive",
-    "test retrieval and retention"
+    "generate and retrieve the current exact-commit internal staging package",
+    "complete the candidate-specific independent Windows native-fault review",
+    "publish to and retrieve from an approved controlled external archive"
   ],
   "non_claims": [
-    "No run in this index is currently promoted as release evidence."
+    "The indexed historical runs remain disposable internal evidence and are superseded when the current package is bound.",
+    "Internal package staging and retrieval do not constitute controlled external archiving or release evidence."
   ]
 }

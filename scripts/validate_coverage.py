@@ -28,12 +28,16 @@ SPAN_RE = re.compile(r"^(\d+)-(\d+)$")
 REQUIRED_RECORDS = (
     "assurance-context.json",
     "requirements.json",
+    "requirements-review.json",
     "surface.json",
     "decision-inventory.json",
     "policy.json",
     "tool-assessment.json",
     "run-manifest.schema.json",
     "evidence-index.json",
+    "configuration-management.json",
+    "archive-control.json",
+    "archive-retrieval.json",
     "gap-register.json",
     "verification-inventory.json",
     "mcdc.json",
@@ -126,6 +130,29 @@ def canonical_source_sha256(path: Path) -> str:
     return hashlib.sha256(contents).hexdigest()
 
 
+def canonical_json_sha256(value: Any) -> str:
+    """Hash a logical JSON value independently of whitespace and object-key order."""
+    encoded = json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def validate_source_reference(reference: str, label: str) -> None:
+    path = source_path(reference, label)
+    if ":" not in reference:
+        fail(f"{label} must include a source line or line span")
+    location = reference.split(":", 1)[1]
+    match = re.fullmatch(r"(\d+)(?:-(\d+))?", location)
+    if match is None:
+        fail(f"{label} has an invalid source span: {reference!r}")
+    first = int(match.group(1))
+    last = int(match.group(2) or first)
+    maximum = line_count(path)
+    if first < 1 or last < first or last > maximum:
+        fail(f"{label} references lines outside {path.relative_to(ROOT)}")
+
+
 def line_count(path: Path) -> int:
     return len(path.read_text(encoding="utf-8").splitlines())
 
@@ -151,11 +178,14 @@ def validate_context(context: dict[str, Any]) -> None:
             "tool_credit",
             "independence_status",
             "open_items",
+            "configuration_management_ref",
+            "archive_control_ref",
+            "requirements_review_ref",
         },
         label,
     )
     check_status(context, label)
-    if context["record_type"] != "assurance_context" or context["schema_version"] != 1:
+    if context["record_type"] != "assurance_context" or context["schema_version"] != 2:
         fail(f"{label} has the wrong record type or schema version")
     if context["repository"] != "arthurianresolve/fs2-rs" or context["branch"] != "DO-178C":
         fail(f"{label} is bound to the wrong repository or branch")
@@ -173,6 +203,16 @@ def validate_context(context: dict[str, Any]) -> None:
         or context["independence_status"] != "not_assessed"
     ):
         fail(f"{label} contains an unsupported assurance claim")
+    if context["requirements_status"] != "approved_internal":
+        fail(f"{label} must retain only the approved internal requirements state")
+    if (
+        context["configuration_management_ref"]
+        != "coverage/configuration-management.json"
+        or context["archive_control_ref"] != "coverage/archive-control.json"
+        or context["requirements_review_ref"]
+        != "coverage/requirements-review.json"
+    ):
+        fail(f"{label} has invalid internal control references")
     baseline = context["baseline"]
     if not isinstance(baseline, dict):
         fail(f"{label}.baseline must be an object")
@@ -191,10 +231,15 @@ def validate_context(context: dict[str, Any]) -> None:
 
 def validate_requirements(requirements: dict[str, Any], verification_ids: set[str] | None = None) -> set[str]:
     label = "coverage/requirements.json"
-    required_fields(requirements, {"record_type", "schema_version", "status", "owner", "basis", "requirements"}, label)
+    required_fields(requirements, {"record_type", "schema_version", "status", "owner", "baseline_id", "review_record", "basis", "requirements"}, label)
     check_status(requirements, label)
-    if requirements["record_type"] != "derived_requirements" or requirements["schema_version"] != 1:
+    if requirements["record_type"] != "derived_requirements" or requirements["schema_version"] != 2:
         fail(f"{label} has the wrong record type or schema version")
+    if (
+        requirements["baseline_id"] != "REQ-BASELINE-DO178C-001"
+        or requirements["review_record"] != "REQ-REVIEW-DO178C-001"
+    ):
+        fail(f"{label} has the wrong internal baseline or review identity")
     records = requirements["requirements"]
     if not isinstance(records, list) or not records:
         fail(f"{label}.requirements must be a non-empty list")
@@ -220,7 +265,7 @@ def validate_requirements(requirements: dict[str, Any], verification_ids: set[st
             if not isinstance(values, list) or not values or not all(isinstance(value, str) and value for value in values):
                 fail(f"{item_label}.{field} must be a non-empty string list")
         for reference in record["source_refs"]:
-            source_path(reference, f"{item_label}.source_refs")
+            validate_source_reference(reference, f"{item_label}.source_refs")
         if verification_ids is not None:
             missing_verifications = set(record["verification_ids"]) - verification_ids
             if missing_verifications:
@@ -230,7 +275,257 @@ def validate_requirements(requirements: dict[str, Any], verification_ids: set[st
         review = record["review"]
         if not isinstance(review, dict) or review.get("status") not in {"internal_review_open", "accepted", "rejected"}:
             fail(f"{item_label}.review must retain a controlled review status")
+        if review.get("status") != "accepted" or review.get("review_ref") != requirements["review_record"]:
+            fail(f"{item_label}.review is not bound to the approved internal review")
+        if not isinstance(review.get("reviewer"), str) or not review["reviewer"].strip():
+            fail(f"{item_label}.review must name the internal reviewer")
     return identifiers
+
+
+def validate_requirements_review(
+    review: dict[str, Any],
+    requirements: dict[str, Any],
+    verification_inventory: dict[str, Any],
+    requirement_ids: set[str],
+) -> None:
+    label = "coverage/requirements-review.json"
+    required_fields(
+        review,
+        {
+            "record_type",
+            "schema_version",
+            "status",
+            "id",
+            "baseline_id",
+            "owner",
+            "assurance_context",
+            "credit",
+            "reviewer",
+            "reviewed_artifacts",
+            "review_method",
+            "requirements",
+            "findings",
+            "approval",
+            "open_items",
+            "non_claims",
+        },
+        label,
+    )
+    check_status(review, label)
+    if (
+        review["record_type"] != "requirements_baseline_review"
+        or review["schema_version"] != 1
+        or review["id"] != requirements["review_record"]
+        or review["baseline_id"] != requirements["baseline_id"]
+        or review["assurance_context"] != "internal_assurance"
+        or review["credit"] != "none"
+    ):
+        fail(f"{label} has the wrong identity or assurance state")
+    reviewer = review["reviewer"]
+    if (
+        not isinstance(reviewer, dict)
+        or set(reviewer) != {"identity", "role", "independent"}
+        or not isinstance(reviewer["identity"], str)
+        or not reviewer["identity"].strip()
+        or not isinstance(reviewer["role"], str)
+        or not reviewer["role"].strip()
+        or reviewer["independent"] is not False
+    ):
+        fail(f"{label}.reviewer must retain the non-independent internal boundary")
+
+    artifacts = review["reviewed_artifacts"]
+    if not isinstance(artifacts, dict) or set(artifacts) != {
+        "logical_json_hash_contract",
+        "source_hash_contract",
+        "requirements",
+        "verification_inventory",
+        "sources",
+    }:
+        fail(f"{label}.reviewed_artifacts is invalid")
+    expected_logical_contract = (
+        "UTF-8 JSON sorted by object key with no insignificant whitespace"
+    )
+    expected_source_contract = (
+        "SHA-256 over source bytes after CRLF and CR normalization to LF"
+    )
+    if (
+        artifacts["logical_json_hash_contract"] != expected_logical_contract
+        or artifacts["source_hash_contract"] != expected_source_contract
+    ):
+        fail(f"{label} has an unsupported digest contract")
+    for name, expected_path, expected_version, value in (
+        ("requirements", "coverage/requirements.json", 2, requirements),
+        (
+            "verification_inventory",
+            "coverage/verification-inventory.json",
+            1,
+            verification_inventory,
+        ),
+    ):
+        record = artifacts[name]
+        if (
+            not isinstance(record, dict)
+            or set(record) != {"path", "schema_version", "sha256"}
+            or record["path"] != expected_path
+            or record["schema_version"] != expected_version
+            or record["sha256"] != canonical_json_sha256(value)
+        ):
+            fail(f"{label}.reviewed_artifacts.{name} is stale or invalid")
+
+    expected_sources = {
+        reference.split(":", 1)[0]
+        for requirement in requirements["requirements"]
+        for reference in requirement["source_refs"]
+    }
+    sources = artifacts["sources"]
+    if not isinstance(sources, list) or not sources:
+        fail(f"{label}.reviewed_artifacts.sources must be non-empty")
+    observed_sources: set[str] = set()
+    for index, record in enumerate(sources):
+        item_label = f"{label}.reviewed_artifacts.sources[{index}]"
+        if not isinstance(record, dict) or set(record) != {"path", "sha256"}:
+            fail(f"{item_label} is invalid")
+        path_value = record["path"]
+        path = source_path(path_value, f"{item_label}.path")
+        if path_value in observed_sources or record["sha256"] != canonical_source_sha256(path):
+            fail(f"{item_label} is duplicated or stale")
+        observed_sources.add(path_value)
+    if observed_sources != expected_sources:
+        fail(f"{label}.reviewed_artifacts.sources does not match requirement traces")
+
+    method = review["review_method"]
+    if (
+        not isinstance(method, list)
+        or len(method) < 5
+        or not all(isinstance(item, str) and item.strip() for item in method)
+    ):
+        fail(f"{label}.review_method is incomplete")
+    records = review["requirements"]
+    if not isinstance(records, list) or len(records) != len(requirement_ids):
+        fail(f"{label}.requirements does not match the requirement inventory")
+    expected_checks = {
+        "statement_clear",
+        "source_trace_valid",
+        "verification_trace_resolved",
+        "expected_result_observable",
+        "platform_scope_reviewed",
+    }
+    finding_ids = {
+        finding.get("id")
+        for finding in review["findings"]
+        if isinstance(finding, dict)
+    }
+    observed_ids: set[str] = set()
+    referenced_findings: set[str] = set()
+    requirement_records = {
+        record["id"]: record for record in requirements["requirements"]
+    }
+    for index, record in enumerate(records):
+        item_label = f"{label}.requirements[{index}]"
+        if not isinstance(record, dict) or set(record) != {
+            "id",
+            "disposition",
+            "checks",
+            "finding_refs",
+        }:
+            fail(f"{item_label} is invalid")
+        identifier = record["id"]
+        if identifier not in requirement_ids or identifier in observed_ids:
+            fail(f"{item_label}.id is unknown or duplicated")
+        observed_ids.add(identifier)
+        if record["disposition"] != "accepted_internal":
+            fail(f"{item_label} must retain the internal-only disposition")
+        if requirement_records[identifier]["review"].get("reviewer") != reviewer["identity"]:
+            fail(f"{item_label} reviewer does not match the reviewed requirement")
+        checks = record["checks"]
+        if not isinstance(checks, dict) or set(checks) != expected_checks or not all(
+            value is True for value in checks.values()
+        ):
+            fail(f"{item_label}.checks is incomplete")
+        refs = record["finding_refs"]
+        if (
+            not isinstance(refs, list)
+            or len(refs) != len(set(refs))
+            or not set(refs).issubset(finding_ids)
+        ):
+            fail(f"{item_label}.finding_refs is invalid")
+        referenced_findings.update(refs)
+    if observed_ids != requirement_ids:
+        fail(f"{label}.requirements is incomplete")
+
+    findings = review["findings"]
+    if not isinstance(findings, list):
+        fail(f"{label}.findings must be a list")
+    observed_findings: set[str] = set()
+    for index, finding in enumerate(findings):
+        item_label = f"{label}.findings[{index}]"
+        fields = {
+            "id",
+            "status",
+            "severity",
+            "requirement_ids",
+            "description",
+            "resolution",
+            "resolution_ref",
+        }
+        if not isinstance(finding, dict) or set(finding) != fields:
+            fail(f"{item_label} is invalid")
+        identifier = finding["id"]
+        if (
+            not isinstance(identifier, str)
+            or not re.fullmatch(r"REQ-REVIEW-FINDING-\d{3}", identifier)
+            or identifier in observed_findings
+            or finding["status"] != "resolved"
+            or finding["severity"] not in {"minor", "major", "critical"}
+        ):
+            fail(f"{item_label} has an invalid identity or disposition")
+        observed_findings.add(identifier)
+        affected = finding["requirement_ids"]
+        if not isinstance(affected, list) or not affected or not set(affected).issubset(requirement_ids):
+            fail(f"{item_label}.requirement_ids is invalid")
+        for field in ("description", "resolution", "resolution_ref"):
+            if not isinstance(finding[field], str) or not finding[field].strip():
+                fail(f"{item_label}.{field} must be non-empty")
+    if referenced_findings != observed_findings:
+        fail(f"{label}.findings and requirement references are not reciprocal")
+
+    approval = review["approval"]
+    if (
+        not isinstance(approval, dict)
+        or set(approval)
+        != {
+            "status",
+            "approver",
+            "approver_role",
+            "approval_scope",
+            "approval_basis",
+            "approval_ref",
+            "approved_at",
+        }
+        or approval["status"] != "approved_internal"
+        or approval["approver"] != "github:arthurianresolve"
+        or approval["approval_scope"]
+        != "internal requirements and verification baseline only"
+    ):
+        fail(f"{label}.approval is invalid or overclaims its scope")
+    for field in ("approver_role", "approval_basis", "approval_ref"):
+        if not isinstance(approval[field], str) or not approval[field].strip():
+            fail(f"{label}.approval.{field} must be non-empty")
+    if not isinstance(approval["approved_at"], str):
+        fail(f"{label}.approval.approved_at must be an ISO-8601 timestamp")
+    try:
+        approved_at = datetime.fromisoformat(approval["approved_at"])
+    except ValueError:
+        fail(f"{label}.approval.approved_at must be an ISO-8601 timestamp")
+    if approved_at.tzinfo is None or approved_at.utcoffset() is None:
+        fail(f"{label}.approval.approved_at must include a timezone offset")
+    for field in ("open_items", "non_claims"):
+        if (
+            not isinstance(review[field], list)
+            or not review[field]
+            or not all(isinstance(item, str) and item.strip() for item in review[field])
+        ):
+            fail(f"{label}.{field} is incomplete")
 
 
 def validate_surface(surface: dict[str, Any], requirement_ids: set[str]) -> set[str]:
@@ -402,45 +697,309 @@ def validate_policy(policy: dict[str, Any]) -> None:
 
 def validate_tool_assessment(tool: dict[str, Any]) -> None:
     label = "coverage/tool-assessment.json"
-    required_fields(tool, {"record_type", "schema_version", "status", "owner", "toolchain", "qualification_status", "credit_status", "functions", "open_decisions"}, label)
+    required_fields(tool, {"record_type", "schema_version", "status", "owner", "assurance_context", "toolchain", "qualification_status", "credit_status", "current_use_decision", "topology", "functions", "known_problems", "open_decisions", "non_claims"}, label)
     check_status(tool, label)
-    if tool["record_type"] != "tool_assessment" or tool["schema_version"] != 1:
+    if tool["record_type"] != "tool_assessment" or tool["schema_version"] != 2:
         fail(f"{label} has the wrong record type or schema version")
-    if tool["qualification_status"] != "not_qualified" or tool["credit_status"] != "internal_only":
+    if (
+        tool["assurance_context"] != "internal_assurance"
+        or tool["qualification_status"] != "not_qualified"
+        or tool["credit_status"] != "internal_only"
+    ):
         fail(f"{label} contains an unsupported tool claim")
+    decision = tool["current_use_decision"]
+    if (
+        not isinstance(decision, dict)
+        or set(decision)
+        != {
+            "status",
+            "certification_use",
+            "activity_elimination_credited",
+            "decision_basis",
+            "decision_owner",
+        }
+        or decision["status"] != "approved_internal_non_reliance"
+        or decision["certification_use"] is not False
+        or decision["activity_elimination_credited"] is not False
+        or not isinstance(decision["decision_basis"], str)
+        or not decision["decision_basis"].strip()
+        or not isinstance(decision["decision_owner"], str)
+        or not decision["decision_owner"].strip()
+    ):
+        fail(f"{label}.current_use_decision is invalid or overclaims reliance")
     functions = tool["functions"]
-    if not isinstance(functions, list) or not functions:
-        fail(f"{label}.functions must be non-empty")
+    if not isinstance(functions, list) or len(functions) != 6:
+        fail(f"{label}.functions must contain the six registered functions")
+    expected_function_ids = {f"TOOL-F-{number:03d}" for number in range(1, 7)}
     identifiers: set[str] = set()
+    known_problem_refs: set[str] = set()
     for index, function in enumerate(functions):
         item_label = f"{label}.functions[{index}]"
         if not isinstance(function, dict):
             fail(f"{item_label} must be an object")
-        required_fields(function, {"id", "function", "status", "failure_modes", "fallback", "residual_reliance"}, item_label)
-        if function["id"] in identifiers or not isinstance(function["id"], str):
+        required_fields(
+            function,
+            {
+                "id",
+                "function",
+                "status",
+                "intended_uses",
+                "prohibited_uses",
+                "inputs",
+                "outputs",
+                "upstream_ids",
+                "downstream_ids",
+                "affected_process",
+                "activity_effect",
+                "failure_modes",
+                "fallback",
+                "residual_reliance",
+                "qualification_criterion",
+                "qualification_state",
+                "proposed_tql",
+                "approved_tql",
+                "limitations",
+                "known_problem_ids",
+                "owner",
+                "review",
+                "revalidation_triggers",
+            },
+            item_label,
+        )
+        if function["id"] not in expected_function_ids or function["id"] in identifiers:
             fail(f"{item_label}.id must be unique")
         identifiers.add(function["id"])
-        if function["status"] not in {"assessment_open", "internal_only", "not_implemented"}:
+        if function["status"] not in {"non_reliance_internal", "implemented_internal"}:
             fail(f"{item_label}.status is invalid")
-        for field in ("failure_modes", "fallback", "residual_reliance"):
+        for field in (
+            "intended_uses",
+            "prohibited_uses",
+            "inputs",
+            "outputs",
+            "limitations",
+            "known_problem_ids",
+            "revalidation_triggers",
+        ):
             value = function[field]
-            if isinstance(value, list):
-                if not value or not all(isinstance(item, str) and item for item in value):
-                    fail(f"{item_label}.{field} is invalid")
-            elif not isinstance(value, str) or not value:
+            if not isinstance(value, list) or not value or not all(
+                isinstance(item, str) and item.strip() for item in value
+            ):
                 fail(f"{item_label}.{field} is invalid")
+        for field in ("upstream_ids", "downstream_ids"):
+            value = function[field]
+            if not isinstance(value, list) or not all(
+                isinstance(item, str) and item in expected_function_ids for item in value
+            ) or len(value) != len(set(value)):
+                fail(f"{item_label}.{field} is invalid")
+        for field in ("function", "affected_process", "residual_reliance", "owner"):
+            if not isinstance(function[field], str) or not function[field].strip():
+                fail(f"{item_label}.{field} must be non-empty")
+        effect = function["activity_effect"]
+        if (
+            not isinstance(effect, dict)
+            or set(effect) != {"kind", "detail"}
+            or effect["kind"] not in {"automates_internal", "reduces_internal"}
+            or not isinstance(effect["detail"], str)
+            or not effect["detail"].strip()
+        ):
+            fail(f"{item_label}.activity_effect is invalid")
+        failure_modes = function["failure_modes"]
+        if not isinstance(failure_modes, list) or len(failure_modes) < 3:
+            fail(f"{item_label}.failure_modes is incomplete")
+        failure_ids: set[str] = set()
+        for mode_index, mode in enumerate(failure_modes):
+            mode_label = f"{item_label}.failure_modes[{mode_index}]"
+            if (
+                not isinstance(mode, dict)
+                or set(mode)
+                != {"id", "description", "can_escape", "detection_controls"}
+                or not isinstance(mode["id"], str)
+                or mode["id"] in failure_ids
+                or mode["can_escape"] is not True
+                or not isinstance(mode["description"], str)
+                or not mode["description"].strip()
+                or not isinstance(mode["detection_controls"], list)
+                or not mode["detection_controls"]
+                or not all(
+                    isinstance(control, str) and control.strip()
+                    for control in mode["detection_controls"]
+                )
+            ):
+                fail(f"{mode_label} is invalid")
+            failure_ids.add(mode["id"])
+        fallback = function["fallback"]
+        if (
+            not isinstance(fallback, dict)
+            or set(fallback)
+            != {
+                "id",
+                "procedure",
+                "scope",
+                "completeness",
+                "independent",
+                "common_mode_dependencies",
+            }
+            or fallback["id"] != f"FALLBACK-{function['id']}"
+            or fallback["independent"] is not False
+            or not isinstance(fallback["common_mode_dependencies"], list)
+            or not fallback["common_mode_dependencies"]
+        ):
+            fail(f"{item_label}.fallback is invalid")
+        for field in ("procedure", "scope", "completeness"):
+            if not isinstance(fallback[field], str) or not fallback[field].strip():
+                fail(f"{item_label}.fallback.{field} must be non-empty")
+        criterion = function["qualification_criterion"]
+        if criterion != {
+            "state": "assessment_open_basis_missing",
+            "controlled_basis_ref": None,
+            "software_level_ref": None,
+        }:
+            fail(f"{item_label}.qualification_criterion overstates the basis")
+        if (
+            function["qualification_state"] != "non_reliance"
+            or function["proposed_tql"] is not None
+            or function["approved_tql"] is not None
+        ):
+            fail(f"{item_label} contains an unsupported qualification claim")
+        review = function["review"]
+        if (
+            not isinstance(review, dict)
+            or set(review) != {"status", "reviewer", "evidence_refs"}
+            or review["status"] != "reviewed_internal"
+            or not isinstance(review["reviewer"], str)
+            or not review["reviewer"].strip()
+            or not isinstance(review["evidence_refs"], list)
+            or not review["evidence_refs"]
+        ):
+            fail(f"{item_label}.review is incomplete")
+        for reference in review["evidence_refs"]:
+            source_path(reference, f"{item_label}.review.evidence_refs")
+        known_problem_refs.update(function["known_problem_ids"])
+    if identifiers != expected_function_ids:
+        fail(f"{label}.functions does not match the registered inventory")
+
+    topology = tool["topology"]
+    if not isinstance(topology, list) or not topology:
+        fail(f"{label}.topology must be non-empty")
+    observed_edges: set[tuple[str, str]] = set()
+    for index, edge in enumerate(topology):
+        edge_label = f"{label}.topology[{index}]"
+        if (
+            not isinstance(edge, dict)
+            or set(edge) != {"upstream_id", "downstream_id", "interface", "interference"}
+            or edge["upstream_id"] not in identifiers
+            or edge["downstream_id"] not in identifiers
+            or edge["upstream_id"] == edge["downstream_id"]
+            or (edge["upstream_id"], edge["downstream_id"]) in observed_edges
+        ):
+            fail(f"{edge_label} is invalid")
+        observed_edges.add((edge["upstream_id"], edge["downstream_id"]))
+        for field in ("interface", "interference"):
+            if not isinstance(edge[field], str) or not edge[field].strip():
+                fail(f"{edge_label}.{field} must be non-empty")
+    declared_edges = {
+        (function["id"], downstream)
+        for function in functions
+        for downstream in function["downstream_ids"]
+    }
+    reverse_edges = {
+        (upstream, function["id"])
+        for function in functions
+        for upstream in function["upstream_ids"]
+    }
+    if observed_edges != declared_edges or observed_edges != reverse_edges:
+        fail(f"{label}.topology is not reciprocal with function links")
+
+    known_problems = tool["known_problems"]
+    if not isinstance(known_problems, list) or not known_problems:
+        fail(f"{label}.known_problems must be non-empty")
+    problem_ids: set[str] = set()
+    for index, problem in enumerate(known_problems):
+        item_label = f"{label}.known_problems[{index}]"
+        if (
+            not isinstance(problem, dict)
+            or set(problem) != {"id", "status", "function_ids", "description", "control"}
+            or not isinstance(problem["id"], str)
+            or problem["id"] in problem_ids
+            or problem["status"] != "open_controlled"
+            or not isinstance(problem["function_ids"], list)
+            or not problem["function_ids"]
+            or not set(problem["function_ids"]).issubset(identifiers)
+        ):
+            fail(f"{item_label} is invalid")
+        problem_ids.add(problem["id"])
+        for field in ("description", "control"):
+            if not isinstance(problem[field], str) or not problem[field].strip():
+                fail(f"{item_label}.{field} must be non-empty")
+    if known_problem_refs != problem_ids:
+        fail(f"{label}.known_problems and function references are not reciprocal")
+    for field in ("open_decisions", "non_claims"):
+        if (
+            not isinstance(tool[field], list)
+            or not tool[field]
+            or not all(isinstance(item, str) and item.strip() for item in tool[field])
+        ):
+            fail(f"{label}.{field} is incomplete")
 
 
 def validate_evidence_index(
     index: dict[str, Any], independent_review_approved: bool = False
 ) -> None:
     label = "coverage/evidence-index.json"
-    required_fields(index, {"record_type", "schema_version", "status", "owner", "archive_status", "external_archive_uri", "runs", "open_items", "non_claims"}, label)
+    required_fields(index, {"record_type", "schema_version", "status", "owner", "technical_baseline_id", "archive_status", "external_archive_uri", "assurance_package", "runs", "open_items", "non_claims"}, label)
     check_status(index, label)
-    if index["record_type"] != "evidence_index" or index["schema_version"] != 1:
+    if index["record_type"] != "evidence_index" or index["schema_version"] != 2:
         fail(f"{label} has the wrong record type or schema version")
-    if index["archive_status"] != "not_archived" or index["external_archive_uri"] is not None:
+    if (
+        index["technical_baseline_id"] != "CM-DO178C-0002"
+        or index["archive_status"]
+        not in {"internal_staging_pending", "internal_staging_verified"}
+        or index["external_archive_uri"] is not None
+    ):
         fail(f"{label} must not imply an external archive")
+    package = index["assurance_package"]
+    package_fields = {
+        "status",
+        "artifact_name",
+        "retention_days",
+        "workflow_run_id",
+        "commit",
+        "tree",
+        "manifest_sha256",
+        "retrieval_result_sha256",
+        "retrieval_record_ref",
+    }
+    if (
+        not isinstance(package, dict)
+        or set(package) != package_fields
+        or package["artifact_name"] != "assurance-evidence-package"
+        or package["retention_days"] != 90
+        or package["retrieval_record_ref"] != "coverage/archive-retrieval.json"
+        or package["status"] not in {"pending_current_ci", "verified_internal_staging"}
+    ):
+        fail(f"{label}.assurance_package is invalid")
+    package_bound_fields = (
+        "workflow_run_id",
+        "commit",
+        "tree",
+        "manifest_sha256",
+        "retrieval_result_sha256",
+    )
+    if package["status"] == "pending_current_ci":
+        if any(package[field] is not None for field in package_bound_fields):
+            fail(f"{label}.assurance_package cannot contain partial pending evidence")
+        if index["archive_status"] != "internal_staging_pending":
+            fail(f"{label}.archive_status is inconsistent with the pending package")
+    elif (
+        not isinstance(package["workflow_run_id"], str)
+        or not package["workflow_run_id"].isdigit()
+        or not COMMIT_RE.fullmatch(str(package["commit"]))
+        or not COMMIT_RE.fullmatch(str(package["tree"]))
+        or not SHA256_RE.fullmatch(str(package["manifest_sha256"]))
+        or not SHA256_RE.fullmatch(str(package["retrieval_result_sha256"]))
+        or index["archive_status"] != "internal_staging_verified"
+    ):
+        fail(f"{label}.assurance_package lacks verified exact provenance")
     runs = index["runs"]
     if not isinstance(runs, list) or not runs:
         fail(f"{label}.runs must be a list")
@@ -481,6 +1040,503 @@ def validate_evidence_index(
     )
     if independent_review_approved == has_native_review_item:
         fail(f"{label}.open_items is inconsistent with the native-fault review state")
+
+
+def validate_configuration_management(record: dict[str, Any]) -> None:
+    label = "coverage/configuration-management.json"
+    required_fields(
+        record,
+        {
+            "record_type",
+            "schema_version",
+            "status",
+            "owner",
+            "repository",
+            "branch",
+            "baseline_id_format",
+            "baselines",
+            "current_internal_baseline_id",
+            "candidate",
+            "pending_change",
+            "change_control",
+            "release_control",
+            "open_items",
+            "non_claims",
+        },
+        label,
+    )
+    check_status(record, label)
+    if (
+        record["record_type"] != "assurance_configuration_management"
+        or record["schema_version"] != 1
+        or record["repository"] != "arthurianresolve/fs2-rs"
+        or record["branch"] != "DO-178C"
+        or record["baseline_id_format"] != "CM-DO178C-[0-9]{4}"
+    ):
+        fail(f"{label} has the wrong identity")
+    baselines = record["baselines"]
+    if not isinstance(baselines, list) or not baselines:
+        fail(f"{label}.baselines must be non-empty")
+    identifiers: list[str] = []
+    previous: str | None = None
+    for index, baseline in enumerate(baselines):
+        item_label = f"{label}.baselines[{index}]"
+        if (
+            not isinstance(baseline, dict)
+            or set(baseline)
+            != {"id", "role", "commit", "tree", "state", "supersedes", "evidence_ref"}
+            or not isinstance(baseline["id"], str)
+            or not re.fullmatch(r"CM-DO178C-\d{4}", baseline["id"])
+            or baseline["id"] in identifiers
+            or not COMMIT_RE.fullmatch(str(baseline["commit"]))
+            or not COMMIT_RE.fullmatch(str(baseline["tree"]))
+            or not isinstance(baseline["role"], str)
+            or not baseline["role"].strip()
+            or not isinstance(baseline["state"], str)
+            or not baseline["state"].strip()
+        ):
+            fail(f"{item_label} is invalid")
+        if baseline["supersedes"] != previous:
+            fail(f"{item_label}.supersedes does not form a linear baseline chain")
+        if baseline["evidence_ref"] is not None and (
+            not isinstance(baseline["evidence_ref"], str)
+            or not baseline["evidence_ref"].strip()
+        ):
+            fail(f"{item_label}.evidence_ref is invalid")
+        identifiers.append(baseline["id"])
+        previous = baseline["id"]
+    if identifiers != sorted(identifiers) or record["current_internal_baseline_id"] != identifiers[-1]:
+        fail(f"{label}.baselines are not monotonic or current")
+
+    candidate = record["candidate"]
+    candidate_fields = {
+        "id",
+        "state",
+        "preparation_parent_commit",
+        "commit",
+        "tree",
+        "ci_run_id",
+        "assurance_package_manifest_sha256",
+        "retrieval_result_sha256",
+    }
+    if (
+        not isinstance(candidate, dict)
+        or set(candidate) != candidate_fields
+        or candidate["id"] in identifiers
+        or not re.fullmatch(r"CM-DO178C-\d{4}", str(candidate["id"]))
+        or candidate["id"] <= identifiers[-1]
+        or not COMMIT_RE.fullmatch(str(candidate["preparation_parent_commit"]))
+        or candidate["state"] not in {
+            "awaiting_clean_exact_commit",
+            "clean_exact_commit_internal_staging_verified",
+        }
+    ):
+        fail(f"{label}.candidate is invalid")
+    bound_fields = (
+        "commit",
+        "tree",
+        "ci_run_id",
+        "assurance_package_manifest_sha256",
+        "retrieval_result_sha256",
+    )
+    if candidate["state"] == "awaiting_clean_exact_commit":
+        if any(candidate[field] is not None for field in bound_fields):
+            fail(f"{label}.candidate cannot be partially bound")
+    elif (
+        not COMMIT_RE.fullmatch(str(candidate["commit"]))
+        or not COMMIT_RE.fullmatch(str(candidate["tree"]))
+        or not isinstance(candidate["ci_run_id"], str)
+        or not candidate["ci_run_id"].isdigit()
+        or not SHA256_RE.fullmatch(str(candidate["assurance_package_manifest_sha256"]))
+        or not SHA256_RE.fullmatch(str(candidate["retrieval_result_sha256"]))
+    ):
+        fail(f"{label}.candidate lacks exact verified provenance")
+
+    change = record["pending_change"]
+    if (
+        not isinstance(change, dict)
+        or set(change)
+        != {
+            "id",
+            "categories",
+            "product_code_changed",
+            "verification_code_changed",
+            "assurance_tool_changed",
+            "native_fault_review_affected",
+            "required_reverification",
+            "state",
+        }
+        or change["product_code_changed"] is not False
+        or change["verification_code_changed"] is not True
+        or change["assurance_tool_changed"] is not True
+        or change["native_fault_review_affected"] is not True
+        or change["state"] not in {"implementation_in_progress", "evidence_bound_review_pending"}
+    ):
+        fail(f"{label}.pending_change is invalid")
+    for field in ("categories", "required_reverification"):
+        if (
+            not isinstance(change[field], list)
+            or not change[field]
+            or not all(isinstance(item, str) and item.strip() for item in change[field])
+        ):
+            fail(f"{label}.pending_change.{field} is incomplete")
+
+    control = record["change_control"]
+    if not isinstance(control, dict) or set(control) != {
+        "immutable_identity",
+        "change_impact_required",
+        "supersession_rule",
+        "revalidation_triggers",
+        "promotion_rule",
+    } or control["change_impact_required"] is not True:
+        fail(f"{label}.change_control is invalid")
+    for field in ("immutable_identity", "supersession_rule", "promotion_rule"):
+        if not isinstance(control[field], str) or not control[field].strip():
+            fail(f"{label}.change_control.{field} must be non-empty")
+    if not isinstance(control["revalidation_triggers"], list) or not control["revalidation_triggers"]:
+        fail(f"{label}.change_control.revalidation_triggers is incomplete")
+
+    release = record["release_control"]
+    allowed_states = [
+        "internal_candidate",
+        "internal_staging_verified",
+        "release_candidate",
+        "authority_candidate",
+        "accepted",
+        "superseded",
+    ]
+    if (
+        not isinstance(release, dict)
+        or set(release)
+        != {
+            "current_state",
+            "release_tag",
+            "controlled_external_archive_required",
+            "authority_acceptance_required",
+            "allowed_states",
+        }
+        or release["current_state"] not in {"internal_candidate", "internal_staging_verified"}
+        or release["release_tag"] is not None
+        or release["controlled_external_archive_required"] is not True
+        or release["authority_acceptance_required"] is not True
+        or release["allowed_states"] != allowed_states
+    ):
+        fail(f"{label}.release_control contains an unsupported promotion state")
+    for field in ("open_items", "non_claims"):
+        if not isinstance(record[field], list) or not record[field]:
+            fail(f"{label}.{field} is incomplete")
+
+
+def validate_archive_control(record: dict[str, Any]) -> None:
+    label = "coverage/archive-control.json"
+    required_fields(
+        record,
+        {
+            "record_type",
+            "schema_version",
+            "status",
+            "owner",
+            "repository",
+            "branch",
+            "internal_staging",
+            "retrieval",
+            "external_archive",
+            "open_items",
+            "non_claims",
+        },
+        label,
+    )
+    check_status(record, label)
+    if (
+        record["record_type"] != "assurance_archive_control"
+        or record["schema_version"] != 1
+        or record["repository"] != "arthurianresolve/fs2-rs"
+        or record["branch"] != "DO-178C"
+    ):
+        fail(f"{label} has the wrong identity")
+    staging = record["internal_staging"]
+    if not isinstance(staging, dict) or set(staging) != {
+        "status",
+        "provider",
+        "workflow_path",
+        "job_id",
+        "artifact_name",
+        "retention_days",
+        "required_artifacts",
+        "package_contract",
+        "access_boundary",
+        "backup_status",
+        "retention_authority",
+        "disposition_authority",
+    }:
+        fail(f"{label}.internal_staging is invalid")
+    if (
+        staging["status"] != "implemented"
+        or staging["provider"] != "github_actions"
+        or staging["workflow_path"] != ".github/workflows/ci.yml"
+        or staging["job_id"] != "assurance-package"
+        or staging["artifact_name"] != "assurance-evidence-package"
+        or staging["retention_days"] != 90
+        or staging["backup_status"] != "not_controlled"
+        or staging["retention_authority"] is not None
+        or staging["disposition_authority"] is not None
+    ):
+        fail(f"{label}.internal_staging contains an unsupported control claim")
+    expected_artifacts = {
+        "coverage-aarch64-apple-darwin": {"manifest": "run-manifest.json", "kind": "coverage", "profile": "stable", "target": "aarch64-apple-darwin"},
+        "coverage-branch-aarch64-apple-darwin": {"manifest": "run-manifest.json", "kind": "coverage", "profile": "branch", "target": "aarch64-apple-darwin"},
+        "coverage-branch-x86_64-pc-windows-msvc": {"manifest": "run-manifest.json", "kind": "coverage", "profile": "branch", "target": "x86_64-pc-windows-msvc"},
+        "coverage-branch-x86_64-unknown-linux-gnu": {"manifest": "run-manifest.json", "kind": "coverage", "profile": "branch", "target": "x86_64-unknown-linux-gnu"},
+        "coverage-condition-aarch64-apple-darwin": {"manifest": "run-manifest.json", "kind": "coverage", "profile": "condition", "target": "aarch64-apple-darwin"},
+        "coverage-condition-x86_64-pc-windows-msvc": {"manifest": "run-manifest.json", "kind": "coverage", "profile": "condition", "target": "x86_64-pc-windows-msvc"},
+        "coverage-condition-x86_64-unknown-linux-gnu": {"manifest": "run-manifest.json", "kind": "coverage", "profile": "condition", "target": "x86_64-unknown-linux-gnu"},
+        "coverage-x86_64-pc-windows-msvc": {"manifest": "run-manifest.json", "kind": "coverage", "profile": "stable", "target": "x86_64-pc-windows-msvc"},
+        "coverage-x86_64-unknown-linux-gnu": {"manifest": "run-manifest.json", "kind": "coverage", "profile": "stable", "target": "x86_64-unknown-linux-gnu"},
+        "windows-native-faults": {"manifest": "windows-native-fault-manifest.json", "kind": "windows_native_fault", "profile": None, "target": "x86_64-pc-windows-msvc"},
+    }
+    artifacts = staging["required_artifacts"]
+    if not isinstance(artifacts, dict) or artifacts != expected_artifacts:
+        fail(f"{label}.internal_staging.required_artifacts has the wrong inventory")
+    for name, spec in artifacts.items():
+        path = spec["manifest"]
+        if (
+            not isinstance(path, str)
+            or not path
+            or "\\" in path
+            or path.startswith("/")
+            or ".." in Path(path).parts
+        ):
+            fail(f"{label} has an unsafe manifest path for {name}")
+    contract = staging["package_contract"]
+    if (
+        not isinstance(contract, dict)
+        or set(contract)
+        != {
+            "manifest_name",
+            "hash_algorithm",
+            "path_contract",
+            "inventory_rule",
+            "source_state",
+            "create_command",
+            "verify_command",
+        }
+        or contract["manifest_name"] != "assurance-archive-manifest.json"
+        or contract["hash_algorithm"] != "sha256"
+        or contract["source_state"] != "clean_exact_commit_tracked_tree"
+    ):
+        fail(f"{label}.internal_staging.package_contract is invalid")
+    source_path(staging["workflow_path"], f"{label}.internal_staging.workflow_path")
+
+    retrieval = record["retrieval"]
+    if not isinstance(retrieval, dict) or set(retrieval) != {
+        "procedure",
+        "latest_result",
+        "failure_disposition",
+    }:
+        fail(f"{label}.retrieval is invalid")
+    latest = retrieval["latest_result"]
+    latest_fields = {
+        "status",
+        "workflow_run_id",
+        "source_commit",
+        "manifest_sha256",
+        "result_sha256",
+        "verified_at",
+        "result_ref",
+    }
+    if not isinstance(latest, dict) or set(latest) != latest_fields or latest["status"] not in {
+        "pending_first_current_package",
+        "pass_internal_staging",
+    }:
+        fail(f"{label}.retrieval.latest_result is invalid")
+    bound_fields = latest_fields - {"status"}
+    if latest["status"] == "pending_first_current_package":
+        if any(latest[field] is not None for field in bound_fields):
+            fail(f"{label}.retrieval.latest_result cannot be partially bound")
+    elif (
+        not isinstance(latest["workflow_run_id"], str)
+        or not latest["workflow_run_id"].isdigit()
+        or not COMMIT_RE.fullmatch(str(latest["source_commit"]))
+        or not SHA256_RE.fullmatch(str(latest["manifest_sha256"]))
+        or not SHA256_RE.fullmatch(str(latest["result_sha256"]))
+        or not isinstance(latest["result_ref"], str)
+        or not latest["result_ref"].strip()
+    ):
+        fail(f"{label}.retrieval.latest_result lacks verified provenance")
+    if not isinstance(retrieval["procedure"], str) or not retrieval["procedure"].strip():
+        fail(f"{label}.retrieval.procedure is incomplete")
+    if not isinstance(retrieval["failure_disposition"], str) or not retrieval["failure_disposition"].strip():
+        fail(f"{label}.retrieval.failure_disposition is incomplete")
+
+    external = record["external_archive"]
+    if not isinstance(external, dict) or external != {
+        "status": "not_archived",
+        "uri": None,
+        "archive_owner": None,
+        "access_control_approval": None,
+        "backup_policy": None,
+        "retention_period": None,
+        "retention_authority": None,
+        "disposition_authority": None,
+        "retrieval_acceptance": None,
+    }:
+        fail(f"{label}.external_archive must remain unresolved")
+    for field in ("open_items", "non_claims"):
+        if not isinstance(record[field], list) or not record[field]:
+            fail(f"{label}.{field} is incomplete")
+
+
+def validate_archive_retrieval(record: dict[str, Any]) -> None:
+    label = "coverage/archive-retrieval.json"
+    fields = {
+        "record_type",
+        "schema_version",
+        "status",
+        "owner",
+        "scope",
+        "result",
+        "package_id",
+        "source_commit",
+        "source_tree",
+        "workflow_run_id",
+        "artifact_name",
+        "manifest_sha256",
+        "retrieval_result_sha256",
+        "file_count",
+        "total_bytes",
+        "retrieved_at",
+        "verified_by",
+        "discrepancies",
+        "external_archive_verified",
+        "open_items",
+        "non_claims",
+    }
+    if set(record) != fields:
+        fail(f"{label} fields do not match the registered contract")
+    check_status(record, label)
+    if (
+        record["record_type"] != "assurance_archive_retrieval_record"
+        or record["schema_version"] != 1
+        or record["scope"] != "internal_github_actions_staging"
+        or record["result"] not in {"pending", "pass"}
+        or record["artifact_name"] != "assurance-evidence-package"
+        or record["external_archive_verified"] is not False
+        or not isinstance(record["discrepancies"], list)
+    ):
+        fail(f"{label} has an invalid identity or assurance state")
+    bound_fields = (
+        "package_id",
+        "source_commit",
+        "source_tree",
+        "workflow_run_id",
+        "manifest_sha256",
+        "retrieval_result_sha256",
+        "file_count",
+        "total_bytes",
+        "retrieved_at",
+        "verified_by",
+    )
+    if record["result"] == "pending":
+        if record["status"] != "not_ready" or any(
+            record[field] is not None for field in bound_fields
+        ) or record["discrepancies"]:
+            fail(f"{label} contains partial pending retrieval evidence")
+    else:
+        if (
+            record["status"] != "draft"
+            or not isinstance(record["package_id"], str)
+            or not record["package_id"].strip()
+            or not COMMIT_RE.fullmatch(str(record["source_commit"]))
+            or not COMMIT_RE.fullmatch(str(record["source_tree"]))
+            or not isinstance(record["workflow_run_id"], str)
+            or not record["workflow_run_id"].isdigit()
+            or not SHA256_RE.fullmatch(str(record["manifest_sha256"]))
+            or not SHA256_RE.fullmatch(str(record["retrieval_result_sha256"]))
+            or not isinstance(record["file_count"], int)
+            or record["file_count"] <= 0
+            or not isinstance(record["total_bytes"], int)
+            or record["total_bytes"] <= 0
+            or not isinstance(record["verified_by"], str)
+            or not record["verified_by"].strip()
+            or record["discrepancies"]
+        ):
+            fail(f"{label} lacks a complete passing retrieval result")
+        validate_created_utc(record["retrieved_at"], f"{label}.retrieved_at")
+    for field in ("open_items", "non_claims"):
+        if not isinstance(record[field], list) or not record[field]:
+            fail(f"{label}.{field} is incomplete")
+
+
+def validate_assurance_control_links(
+    context: dict[str, Any],
+    configuration: dict[str, Any],
+    archive_control: dict[str, Any],
+    retrieval: dict[str, Any],
+    evidence_index: dict[str, Any],
+) -> None:
+    label = "assurance configuration/archive cross-record controls"
+    baselines = {baseline["id"]: baseline for baseline in configuration["baselines"]}
+    current = baselines[configuration["current_internal_baseline_id"]]
+    if context["baseline"]["reference"] != current["commit"]:
+        fail(f"{label}: assurance context does not name the current CM baseline")
+    if evidence_index["technical_baseline_id"] not in baselines:
+        fail(f"{label}: evidence index references an unknown technical baseline")
+    staging = archive_control["internal_staging"]
+    package = evidence_index["assurance_package"]
+    if (
+        package["artifact_name"] != staging["artifact_name"]
+        or package["retention_days"] != staging["retention_days"]
+        or retrieval["artifact_name"] != staging["artifact_name"]
+    ):
+        fail(f"{label}: package identity or retention is inconsistent")
+
+    candidate = configuration["candidate"]
+    latest = archive_control["retrieval"]["latest_result"]
+    pending_states = (
+        candidate["state"] == "awaiting_clean_exact_commit",
+        configuration["pending_change"]["state"] == "implementation_in_progress",
+        configuration["release_control"]["current_state"] == "internal_candidate",
+        latest["status"] == "pending_first_current_package",
+        retrieval["result"] == "pending",
+        package["status"] == "pending_current_ci",
+        evidence_index["archive_status"] == "internal_staging_pending",
+    )
+    if any(pending_states):
+        if not all(pending_states):
+            fail(f"{label}: pending candidate states are inconsistent")
+        return
+
+    bound_states = (
+        candidate["state"] == "clean_exact_commit_internal_staging_verified",
+        configuration["pending_change"]["state"] == "evidence_bound_review_pending",
+        configuration["release_control"]["current_state"] == "internal_staging_verified",
+        latest["status"] == "pass_internal_staging",
+        retrieval["result"] == "pass",
+        package["status"] == "verified_internal_staging",
+        evidence_index["archive_status"] == "internal_staging_verified",
+    )
+    if not all(bound_states):
+        fail(f"{label}: bound candidate states are inconsistent")
+    if not (
+        candidate["commit"]
+        == latest["source_commit"]
+        == retrieval["source_commit"]
+        == package["commit"]
+        and candidate["tree"] == retrieval["source_tree"] == package["tree"]
+        and candidate["ci_run_id"]
+        == latest["workflow_run_id"]
+        == retrieval["workflow_run_id"]
+        == package["workflow_run_id"]
+        and candidate["assurance_package_manifest_sha256"]
+        == latest["manifest_sha256"]
+        == retrieval["manifest_sha256"]
+        == package["manifest_sha256"]
+        and candidate["retrieval_result_sha256"]
+        == latest["result_sha256"]
+        == retrieval["retrieval_result_sha256"]
+        == package["retrieval_result_sha256"]
+    ):
+        fail(f"{label}: bound candidate provenance or digests disagree")
 
 
 def validate_verification_inventory(inventory: dict[str, Any]) -> set[str]:
@@ -1927,6 +2983,7 @@ def validate_static_records() -> None:
         records[filename] = load_json(path)
     context = records["assurance-context.json"]
     requirements = records["requirements.json"]
+    requirements_review = records["requirements-review.json"]
     surface = records["surface.json"]
     decisions = records["decision-inventory.json"]
     verifications = validate_verification_inventory(records["verification-inventory.json"])
@@ -1935,6 +2992,12 @@ def validate_static_records() -> None:
     mcdc_ids = validate_mcdc_record(records["mcdc.json"], verifications)
     validate_context(context)
     requirement_ids = validate_requirements(requirements, verifications)
+    validate_requirements_review(
+        requirements_review,
+        requirements,
+        records["verification-inventory.json"],
+        requirement_ids,
+    )
     validate_surface(surface, requirement_ids)
     decision_ids = validate_decisions(decisions, requirement_ids, verifications, mcdc_ids)
     surface_decisions = {
@@ -1947,12 +3010,22 @@ def validate_static_records() -> None:
         fail(f"coverage/surface.json references unknown decisions: {sorted(unknown_surface_decisions)}")
     validate_policy(records["policy.json"])
     validate_tool_assessment(records["tool-assessment.json"])
+    validate_configuration_management(records["configuration-management.json"])
+    validate_archive_control(records["archive-control.json"])
+    validate_archive_retrieval(records["archive-retrieval.json"])
     expected_review_status = validate_windows_native_fault_review(
         records["windows-native-fault-review.json"]
     )
     independent_review_approved = expected_review_status == "independent_review_approved"
     validate_evidence_index(
         records["evidence-index.json"], independent_review_approved
+    )
+    validate_assurance_control_links(
+        context,
+        records["configuration-management.json"],
+        records["archive-control.json"],
+        records["archive-retrieval.json"],
+        records["evidence-index.json"],
     )
     validate_gap_register(records["gap-register.json"], independent_review_approved)
     validate_windows_native_fault_assessment(

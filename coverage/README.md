@@ -11,7 +11,10 @@ The records are deliberately split by concern:
 - `assurance-context.json` records the planning assumptions and open basis
   decisions.
 - `requirements.json` maps derived internal requirements to verification
-  procedures and expected results.
+  procedures and expected results.  Its internal baseline is reviewed in
+  `requirements-review.json`, which binds every requirement, source, and
+  verification-inventory digest and retains the non-independent review
+  boundary.
 - `verification-inventory.json` freezes the test and doctest identities used by
   those mappings so renames fail validation instead of silently weakening the
   trace.
@@ -24,8 +27,19 @@ The records are deliberately split by concern:
   for the registered source-pair scope only; it is not tool-generated MC/DC,
   object-code coverage, qualified-tool output, or certification credit.
 - `policy.json` defines the internal gates and non-claims.
-- `tool-assessment.json` records the intended functions, failure modes, and
-  residual reliance for the coverage tools.
+- `tool-assessment.json` records per-function intended and prohibited uses,
+  I/O and topology, activity effects, failure escape/detection, fallbacks,
+  common-mode risk, known problems, residual reliance, and revalidation
+  triggers.  Its current decision is internal non-reliance: no function is
+  qualified and no proposed or approved TQL is recorded.
+- `configuration-management.json` assigns immutable internal baseline IDs,
+  supersession links, change-impact and revalidation controls, and guarded
+  promotion states.
+- `archive-control.json` defines the exact ten-artifact internal staging
+  package, SHA-256 and safe-path contract, 90-day GitHub Actions retention,
+  retrieval procedure, and unresolved external-archive authorities.
+- `archive-retrieval.json` binds the latest executed internal retrieval drill
+  after the package has been downloaded and verified.
 - `gap-register.json` preserves the historical focused-run measurements,
   records the current clean cross-host CI snapshot separately, and lists open
   closure actions.  An open gap is not silently converted into a pass.
@@ -42,9 +56,9 @@ The records are deliberately split by concern:
 - `windows-native-fault-run.schema.json` and
   `windows-appverifier-run.schema.json` define fail-closed evidence records for
   those two Windows procedures.
-- `evidence-index.json` indexes the current clean exact-commit CI snapshots for
-  review, but keeps them explicitly disposable and unpromoted until they are
-  placed in a controlled archive.
+- `evidence-index.json` distinguishes historical clean exact-commit CI
+  snapshots from the current immutable internal staging package.  Neither is
+  promoted until the external archive and release controls are satisfied.
 
 Windows manifests also retain `windows-provider.json`.  The
 `records_provider_availability` test records whether `kernel32.dll` and
@@ -114,6 +128,30 @@ toolchain exist, the source-pair records remain internal, non-credit evidence.
 The CI staging gate adds `--require-pass`; focused, failed, indeterminate, or
 provenance-error manifests may be retained for analysis but cannot satisfy it.
 
+## Internal archive staging and retrieval
+
+On a push to `DO-178C`, the `assurance-package` CI job waits for the complete
+nine-profile coverage matrix and the deterministic Windows native-fault job.
+It downloads exactly those ten artifacts, rejects missing or extra artifact
+directories, copies only regular files under canonical relative paths, and
+writes an immutable manifest with an exact commit, tree, workflow run ID,
+per-file byte count, and SHA-256 digest.  The job verifies that package before
+uploading `assurance-evidence-package` for 90 days.
+
+After downloading the package without modification, repeat the retrieval
+verification and retain the generated result:
+
+```text
+python scripts/assurance_archive.py verify --package-dir <retrieved-package> --expected-commit <full-commit> --control-record coverage/archive-control.json --result target/assurance-retrieval-result.json
+```
+
+The verifier rejects a wrong commit, stale control-record digest, changed or
+missing file, unindexed file, unsafe path, symbolic link, case collision, or
+noncanonical inventory.  This is an internal staging and retrieval rehearsal.
+GitHub Actions is not designated as the controlled external archive, and the
+repository does not invent an archive owner, backup policy, retention
+authority, or disposition authority.
+
 ## Independent review sequence
 
 Commit and push the technical review candidate before performing the review.
@@ -127,15 +165,13 @@ acceptance or independence.  The local publication identity is also
 `arthurianresolve`, so the reviewer must explicitly assess implementation
 authorship, organizational or process separation, technical independence,
 independent expected results, common-mode dependencies, and the rationale for
-the shared GitHub identity.  The validator required that declaration, all ten
+the shared GitHub identity.  The validator requires that declaration, all ten
 checklist items passing, reciprocal and resolved findings, and a decision bound
-to the exact candidate and native-fault manifest digest.  The previous
-approval was bound to candidate `70cbe5e`; the current candidate `15da349`
-changed the reviewed source and assurance records.  The current record is
-bound to the clean Windows manifest for `15da349` (SHA-256
-`8d22fea7c99a9181c4538fe82079207e453f67579fa260ed3341308df17cc464`) and
-records the fresh approval for the registered internal review condition.  It
-remains non-certification, non-qualification, and non-authority evidence.
+to the exact candidate and native-fault manifest digest.  The approval for
+candidate `15da349` remains immutable in Git history, but the current changes
+affect reviewed requirements, tool assessment, validators, workflow, and
+assurance records.  The review is therefore reopened until the new committed
+candidate and clean Windows manifest are bound and reviewed.
 
 If review findings change code, tests, collectors, validators, requirements,
 or assurance records, create and push a new candidate, regenerate clean native
@@ -153,11 +189,13 @@ this provenance is not eligible for the internal gate.
 
 ## Review state
 
-The overall coverage package remains `draft` or `not_ready`.  The current CI
-snapshot closes the emitted raw metrics for Linux, Windows, and the configured
-Apple-silicon matrix, and records Windows provider availability.  The current
-native-fault review condition is satisfied for candidate `15da349`; the
-approved certification basis, assigned software level, qualified coverage-tool
-determination, broader independence plan, and external archive remain open.
-These items remain explicit decisions rather than being inferred from passing
-tests or diagnostic branch percentages.
+The overall coverage package remains `draft` or `not_ready`.  The internal
+requirements baseline and detailed tool-function assessment are complete for
+their explicitly non-certification scope.  CM controls and archive tooling are
+implemented, but their current candidate and retrieval fields remain pending
+until clean CI evidence exists.  The native-fault independent review is also
+pending for that exact candidate.  The approved certification basis, assigned
+software level, any qualification/TQL determination, broader organizational
+independence, controlled external archive, object-code analysis, release
+approval, and authority acceptance remain open.  Passing tests, internal
+review, or package integrity cannot infer those decisions.

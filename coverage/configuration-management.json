@@ -1,0 +1,109 @@
+{
+  "record_type": "assurance_configuration_management",
+  "schema_version": 1,
+  "status": "draft",
+  "owner": "fs2 DO-178C coverage workstream",
+  "repository": "arthurianresolve/fs2-rs",
+  "branch": "DO-178C",
+  "baseline_id_format": "CM-DO178C-[0-9]{4}",
+  "baselines": [
+    {
+      "id": "CM-DO178C-0001",
+      "role": "historical_pre_implementation_baseline",
+      "commit": "d1e0e22eaed156e2420058f52f119e10330e24df",
+      "tree": "57eefc23abc299981b3e5632be12b61ed8353287",
+      "state": "superseded",
+      "supersedes": null,
+      "evidence_ref": null
+    },
+    {
+      "id": "CM-DO178C-0002",
+      "role": "approved_internal_windows_native_fault_technical_baseline",
+      "commit": "15da349ed581e9d8d471a50d967724887220b7d1",
+      "tree": "86b581624c9bf1329fdcfbdafa4e9f71ef411e65",
+      "state": "superseded_by_assurance_transition",
+      "supersedes": "CM-DO178C-0001",
+      "evidence_ref": "github-actions:run-31699707347"
+    },
+    {
+      "id": "CM-DO178C-0003",
+      "role": "approved_internal_assurance_transition_baseline",
+      "commit": "48ec3af6b807d9e70bd7d388baa8dbb1a3b69c40",
+      "tree": "fb2eb62048fc8e73a04b290ef1c4696bf5de1f11",
+      "state": "current_predecessor",
+      "supersedes": "CM-DO178C-0002",
+      "evidence_ref": "github-actions:run-31708241247"
+    }
+  ],
+  "current_internal_baseline_id": "CM-DO178C-0003",
+  "candidate": {
+    "id": "CM-DO178C-0004",
+    "state": "awaiting_clean_exact_commit",
+    "preparation_parent_commit": "48ec3af6b807d9e70bd7d388baa8dbb1a3b69c40",
+    "commit": null,
+    "tree": null,
+    "ci_run_id": null,
+    "assurance_package_manifest_sha256": null,
+    "retrieval_result_sha256": null
+  },
+  "pending_change": {
+    "id": "CM-CHANGE-DO178C-0004",
+    "categories": [
+      "assurance_archive_tooling",
+      "configuration_management_controls",
+      "requirements_baseline_review",
+      "tool_function_assessment",
+      "coverage_validator",
+      "continuous_integration",
+      "assurance_records"
+    ],
+    "product_code_changed": false,
+    "verification_code_changed": true,
+    "assurance_tool_changed": true,
+    "native_fault_review_affected": true,
+    "required_reverification": [
+      "full Python validator and negative-test suite",
+      "supported Rust and coverage CI matrix",
+      "new exact-commit Windows native-fault run",
+      "new exact-commit assurance package and internal retrieval drill",
+      "fresh independent Windows native-fault review"
+    ],
+    "state": "implementation_in_progress"
+  },
+  "change_control": {
+    "immutable_identity": "full Git commit plus tree plus digest-bound evidence manifest",
+    "change_impact_required": true,
+    "supersession_rule": "A baseline remains immutable; a successor receives a new monotonically increasing baseline ID and names the predecessor.",
+    "revalidation_triggers": [
+      "product, test, collector, validator, workflow, requirement, tool assessment, or assurance-record change",
+      "toolchain or supported-target change",
+      "evidence digest, retention, retrieval, or known-problem discrepancy"
+    ],
+    "promotion_rule": "Only a clean exact-commit candidate with passing required CI, a verified internal package, resolved applicable review conditions, and no open blocker may progress beyond internal_candidate."
+  },
+  "release_control": {
+    "current_state": "internal_candidate",
+    "release_tag": null,
+    "controlled_external_archive_required": true,
+    "authority_acceptance_required": true,
+    "allowed_states": [
+      "internal_candidate",
+      "internal_staging_verified",
+      "release_candidate",
+      "authority_candidate",
+      "accepted",
+      "superseded"
+    ]
+  },
+  "open_items": [
+    "bind CM-DO178C-0004 to its clean exact-commit CI and internal retrieval result",
+    "complete the candidate-specific independent Windows native-fault review",
+    "approve a controlled external archive and retention/disposition authority",
+    "approve any release-candidate or authority transition under the applicable certification basis"
+  ],
+  "non_claims": [
+    "An internal baseline ID is not a release tag, certification baseline, or authority-accepted configuration index.",
+    "Git history and GitHub Actions artifacts are not by themselves a controlled lifecycle-data archive.",
+    "This record does not assign a software level, qualify a tool, or grant certification credit."
+  ]
+}

@@ -12,7 +12,9 @@
     "exact_commit_tree_lockfile_host_target_and_toolchain_are_recorded",
     "windows_native_failure_scenarios_are_provenance_bound_and_independently_reviewed",
     "failed_and_indeterminate_runs_are_retained",
-    "coverage_artifacts_are_staged_outside_git_history"
+    "coverage_artifacts_are_staged_outside_git_history",
+    "assurance_package_inventory_and_hashes_are_verified_after_retrieval",
+    "configuration_baselines_use_stable_ids_and_explicit_supersession"
   ],
   "metrics": {
     "line": {
@@ -55,7 +57,8 @@
     "failed, timed-out, or indeterminate execution",
     "missing or unreviewed Windows native-fault disposition",
     "unreviewed denominator exclusion",
-    "open approved-basis, independence, tool-assurance, or archive decision"
+    "missing current assurance package or failed retrieval drill",
+    "open approved-basis, independence, tool-qualification, external-archive, retention, or disposition-authority decision"
   ],
   "non_claims": [
     "This package is not a certification data package.",

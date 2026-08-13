@@ -183,6 +183,38 @@ jobs:
       - name: Validate raw metric profiles and internal MC/DC closure
         run: python scripts/validate_coverage_metrics.py --runs-dir target/coverage-artifacts --require-pass --require-matrix
 
+  assurance-package:
+    needs: [support-matrix, coverage-gate, windows-native-faults]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/DO-178C'
+    name: Package and retrieve internal assurance staging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: coverage-*
+          path: target/assurance-inputs
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: windows-native-faults
+          path: target/assurance-inputs/windows-native-faults
+      - name: Create immutable internal staging package
+        run: python scripts/assurance_archive.py create --input-root target/assurance-inputs --output-dir target/assurance-package --control-record coverage/archive-control.json --expected-commit "$GITHUB_SHA" --workflow-run-id "$GITHUB_RUN_ID"
+      - name: Verify retrieval contract before publication
+        run: python scripts/assurance_archive.py verify --package-dir target/assurance-package --expected-commit "$GITHUB_SHA" --control-record coverage/archive-control.json --result target/assurance-retrieval-result.json
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: assurance-evidence-package
+          path: target/assurance-package
+          if-no-files-found: error
+          retention-days: 90
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: assurance-retrieval-result
+          path: target/assurance-retrieval-result.json
+          if-no-files-found: error
+          retention-days: 90
+
   coverage_condition:
     needs: support-matrix
     name: Condition diagnostics / ${{ matrix.target }} / Rust ${{ matrix.toolchain }}
