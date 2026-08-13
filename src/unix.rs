@@ -347,8 +347,6 @@ mod test {
     use std::io::ErrorKind;
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::io::AsRawFd;
-    #[cfg(target_os = "macos")]
-    use std::os::unix::io::FromRawFd;
     use std::path::Path;
 
     #[cfg(target_os = "macos")]
@@ -464,7 +462,9 @@ mod test {
         assert!(error.raw_os_error().is_some());
         assert_eq!(flags, vec![libc::F_ALLOCATECONTIG, libc::F_ALLOCATEALL]);
 
-        let invalid = unsafe { File::from_raw_fd(-1) };
+        let invalid = File::open(&path).unwrap();
+        let invalid_fd = invalid.as_raw_fd();
+        assert_eq!(unsafe { libc::close(invalid_fd) }, 0);
         assert!(
             allocate_space_with(&invalid, 1, |_, _| {
                 panic!("metadata failure must happen before F_PREALLOCATE")
@@ -473,6 +473,7 @@ mod test {
             .raw_os_error()
             .is_some()
         );
+        std::mem::forget(invalid);
     }
 
     /// The duplicate method returns a file with a new file descriptor.
