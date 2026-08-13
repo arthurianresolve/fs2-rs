@@ -30,6 +30,26 @@ PROFILE_METRICS = {
 }
 
 
+def validate_profile_configuration(manifest: dict[str, Any]) -> None:
+    """Ensure each manifest carries the instrumentation contract it names."""
+    profile = manifest["profile"]
+    command = manifest["command"]
+    environment = manifest["environment"]
+    if profile == "stable":
+        if manifest["requested_toolchain"] != "1.88" or "--branch" in command:
+            raise ValidationError("stable profile has branch or toolchain configuration drift")
+    elif profile == "branch":
+        if manifest["requested_toolchain"] != "nightly-2026-07-23" or "--branch" not in command:
+            raise ValidationError("branch profile is missing its pinned nightly branch configuration")
+        if "RUSTFLAGS" in environment:
+            raise ValidationError("branch profile must not carry condition instrumentation flags")
+    elif profile == "condition":
+        if manifest["requested_toolchain"] != "nightly-2026-07-23" or "--branch" not in command:
+            raise ValidationError("condition profile is missing its pinned nightly branch configuration")
+        if environment.get("RUSTFLAGS") != "-Z coverage-options=condition":
+            raise ValidationError("condition profile is missing its explicit Rust condition instrumentation flag")
+
+
 def expected_coverage_runs() -> dict[tuple[str, str], str]:
     """Return the exact profile/target set required by the support registry."""
     registry = load_matrix()
@@ -130,6 +150,7 @@ def validate_full_metric(
 def metric_summary(manifest_path: Path, require_full: bool = False) -> dict[str, Any]:
     manifest = load_json(manifest_path)
     validate_manifest(manifest_path)
+    validate_profile_configuration(manifest)
     profile = manifest["profile"]
     totals = load_totals(report_path(manifest_path, manifest))
     required = PROFILE_METRICS[profile]
@@ -148,6 +169,11 @@ def metric_summary(manifest_path: Path, require_full: bool = False) -> dict[str,
         "commit": manifest["commit"],
         "metrics": {metric: totals[metric] for metric in required},
         "mcdc_tool_count": totals.get("mcdc", {}).get("count", 0),
+        "condition_semantics": (
+            "instrumentation_only"
+            if profile == "condition"
+            else "not_requested"
+        ),
     }
 
 

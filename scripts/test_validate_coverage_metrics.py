@@ -12,6 +12,7 @@ from validate_coverage_metrics import (
     report_path,
     validate_full_metric,
     validate_matrix_runs,
+    validate_profile_configuration,
 )
 
 
@@ -97,6 +98,19 @@ class CoverageMetricTests(unittest.TestCase):
         ]
         with self.assertRaises(ValidationError):
             validate_matrix_runs(manifests, expected)
+
+    def test_accepts_condition_instrumentation_contract(self):
+        manifest = self.manifest("condition", "x86_64-unknown-linux-gnu", "nightly-2026-07-23")
+        manifest["command"] = ["cargo", "llvm-cov", "--branch"]
+        manifest["environment"] = {"RUSTFLAGS": "-Z coverage-options=condition"}
+        validate_profile_configuration(manifest)
+
+    def test_rejects_condition_profile_without_instrumentation_flag(self):
+        manifest = self.manifest("condition", "x86_64-unknown-linux-gnu", "nightly-2026-07-23")
+        manifest["command"] = ["cargo", "llvm-cov", "--branch"]
+        manifest["environment"] = {}
+        with self.assertRaises(ValidationError):
+            validate_profile_configuration(manifest)
 
 
 if __name__ == "__main__":

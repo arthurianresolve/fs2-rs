@@ -8,7 +8,7 @@
     "requirements_based_tests_pass",
     "production_surface_is_explicit",
     "source_level_decisions_are_inventoried",
-    "line_region_branch_and_function_metrics_are_reported_separately",
+    "line_region_branch_condition_instrumentation_and_function_metrics_are_reported_separately",
     "exact_commit_tree_lockfile_host_target_and_toolchain_are_recorded",
     "failed_and_indeterminate_runs_are_retained",
     "coverage_artifacts_are_staged_outside_git_history"
@@ -30,6 +30,11 @@
     "function": {
       "meaning": "LLVM instrumented function coverage diagnostic; not a DO-178C structural coverage metric",
       "status": "diagnostic_only"
+    },
+    "condition_diagnostic": {
+      "meaning": "pinned-nightly LLVM branch reporting built with Rust condition instrumentation; the current toolchain emits no independent condition total",
+      "status": "instrumentation_only",
+      "independent_condition_total": false
     },
     "mcdc": {
       "meaning": "not produced or accepted by this package",

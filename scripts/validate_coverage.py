@@ -367,8 +367,8 @@ def validate_policy(policy: dict[str, Any]) -> None:
     if policy["claim_class"] != "internal_engineering_evidence":
         fail(f"{label} must be internal-only")
     metrics = policy["metrics"]
-    if not isinstance(metrics, dict) or set(metrics) != {"line", "region", "branch", "function", "mcdc"}:
-        fail(f"{label}.metrics must separate line, region, branch, function, and mcdc")
+    if not isinstance(metrics, dict) or set(metrics) != {"line", "region", "branch", "condition_diagnostic", "function", "mcdc"}:
+        fail(f"{label}.metrics must separate line, region, branch, condition diagnostics, function, and mcdc")
     if metrics["branch"].get("mcdc_claim") is not False or metrics["mcdc"].get("status") != "not_assessed":
         fail(f"{label} must not convert branch coverage into MC/DC")
     for field in ("required_controls", "denominator_rules", "release_blockers", "non_claims"):

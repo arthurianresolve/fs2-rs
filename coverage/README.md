@@ -44,7 +44,11 @@ python scripts/collect_coverage.py --profile stable --target x86_64-pc-windows-m
 ```
 
 The `branch` profile is diagnostic branch reporting on the pinned nightly
-toolchain.  It is not an MC/DC claim:
+toolchain.  It is not an MC/DC claim.  The `condition` profile repeats that
+branch report with Rust's condition instrumentation flag; the pinned compiler
+and `cargo-llvm-cov` combination currently emits no independent condition
+total, so it is explicitly instrumentation-only rather than condition or
+MC/DC coverage:
 
 ```text
 python scripts/collect_coverage.py --profile branch --target x86_64-pc-windows-msvc --output-dir target/coverage-branch --expected-commit <full-commit> --locked
