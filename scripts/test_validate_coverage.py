@@ -91,6 +91,13 @@ class CoverageRecordTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             validate_decisions(invalid, validate_requirements(self.requirements))
 
+    def test_decision_inventory_rejects_mcdc_disposition_drift(self):
+        invalid = copy.deepcopy(self.decisions)
+        invalid["decisions"][1]["mcdc_disposition"] = "assessment_open_no_record"
+
+        with self.assertRaises(ValidationError):
+            validate_decisions(invalid, validate_requirements(self.requirements))
+
     def test_policy_keeps_branch_and_mcdc_separate(self):
         invalid = copy.deepcopy(self.policy)
         invalid["metrics"]["branch"]["mcdc_claim"] = True

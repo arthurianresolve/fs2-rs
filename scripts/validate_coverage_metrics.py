@@ -211,6 +211,19 @@ def main() -> int:
         mcdc_ids = validate_record(mcdc)
         pairs = sum(len(decision["pairs"]) for decision in mcdc["decisions"])
         conditions = sum(len(decision["conditions"]) for decision in mcdc["decisions"])
+        decision_inventory = load_json(ROOT / "coverage" / "decision-inventory.json")["decisions"]
+        assessed_decisions = sum(
+            decision["mcdc_disposition"] == "assessed_internal_source_pairs"
+            for decision in decision_inventory
+        )
+        open_assessments = sum(
+            decision["mcdc_disposition"] == "assessment_open_no_record"
+            for decision in decision_inventory
+        )
+        not_applicable = sum(
+            decision["mcdc_disposition"].startswith("not_applicable_")
+            for decision in decision_inventory
+        )
         print(json.dumps({
             "raw_profile_runs": summaries,
             "internal_source_mcdc": {
@@ -218,6 +231,11 @@ def main() -> int:
                 "condition_occurrences": conditions,
                 "covered_unique_cause_pairs": pairs,
                 "closure_percent": 100.0,
+                "closure_scope": "assessed_internal_source_pairs_only",
+                "decision_inventory_total": len(decision_inventory),
+                "assessed_decisions": assessed_decisions,
+                "open_assessment_decisions": open_assessments,
+                "not_applicable_decisions": not_applicable,
                 "credit": "none",
             },
         }, indent=2, sort_keys=True))

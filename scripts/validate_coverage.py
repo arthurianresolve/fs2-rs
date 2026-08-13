@@ -52,6 +52,13 @@ VALID_CLASSIFICATIONS = {
     "generated",
     "vendored",
 }
+MCDC_DISPOSITIONS = {
+    "assessed_internal_source_pairs",
+    "assessment_open_no_record",
+    "not_applicable_non_boolean_dispatch",
+    "not_applicable_enum_dispatch",
+    "not_applicable_sequential_query",
+}
 
 
 class ValidationError(Exception):
@@ -325,7 +332,7 @@ def validate_decisions(
         item_label = f"{label}.decisions[{index}]"
         if not isinstance(decision, dict):
             fail(f"{item_label} must be an object")
-        required_fields(decision, {"id", "source", "symbol", "requirement_ids", "applicability", "outcomes", "verification_ids", "status"}, item_label)
+        required_fields(decision, {"id", "source", "symbol", "requirement_ids", "applicability", "outcomes", "verification_ids", "mcdc_disposition", "status"}, item_label)
         identifier = decision["id"]
         if not isinstance(identifier, str) or not re.fullmatch(r"DEC-[A-Z0-9-]+", identifier) or identifier in identifiers:
             fail(f"{item_label}.id must be a unique DEC identifier")
@@ -347,6 +354,8 @@ def validate_decisions(
             fail(f"{item_label} must record at least two outcomes")
         if decision["status"] not in {"mapped", "open", "deferred"}:
             fail(f"{item_label}.status is invalid")
+        if decision["mcdc_disposition"] not in MCDC_DISPOSITIONS:
+            fail(f"{item_label}.mcdc_disposition is invalid")
         if "mcdc_record_ids" in decision:
             records = decision["mcdc_record_ids"]
             if not isinstance(records, list) or not all(isinstance(value, str) and value for value in records):
@@ -355,6 +364,10 @@ def validate_decisions(
                 unknown_mcdc = set(records) - mcdc_ids
                 if unknown_mcdc:
                     fail(f"{item_label} references unknown MC/DC records: {sorted(unknown_mcdc)}")
+        elif decision["mcdc_disposition"] == "assessed_internal_source_pairs":
+            fail(f"{item_label} claims assessed internal pairs without mcdc_record_ids")
+        if "mcdc_record_ids" in decision and decision["mcdc_disposition"] != "assessed_internal_source_pairs":
+            fail(f"{item_label} has MC/DC records but a non-assessed disposition")
     return identifiers
 
 
