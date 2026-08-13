@@ -160,7 +160,7 @@ jobs:
       - name: Validate provenance and coverage records
         run: python scripts/validate_coverage.py --runs-dir target/coverage-artifacts --require-pass
       - name: Validate raw metric profiles and internal MC/DC closure
-        run: python scripts/validate_coverage_metrics.py --runs-dir target/coverage-artifacts --require-pass
+        run: python scripts/validate_coverage_metrics.py --runs-dir target/coverage-artifacts --require-pass --require-matrix
 
   coverage_condition:
     needs: support-matrix

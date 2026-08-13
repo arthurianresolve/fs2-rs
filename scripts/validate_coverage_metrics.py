@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from validate_coverage import ValidationError, load_json, validate_manifest, validate_static_records
+from validate_support_matrix import load_matrix
 from validate_mcdc import validate_record
 
 
@@ -27,6 +28,56 @@ PROFILE_METRICS = {
     "branch": ("lines", "regions", "branches", "functions"),
     "condition": ("lines", "regions", "branches", "functions"),
 }
+
+
+def expected_coverage_runs() -> dict[tuple[str, str], str]:
+    """Return the exact profile/target set required by the support registry."""
+    registry = load_matrix()
+    expected: dict[tuple[str, str], str] = {}
+    for target in registry.targets:
+        if target.ci is None:
+            continue
+        for profile in target.ci.coverage_profiles:
+            expected[(profile, target.target)] = registry.coverage_profiles[profile].requested_toolchain
+    if not expected:
+        raise ValidationError("support matrix declares no native coverage runs")
+    return expected
+
+
+def validate_matrix_runs(
+    manifests: list[dict[str, Any]], expected: dict[tuple[str, str], str]
+) -> None:
+    """Require a complete, non-duplicated and provenance-consistent run set."""
+    actual: dict[tuple[str, str], dict[str, Any]] = {}
+    for manifest in manifests:
+        key = (manifest["profile"], manifest["target"])
+        if key in actual:
+            raise ValidationError(f"duplicate coverage run for {key[0]}/{key[1]}")
+        actual[key] = manifest
+
+    expected_keys = set(expected)
+    actual_keys = set(actual)
+    if actual_keys != expected_keys:
+        missing = sorted(expected_keys - actual_keys)
+        unexpected = sorted(actual_keys - expected_keys)
+        raise ValidationError(
+            f"coverage matrix mismatch: missing={missing}, unexpected={unexpected}"
+        )
+
+    provenance = {
+        (manifest["commit"], manifest["tree"], manifest["cargo_lock_sha256"])
+        for manifest in manifests
+    }
+    if len(provenance) != 1:
+        raise ValidationError("coverage matrix runs do not share commit, tree, and lockfile provenance")
+
+    for key, requested_toolchain in expected.items():
+        manifest = actual[key]
+        if manifest["requested_toolchain"] != requested_toolchain:
+            raise ValidationError(
+                f"{key[0]}/{key[1]} requested toolchain drift: "
+                f"{manifest['requested_toolchain']!r} != {requested_toolchain!r}"
+            )
 
 
 def report_path(manifest_path: Path, manifest: dict[str, Any]) -> Path:
@@ -105,6 +156,11 @@ def main() -> int:
     parser.add_argument("--runs-dir", type=Path, required=True)
     parser.add_argument("--expected-commit")
     parser.add_argument("--require-pass", action="store_true")
+    parser.add_argument(
+        "--require-matrix",
+        action="store_true",
+        help="require exactly the complete native coverage set from support-matrix.json",
+    )
     args = parser.parse_args()
     try:
         validate_static_records()
@@ -113,12 +169,17 @@ def main() -> int:
         if not manifests:
             raise ValidationError(f"no manifests found under {runs_dir}")
         summaries = []
+        manifest_values = []
         for manifest in manifests:
             validate_manifest(manifest, args.expected_commit)
             value = load_json(manifest)
             if args.require_pass and value["status"] != "pass":
                 raise ValidationError(f"{manifest} is not promotable: status must be pass")
             summaries.append(metric_summary(manifest, require_full=args.require_pass))
+            manifest_values.append(value)
+
+        if args.require_matrix:
+            validate_matrix_runs(manifest_values, expected_coverage_runs())
 
         mcdc = load_json(ROOT / "coverage" / "mcdc.json")
         mcdc_ids = validate_record(mcdc)

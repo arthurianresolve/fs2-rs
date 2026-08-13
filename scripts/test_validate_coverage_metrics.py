@@ -1,13 +1,31 @@
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 from validate_coverage import ValidationError
-from validate_coverage_metrics import load_totals, report_path, validate_full_metric
+from validate_coverage_metrics import (
+    load_totals,
+    report_path,
+    validate_full_metric,
+    validate_matrix_runs,
+)
 
 
 class CoverageMetricTests(unittest.TestCase):
+    def manifest(self, profile, target, toolchain, commit="a" * 40, tree="b" * 40, lock="c" * 64):
+        return {
+            "profile": profile,
+            "target": target,
+            "requested_toolchain": toolchain,
+            "commit": commit,
+            "tree": tree,
+            "cargo_lock_sha256": lock,
+        }
+
     def test_loads_llvm_totals(self):
         with tempfile.TemporaryDirectory() as temporary:
             report = Path(temporary) / "coverage.json"
@@ -48,6 +66,37 @@ class CoverageMetricTests(unittest.TestCase):
             "lines",
             "fixture",
         )
+
+    def test_accepts_complete_consistent_matrix(self):
+        expected = {
+            ("stable", "x86_64-unknown-linux-gnu"): "1.88",
+            ("branch", "x86_64-unknown-linux-gnu"): "nightly-2026-07-23",
+        }
+        manifests = [
+            self.manifest(profile, target, toolchain)
+            for (profile, target), toolchain in expected.items()
+        ]
+        validate_matrix_runs(manifests, expected)
+
+    def test_rejects_incomplete_matrix(self):
+        expected = {
+            ("stable", "x86_64-unknown-linux-gnu"): "1.88",
+            ("branch", "x86_64-unknown-linux-gnu"): "nightly-2026-07-23",
+        }
+        with self.assertRaises(ValidationError):
+            validate_matrix_runs([self.manifest("stable", "x86_64-unknown-linux-gnu", "1.88")], expected)
+
+    def test_rejects_mixed_provenance(self):
+        expected = {
+            ("stable", "x86_64-unknown-linux-gnu"): "1.88",
+            ("branch", "x86_64-unknown-linux-gnu"): "nightly-2026-07-23",
+        }
+        manifests = [
+            self.manifest("stable", "x86_64-unknown-linux-gnu", "1.88"),
+            self.manifest("branch", "x86_64-unknown-linux-gnu", "nightly-2026-07-23", tree="d" * 40),
+        ]
+        with self.assertRaises(ValidationError):
+            validate_matrix_runs(manifests, expected)
 
 
 if __name__ == "__main__":

@@ -3,8 +3,8 @@
   "schema_version": 1,
   "status": "draft",
   "owner": "fs2 DO-178C coverage workstream",
-  "source_revision": "working tree derived from d1e0e22eaed156e2420058f52f119e10330e24df; exact commit is recorded in release manifests",
-  "inventory_basis": "cargo test --package fs2 --locked -- --list plus the upstream compatibility and FsStatsQuery doctest identities; current Windows inventory is complete for 75 unit tests",
+  "source_revision": "19e8ec95f92077dc68f2e1c85f7d74e0bda5aed2",
+  "inventory_basis": "cargo test --package fs2 --locked -- --list plus the upstream compatibility and FsStatsQuery doctest identities; current Windows inventory is complete for 76 unit tests",
   "verifications": [
     {"id": "allocation::tests::accepts_already_allocated_zero_length", "kind": "unit", "platforms": ["unix", "windows"]},
     {"id": "allocation::tests::allocates_physical_space_when_needed", "kind": "unit", "platforms": ["unix", "windows"]},
@@ -26,6 +26,7 @@
     {"id": "stats::tests::rejects_invalid_legacy_available_space", "kind": "unit", "platforms": ["windows"]},
     {"id": "stats::tests::rejects_modern_free_space_above_physical_total", "kind": "unit", "platforms": ["windows"]},
     {"id": "stats::tests::rejects_zero_granularity", "kind": "unit", "platforms": ["unix", "windows"]},
+    {"id": "stats::tests::rejects_path_resolution_failure", "kind": "unit", "platforms": ["unix", "windows"]},
     {"id": "test::allocate", "kind": "unit", "platforms": ["unix", "windows"]},
     {"id": "test::allocate_is_idempotent", "kind": "unit", "platforms": ["unix", "windows"]},
     {"id": "test::allocate_rejects_unrepresentable_length", "kind": "unit", "platforms": ["unix", "windows"]},

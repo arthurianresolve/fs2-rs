@@ -66,6 +66,21 @@ class CoverageRecordTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             validate_surface(invalid, validate_requirements(self.requirements))
 
+    def test_surface_rejects_overlapping_spans(self):
+        invalid = copy.deepcopy(self.surface)
+        invalid["records"][1]["line_spans"] = ["80-234"]
+
+        with self.assertRaises(ValidationError):
+            validate_surface(invalid, validate_requirements(self.requirements))
+
+    def test_surface_rejects_test_module_declared_as_production(self):
+        invalid = copy.deepcopy(self.surface)
+        invalid["records"][2]["line_spans"] = ["1-171"]
+        invalid["records"][3]["line_spans"] = ["173-354"]
+
+        with self.assertRaises(ValidationError):
+            validate_surface(invalid, validate_requirements(self.requirements))
+
     def test_decision_inventory_rejects_unmapped_requirement(self):
         invalid = copy.deepcopy(self.decisions)
         invalid["decisions"][0]["requirement_ids"] = ["REQ-NOT-MAPPED"]

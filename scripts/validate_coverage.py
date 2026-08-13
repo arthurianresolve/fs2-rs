@@ -225,6 +225,7 @@ def validate_surface(surface: dict[str, Any], requirement_ids: set[str]) -> set[
         fail(f"{label}.records must be a non-empty list")
     identifiers: set[str] = set()
     represented: set[str] = set()
+    span_owners: dict[str, dict[int, str]] = {}
     for index, record in enumerate(records):
         item_label = f"{label}.records[{index}]"
         if not isinstance(record, dict):
@@ -253,6 +254,15 @@ def validate_surface(surface: dict[str, Any], requirement_ids: set[str]) -> set[
             match = SPAN_RE.fullmatch(span) if isinstance(span, str) else None
             if match is None or int(match.group(1)) < 1 or int(match.group(2)) < int(match.group(1)) or int(match.group(2)) > maximum:
                 fail(f"{item_label}.line_spans contains an invalid span: {span!r}")
+            owners = span_owners.setdefault(record["path"].replace("\\", "/"), {})
+            for line_number in range(int(match.group(1)), int(match.group(2)) + 1):
+                previous = owners.get(line_number)
+                if previous is not None:
+                    fail(
+                        f"{item_label}.line_spans overlaps {previous} at "
+                        f"{record['path']}:{line_number}"
+                    )
+                owners[line_number] = record["classification"]
         if record["classification"] not in VALID_CLASSIFICATIONS:
             fail(f"{item_label}.classification is invalid")
         if record["denominator"] not in {"in_scope", "excluded_with_classification"}:
@@ -275,6 +285,17 @@ def validate_surface(surface: dict[str, Any], requirement_ids: set[str]) -> set[
     missing_paths = expected_paths - represented
     if missing_paths:
         fail(f"{label} omits source/test files: {sorted(missing_paths)}")
+    for relative in expected_paths:
+        path = ROOT / relative.replace("\\", "/")
+        owners = span_owners.get(relative.replace("\\", "/"), {})
+        for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if line.strip() != "#[cfg(test)]":
+                continue
+            classification = owners.get(line_number)
+            if classification is None:
+                fail(f"{label} does not classify test module declaration {relative}:{line_number}")
+            if classification == "production":
+                fail(f"{label} classifies test module declaration as production: {relative}:{line_number}")
     exclusions = surface["explicit_exclusions"]
     if not isinstance(exclusions, list) or not exclusions:
         fail(f"{label}.explicit_exclusions must be non-empty")
