@@ -135,8 +135,11 @@ nine-profile coverage matrix and the deterministic Windows native-fault job.
 It downloads exactly those ten artifacts, rejects missing or extra artifact
 directories, copies only regular files under canonical relative paths, and
 writes an immutable manifest with an exact commit, tree, workflow run ID,
-per-file byte count, and SHA-256 digest.  The job verifies that package before
-uploading `assurance-evidence-package` for 90 days.
+per-file byte count, and SHA-256 digest.  It also embeds the exact canonical
+archive-control record used to construct the package, so later retrieval does
+not depend on reconstructing changed policy bytes from the live branch.  The
+job verifies that package before uploading `assurance-evidence-package` for 90
+days.
 
 After downloading the package without modification, repeat the retrieval
 verification and retain the generated result:

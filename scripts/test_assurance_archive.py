@@ -194,6 +194,25 @@ class AssuranceArchiveTests(unittest.TestCase):
                 control_record_path=self.control_path,
             )
 
+    def test_rejects_tampered_packaged_control_record(self):
+        self.create()
+        packaged = self.output_dir / "control" / "archive-control.json"
+        control = read_json(packaged)
+        control["internal_staging"]["note"] = "tampered"
+        write_json(packaged, control)
+
+        with self.assertRaises(ArchiveError):
+            verify_archive(package_dir=self.output_dir, expected_commit=self.commit)
+
+    def test_rejects_extra_packaged_control_file(self):
+        self.create()
+        (self.output_dir / "control" / "extra.json").write_text(
+            "{}\n", encoding="utf-8"
+        )
+
+        with self.assertRaises(ArchiveError):
+            verify_archive(package_dir=self.output_dir, expected_commit=self.commit)
+
     def test_rejects_missing_source_artifact(self):
         missing = self.input_root / "coverage-linux"
         for path in missing.iterdir():

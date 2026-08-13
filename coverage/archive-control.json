@@ -29,6 +29,7 @@
       "hash_algorithm": "sha256",
       "path_contract": "canonical_case_distinct_posix_relative_paths",
       "inventory_rule": "exact_required_artifacts_no_missing_or_extra_files",
+      "control_record_rule": "package_contains_digest_bound_canonical_control_record",
       "source_state": "clean_exact_commit_tracked_tree",
       "create_command": "python scripts/assurance_archive.py create --input-root <downloaded-artifacts> --output-dir <package> --control-record coverage/archive-control.json --expected-commit <full-commit> --workflow-run-id <run-id>",
       "verify_command": "python scripts/assurance_archive.py verify --package-dir <retrieved-package> --expected-commit <full-commit> --control-record coverage/archive-control.json --result <retrieval-result>"
@@ -39,7 +40,7 @@
     "disposition_authority": null
   },
   "retrieval": {
-    "procedure": "Download the named workflow artifact without modification, locate assurance-archive-manifest.json, run the registered verify command against the exact source commit, and retain the result plus manifest digest.",
+    "procedure": "Download the named workflow artifact without modification, locate assurance-archive-manifest.json and its packaged canonical control record, run the registered verify command against the exact source commit, and retain the result plus manifest digest.",
     "latest_result": {
       "status": "pending_first_current_package",
       "workflow_run_id": null,

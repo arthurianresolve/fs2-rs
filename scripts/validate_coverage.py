@@ -1316,12 +1316,15 @@ def validate_archive_control(record: dict[str, Any]) -> None:
             "hash_algorithm",
             "path_contract",
             "inventory_rule",
+            "control_record_rule",
             "source_state",
             "create_command",
             "verify_command",
         }
         or contract["manifest_name"] != "assurance-archive-manifest.json"
         or contract["hash_algorithm"] != "sha256"
+        or contract["control_record_rule"]
+        != "package_contains_digest_bound_canonical_control_record"
         or contract["source_state"] != "clean_exact_commit_tracked_tree"
     ):
         fail(f"{label}.internal_staging.package_contract is invalid")

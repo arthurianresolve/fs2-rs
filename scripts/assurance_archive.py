@@ -317,6 +317,8 @@ def create_archive(
 
     evidence_root = output_dir / "evidence"
     evidence_root.mkdir(parents=True, exist_ok=True)
+    packaged_control_path = output_dir / "control" / "archive-control.json"
+    write_json(packaged_control_path, control)
     file_records: list[dict[str, Any]] = []
     for relative, source in sorted(source_files):
         destination = evidence_root / Path(PurePosixPath(relative))
@@ -349,7 +351,8 @@ def create_archive(
             "run_id": workflow_run_id,
         },
         "control_record": {
-            "path": "coverage/archive-control.json",
+            "source_path": "coverage/archive-control.json",
+            "packaged_path": "control/archive-control.json",
             "digest_contract": "canonical_json_v1",
             "sha256": canonical_json_sha256(control),
         },
@@ -416,8 +419,10 @@ def validate_manifest_shape(manifest: dict[str, Any]) -> None:
     control = manifest["control_record"]
     if (
         not isinstance(control, dict)
-        or set(control) != {"path", "digest_contract", "sha256"}
-        or control["path"] != "coverage/archive-control.json"
+        or set(control)
+        != {"source_path", "packaged_path", "digest_contract", "sha256"}
+        or control["source_path"] != "coverage/archive-control.json"
+        or control["packaged_path"] != "control/archive-control.json"
         or control["digest_contract"] != "canonical_json_v1"
         or not SHA256_RE.fullmatch(str(control["sha256"]))
     ):
@@ -447,7 +452,7 @@ def verify_archive(
     if not package_dir.is_dir():
         fail("archive package directory is missing or unsafe")
     root_entries = {path.name for path in package_dir.iterdir()}
-    if root_entries != {MANIFEST_NAME, "evidence"}:
+    if root_entries != {MANIFEST_NAME, "control", "evidence"}:
         fail(f"archive package root inventory is invalid: {sorted(root_entries)}")
     manifest_path = package_dir / MANIFEST_NAME
     if manifest_path.is_symlink() or not manifest_path.is_file():
@@ -525,14 +530,38 @@ def verify_archive(
     if list(source_specs) != source_artifacts:
         fail("archive source manifest inventory is not canonically sorted")
 
+    packaged_control_relative = safe_relative_path(
+        manifest["control_record"]["packaged_path"],
+        "archive manifest control_record.packaged_path",
+    )
+    control_root = package_dir / "control"
+    if control_root.is_symlink() or not control_root.is_dir():
+        fail("archive control directory is missing or unsafe")
+    if {path.name for path in control_root.iterdir()} != {"archive-control.json"}:
+        fail("archive control directory inventory is invalid")
+    packaged_control_path = package_dir.joinpath(*packaged_control_relative.parts)
+    if (
+        filesystem_path(packaged_control_path).is_symlink()
+        or not filesystem_path(packaged_control_path).is_file()
+    ):
+        fail("archive packaged control record is missing or unsafe")
+    packaged_control = read_json(packaged_control_path)
+    if (
+        canonical_json_sha256(packaged_control)
+        != manifest["control_record"]["sha256"]
+    ):
+        fail("archive packaged control-record digest is stale")
+    expected = required_artifacts(packaged_control)
+    if source_artifacts != sorted(expected) or source_specs != expected:
+        fail("archive source-artifact inventory differs from the packaged control record")
     if control_record_path is not None:
-        control_record_path = control_record_path.resolve()
-        control = read_json(control_record_path)
-        expected = required_artifacts(control)
-        if source_artifacts != sorted(expected) or source_specs != expected:
-            fail("archive source-artifact inventory differs from the control record")
-        if canonical_json_sha256(control) != manifest["control_record"]["sha256"]:
-            fail("archive control-record digest is stale")
+        current_control = read_json(control_record_path.resolve())
+        if (
+            canonical_json_sha256(current_control)
+            != manifest["control_record"]["sha256"]
+            or current_control != packaged_control
+        ):
+            fail("provided control record differs from the packaged control record")
 
     records = manifest["files"]
     if not isinstance(records, list) or not records:
