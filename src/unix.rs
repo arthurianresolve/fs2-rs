@@ -171,17 +171,18 @@ pub(crate) const ALLOCATE_SPACE_EXTENDS_LENGTH: bool = false;
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
-    allocate_space_with(file, len, |file, fstore| unsafe {
+    let mut preallocate = |file: &File, fstore: &libc::fstore_t| unsafe {
         // SAFETY: `file` owns a valid descriptor and `fstore` is a valid fstore structure.
         libc::fcntl(file.as_raw_fd(), libc::F_PREALLOCATE, fstore)
-    })
+    };
+    allocate_space_with(file, len, &mut preallocate)
 }
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 fn allocate_space_with(
     file: &File,
     len: u64,
-    mut preallocate: impl FnMut(&File, &libc::fstore_t) -> libc::c_int,
+    preallocate: &mut dyn FnMut(&File, &libc::fstore_t) -> libc::c_int,
 ) -> Result<()> {
     let stat = file.metadata()?;
 
