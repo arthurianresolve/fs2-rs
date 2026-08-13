@@ -30,6 +30,7 @@
     {"id": "stats::tests::accepts_available_space_above_free_space", "kind": "unit", "platforms": ["unix"]},
     {"id": "stats::tests::constructs_stats_from_block_counts", "kind": "unit", "platforms": ["unix"]},
     {"id": "stats::tests::rejects_available_space_above_total_space", "kind": "unit", "platforms": ["unix"]},
+    {"id": "stats::tests::rejects_free_space_above_total_space", "kind": "unit", "platforms": ["unix"]},
     {"id": "stats::tests::rejects_block_count_zero_granularity", "kind": "unit", "platforms": ["unix"]},
     {"id": "stats::tests::rejects_invalid_counters_before_space_conversion", "kind": "unit", "platforms": ["unix"]},
     {"id": "stats::tests::rejects_space_overflow", "kind": "unit", "platforms": ["unix"]},

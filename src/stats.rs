@@ -517,6 +517,14 @@ mod tests {
         assert_eq!(error.kind(), ErrorKind::InvalidData);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn rejects_free_space_above_total_space() {
+        let error = FsStats::from_counters(counters(4096, 11, 1, 10)).unwrap_err();
+
+        assert_eq!(error.kind(), ErrorKind::InvalidData);
+    }
+
     #[test]
     fn filesystem_space() {
         let tempdir = tempdir().unwrap();

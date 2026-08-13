@@ -202,6 +202,15 @@ mod tests {
             .open(tempdir.path().join("fs2"))
             .unwrap();
 
+        allocate_after_state(
+            &file,
+            4096,
+            Ok(AllocationState {
+                allocated_size: 0,
+                file_size: 0,
+            }),
+        )
+        .unwrap();
         allocate(&file, 4096).unwrap();
         assert!(file.metadata().unwrap().len() >= 4096);
     }
