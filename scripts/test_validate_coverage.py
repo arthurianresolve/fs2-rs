@@ -23,6 +23,7 @@ from validate_coverage import (
     validate_surface,
     validate_tool_assessment,
     check_status,
+    parse_cargo_test_list,
 )
 
 
@@ -117,6 +118,26 @@ class CoverageRecordTests(unittest.TestCase):
             crlf.write_bytes(b"fn main() {\r\n    println!(\"ok\");\r\n}\r\n")
 
             self.assertEqual(canonical_source_sha256(lf), canonical_source_sha256(crlf))
+
+    def test_parses_grouped_cargo_test_listing(self):
+        output = """
+        Running unittests src\\lib.rs
+        allocation::tests::example: test
+        test result: ok
+        Running tests\\upstream_compat.rs
+        upstream_surface: test
+        Doc-tests fs2
+        src\\stats.rs - stats::FsStatsQuery (line 31): test
+        """
+
+        self.assertEqual(
+            parse_cargo_test_list(output),
+            {
+                "unit": {"allocation::tests::example"},
+                "integration": {"upstream_surface"},
+                "doctest": {"src/stats.rs:FsStatsQuery (line 31)"},
+            },
+        )
 
 
 class RunManifestTests(unittest.TestCase):

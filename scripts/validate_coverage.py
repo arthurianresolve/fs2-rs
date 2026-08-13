@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -444,6 +445,68 @@ def validate_verification_inventory(inventory: dict[str, Any]) -> set[str]:
     return identifiers
 
 
+def parse_cargo_test_list(output: str, default_kind: str | None = None) -> dict[str, set[str]]:
+    """Parse Cargo's grouped test listing into stable verification IDs."""
+    discovered = {"unit": set(), "integration": set(), "doctest": set()}
+    kind: str | None = default_kind
+    for raw_line in output.splitlines():
+        line = raw_line.strip()
+        if "Running unittests " in line:
+            kind = "unit"
+        elif "Running tests/" in line or "Running tests\\" in line:
+            kind = "integration"
+        elif line.startswith("Doc-tests "):
+            kind = "doctest"
+        if kind is None or not line.endswith(": test"):
+            continue
+        identifier = line[: -len(": test")].replace("\\", "/")
+        if kind == "doctest":
+            match = re.fullmatch(r"(.+?) - (.+) \(line (\d+)\)", identifier)
+            if match is None:
+                fail(f"unable to normalize Cargo doctest identity: {identifier!r}")
+            identifier = f"{match.group(1)}:{match.group(2).removeprefix('stats::')} (line {match.group(3)})"
+        discovered[kind].add(identifier)
+    return discovered
+
+
+def validate_test_inventory() -> None:
+    """Compare the catalog with the tests discoverable on the current runtime host."""
+    commands = {
+        "unit": ["cargo", "test", "--package", "fs2", "--lib", "--locked", "--", "--list"],
+        "integration": [
+            "cargo", "test", "--package", "fs2", "--test", "upstream_compat", "--locked", "--", "--list"
+        ],
+        "doctest": ["cargo", "test", "--package", "fs2", "--doc", "--locked", "--", "--list"],
+    }
+    discovered = {kind: set() for kind in commands}
+    for kind, command in commands.items():
+        result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, check=False)
+        if result.returncode != 0:
+            detail = result.stderr.strip() or result.stdout.strip()
+            fail(f"{' '.join(command)} failed: {detail}")
+        discovered[kind] = parse_cargo_test_list(
+            result.stdout + "\n" + result.stderr, default_kind=kind
+        )[kind]
+    inventory = load_json(COVERAGE / "verification-inventory.json")["verifications"]
+    runtime = "windows" if os.name == "nt" else "unix"
+    expected = {
+        kind: {
+            item["id"]
+            for item in inventory
+            if item["kind"] == kind and runtime in item["platforms"]
+        }
+        for kind in discovered
+    }
+    for kind in discovered:
+        missing = discovered[kind] - expected[kind]
+        stale = expected[kind] - discovered[kind]
+        if missing or stale:
+            fail(
+                f"verification inventory drift for {runtime}/{kind}: "
+                f"missing={sorted(missing)}, stale={sorted(stale)}"
+            )
+
+
 def validate_gap_register(gaps: dict[str, Any]) -> None:
     label = "coverage/gap-register.json"
     required_fields(gaps, {"record_type", "schema_version", "status", "owner", "baseline", "observed_metrics", "gaps", "closure_rules", "non_claims"}, label)
@@ -593,9 +656,16 @@ def main() -> int:
     parser.add_argument("--manifest", type=Path)
     parser.add_argument("--expected-commit")
     parser.add_argument("--require-pass", action="store_true")
+    parser.add_argument(
+        "--verify-test-inventory",
+        action="store_true",
+        help="compare verification-inventory.json with Cargo's current test listing",
+    )
     args = parser.parse_args()
     try:
         validate_static_records()
+        if args.verify_test_inventory:
+            validate_test_inventory()
         expected_commit = args.expected_commit or os.environ.get("GITHUB_SHA")
         if expected_commit is not None and not COMMIT_RE.fullmatch(expected_commit):
             fail("expected commit must be a full 40-character hexadecimal commit")
