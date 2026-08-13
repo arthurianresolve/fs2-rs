@@ -171,6 +171,18 @@ pub(crate) const ALLOCATE_SPACE_EXTENDS_LENGTH: bool = false;
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
+    allocate_space_with(file, len, |file, fstore| unsafe {
+        // SAFETY: `file` owns a valid descriptor and `fstore` is a valid fstore structure.
+        libc::fcntl(file.as_raw_fd(), libc::F_PREALLOCATE, fstore)
+    })
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+fn allocate_space_with(
+    file: &File,
+    len: u64,
+    mut preallocate: impl FnMut(&File, &libc::fstore_t) -> libc::c_int,
+) -> Result<()> {
     let stat = file.metadata()?;
 
     if len > stat.blocks() * 512 {
@@ -184,17 +196,11 @@ pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
             fst_bytesalloc: 0,
         };
 
-        let ret = unsafe {
-            // SAFETY: `file` owns a valid descriptor and `fstore` is a valid fstore structure.
-            libc::fcntl(file.as_raw_fd(), libc::F_PREALLOCATE, &fstore)
-        };
+        let ret = preallocate(file, &fstore);
         if ret == -1 {
             // Unable to allocate contiguous disk space; attempt to allocate non-contiguously.
             fstore.fst_flags = libc::F_ALLOCATEALL;
-            let ret = unsafe {
-                // SAFETY: `file` owns a valid descriptor and `fstore` is a valid fstore structure.
-                libc::fcntl(file.as_raw_fd(), libc::F_PREALLOCATE, &fstore)
-            };
+            let ret = preallocate(file, &fstore);
             if ret == -1 {
                 return Err(Error::last_os_error());
             }
@@ -295,7 +301,8 @@ fn statvfs_cstr(path: &CStr) -> Result<FilesystemCounters> {
     } else {
         // SAFETY: a successful `libc::statfs` call initialized the output.
         let stat = unsafe { stat.assume_init() };
-        let allocation_granularity = linux_allocation_granularity(stat.f_frsize, stat.f_bsize);
+        let allocation_granularity =
+            linux_allocation_granularity(stat.f_frsize as u64, stat.f_bsize as u64);
         Ok(FilesystemCounters::unix_blocks(
             allocation_granularity as u64,
             stat.f_bfree as u64,
@@ -306,7 +313,7 @@ fn statvfs_cstr(path: &CStr) -> Result<FilesystemCounters> {
 }
 
 #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
-fn linux_allocation_granularity(f_frsize: libc::c_long, f_bsize: libc::c_long) -> libc::c_long {
+fn linux_allocation_granularity(f_frsize: u64, f_bsize: u64) -> u64 {
     if f_frsize == 0 { f_bsize } else { f_frsize }
 }
 
@@ -340,8 +347,12 @@ mod test {
     use std::io::ErrorKind;
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::io::AsRawFd;
+    #[cfg(target_os = "macos")]
+    use std::os::unix::io::FromRawFd;
     use std::path::Path;
 
+    #[cfg(target_os = "macos")]
+    use super::allocate_space_with;
     #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
     use super::linux_allocation_granularity;
     use super::{SMALL_PATH_BUFFER_SIZE, SpaceKind, space, statvfs, statvfs_cstr, with_c_path};
@@ -425,6 +436,43 @@ mod test {
     fn uses_filesystem_block_size_when_fragment_size_is_zero() {
         assert_eq!(linux_allocation_granularity(0, 4096), 4096);
         assert_eq!(linux_allocation_granularity(1024, 4096), 1024);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_allocate_space_covers_native_control_flow() {
+        let tempdir = tempdir().unwrap();
+        let path = tempdir.path().join("fs2-macos-allocation");
+        let file = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&path)
+            .unwrap();
+
+        allocate_space_with(&file, 0, |_, _| {
+            panic!("a zero-length allocation must not call F_PREALLOCATE")
+        })
+        .unwrap();
+
+        let mut flags = Vec::new();
+        let error = allocate_space_with(&file, 4096, |_, fstore| {
+            flags.push(fstore.fst_flags);
+            -1
+        })
+        .unwrap_err();
+        assert!(error.raw_os_error().is_some());
+        assert_eq!(flags, vec![libc::F_ALLOCATECONTIG, libc::F_ALLOCATEALL]);
+
+        let invalid = unsafe { File::from_raw_fd(-1) };
+        assert!(
+            allocate_space_with(&invalid, 1, |_, _| {
+                panic!("metadata failure must happen before F_PREALLOCATE")
+            })
+            .unwrap_err()
+            .raw_os_error()
+            .is_some()
+        );
     }
 
     /// The duplicate method returns a file with a new file descriptor.
