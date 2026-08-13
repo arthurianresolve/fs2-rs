@@ -295,11 +295,7 @@ fn statvfs_cstr(path: &CStr) -> Result<FilesystemCounters> {
     } else {
         // SAFETY: a successful `libc::statfs` call initialized the output.
         let stat = unsafe { stat.assume_init() };
-        let allocation_granularity = if stat.f_frsize == 0 {
-            stat.f_bsize
-        } else {
-            stat.f_frsize
-        };
+        let allocation_granularity = linux_allocation_granularity(stat.f_frsize, stat.f_bsize);
         Ok(FilesystemCounters::unix_blocks(
             allocation_granularity as u64,
             stat.f_bfree as u64,
@@ -307,6 +303,11 @@ fn statvfs_cstr(path: &CStr) -> Result<FilesystemCounters> {
             stat.f_blocks as u64,
         ))
     }
+}
+
+#[cfg(all(target_os = "linux", target_pointer_width = "64"))]
+fn linux_allocation_granularity(f_frsize: libc::c_long, f_bsize: libc::c_long) -> libc::c_long {
+    if f_frsize == 0 { f_bsize } else { f_frsize }
 }
 
 #[cfg(not(all(target_os = "linux", target_pointer_width = "64")))]

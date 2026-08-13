@@ -15,25 +15,78 @@ pub(crate) fn allocated_size(file: &File) -> Result<u64> {
 }
 
 pub(crate) fn allocate(file: &File, len: u64) -> Result<()> {
-    let state = sys::allocation_state(file)?;
+    allocate_after_state(file, len, sys::allocation_state(file))
+}
+
+#[inline(always)]
+fn allocate_after_state(file: &File, len: u64, state: Result<AllocationState>) -> Result<()> {
+    let state = state?;
     if state.allocated_size < len {
         sys::allocate_space(file, len)?;
-        if sys::ALLOCATE_SPACE_EXTENDS_LENGTH {
-            return Ok(());
-        }
+        return allocation_completion(
+            file,
+            state.file_size,
+            len,
+            sys::ALLOCATE_SPACE_EXTENDS_LENGTH,
+        );
     }
 
-    if state.file_size < len && file.metadata()?.len() < len {
+    extend_file_length(file, state.file_size, len)
+}
+
+#[inline(always)]
+fn allocation_completion(
+    file: &File,
+    file_size: u64,
+    len: u64,
+    allocation_extends_length: bool,
+) -> Result<()> {
+    if allocation_extends_length {
+        return Ok(());
+    }
+
+    extend_file_length(file, file_size, len)
+}
+
+#[inline(always)]
+fn extend_file_length(file: &File, file_size: u64, len: u64) -> Result<()> {
+    if file_size < len {
+        return extend_file_length_after_snapshot(
+            file,
+            file_size,
+            len,
+            file.metadata().map(|metadata| metadata.len()),
+        );
+    }
+    Ok(())
+}
+
+#[inline(always)]
+fn extend_file_length_after_snapshot(
+    file: &File,
+    file_size: u64,
+    len: u64,
+    current_file_size: Result<u64>,
+) -> Result<()> {
+    let current_file_size = current_file_size?;
+    if should_extend_file_length(file_size, current_file_size, len) {
         file.set_len(len)?;
     }
-
     Ok(())
+}
+
+const fn should_extend_file_length(file_size: u64, current_file_size: u64, len: u64) -> bool {
+    file_size < len && current_file_size < len
 }
 
 #[cfg(test)]
 mod tests {
-    use super::allocate;
+    use super::{
+        AllocationState, allocate, allocate_after_state, allocation_completion, extend_file_length,
+        extend_file_length_after_snapshot, should_extend_file_length,
+    };
     use std::fs::OpenOptions;
+    use std::io::Error;
     use tempfile::tempdir;
 
     #[test]

@@ -13,7 +13,7 @@ use windows_sys::Win32::Foundation::{
     DUPLICATE_SAME_ACCESS, DuplicateHandle, E_NOTIMPL, ERROR_BAD_NETPATH, ERROR_BAD_PATHNAME,
     ERROR_CALL_NOT_IMPLEMENTED, ERROR_DIRECTORY, ERROR_INVALID_DRIVE, ERROR_INVALID_FUNCTION,
     ERROR_INVALID_NAME, ERROR_INVALID_PARAMETER, ERROR_LOCK_VIOLATION, ERROR_NOT_SUPPORTED,
-    ERROR_PATH_NOT_FOUND, INVALID_HANDLE_VALUE, RtlNtStatusToDosError, S_OK, TRUE,
+    ERROR_PATH_NOT_FOUND, HANDLE, HMODULE, INVALID_HANDLE_VALUE, RtlNtStatusToDosError, S_OK, TRUE,
 };
 use windows_sys::Win32::Storage::FileSystem::{
     CreateFileW, DISK_SPACE_INFORMATION, FILE_ALLOCATION_INFO, FILE_ATTRIBUTE_DEVICE,
@@ -85,10 +85,11 @@ pub(crate) fn duplicate(file: &File) -> Result<File> {
             DUPLICATE_SAME_ACCESS,
         )
     };
-    if result == 0 {
-        return Err(Error::last_os_error());
-    }
+    duplicate_result(result, duplicate)
+}
 
+fn duplicate_result(result: i32, duplicate: HANDLE) -> Result<File> {
+    win32_bool_result(result)?;
     // SAFETY: a successful `DuplicateHandle` call returned one newly owned handle.
     let owned = unsafe { OwnedHandle::from_raw_handle(duplicate) };
     Ok(File::from(owned))
@@ -108,17 +109,18 @@ pub(crate) fn allocation_state(file: &File) -> Result<AllocationState> {
         )
     };
 
-    if ret == 0 {
-        Err(Error::last_os_error())
-    } else {
-        Ok(AllocationState {
-            allocated_size: info.AllocationSize as u64,
-            file_size: info.EndOfFile as u64,
-        })
-    }
+    allocation_state_result(ret, info)
 }
 
 pub(crate) const ALLOCATE_SPACE_EXTENDS_LENGTH: bool = false;
+
+fn allocation_state_result(result: i32, info: FILE_STANDARD_INFO) -> Result<AllocationState> {
+    win32_bool_result(result)?;
+    Ok(AllocationState {
+        allocated_size: info.AllocationSize as u64,
+        file_size: info.EndOfFile as u64,
+    })
+}
 
 pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
     let len = i64::try_from(len)
@@ -135,9 +137,7 @@ pub(crate) fn allocate_space(file: &File, len: u64) -> Result<()> {
             std::mem::size_of::<FILE_ALLOCATION_INFO>() as u32,
         )
     };
-    if ret == 0 {
-        return Err(Error::last_os_error());
-    }
+    win32_bool_result(ret)?;
     Ok(())
 }
 
@@ -158,11 +158,7 @@ pub(crate) fn lock(file: &File, operation: LockOperation) -> Result<()> {
                 // SAFETY: `file` owns a valid handle for the duration of this call.
                 UnlockFile(file.as_raw_handle(), 0, 0, u32::MAX, u32::MAX)
             };
-            if ret == 0 {
-                Err(Error::last_os_error())
-            } else {
-                Ok(())
-            }
+            win32_bool_result(ret)
         }
     }
 }
@@ -184,7 +180,16 @@ fn lock_file(file: &File, flags: u32) -> Result<()> {
             &mut overlapped,
         )
     };
-    if ret == 0 {
+    volume_path_result(ret)
+}
+
+fn volume_path_result(result: i32) -> Result<()> {
+    win32_bool_result(result)
+}
+
+#[inline]
+fn win32_bool_result(result: i32) -> Result<()> {
+    if result == 0 {
         Err(Error::last_os_error())
     } else {
         Ok(())
@@ -208,16 +213,23 @@ fn copy_exact_drive_root(path: &[u16], root_path: &mut [u16; VOLUME_PATH_CAPACIT
     let [drive, colon, separator, terminator] = path else {
         return false;
     };
-    let is_drive_letter = (u16::from(b'A')..=u16::from(b'Z')).contains(drive)
-        || (u16::from(b'a')..=u16::from(b'z')).contains(drive);
-    let is_separator = *separator == u16::from(b'\\') || *separator == u16::from(b'/');
-    if !is_drive_letter || *colon != u16::from(b':') || !is_separator || *terminator != 0 {
+    if !valid_drive_root_components(*drive, *colon, *separator, *terminator) {
         return false;
     }
 
     root_path[..path.len()].copy_from_slice(path);
     root_path[2] = u16::from(b'\\');
     true
+}
+
+fn valid_drive_root_components(drive: u16, colon: u16, separator: u16, terminator: u16) -> bool {
+    let is_uppercase_drive = (u16::from(b'A')..=u16::from(b'Z')).contains(&drive);
+    let is_lowercase_drive = (u16::from(b'a')..=u16::from(b'z')).contains(&drive);
+    let is_drive_letter = is_uppercase_drive | is_lowercase_drive;
+    let is_backslash = separator == u16::from(b'\\');
+    let is_forward_slash = separator == u16::from(b'/');
+    let is_separator = is_backslash | is_forward_slash;
+    is_drive_letter && colon == u16::from(b':') && is_separator && terminator == 0
 }
 
 fn volume_path(path: &[u16], volume_path: &mut [u16]) -> Result<()> {
@@ -229,11 +241,7 @@ fn volume_path(path: &[u16], volume_path: &mut [u16]) -> Result<()> {
             volume_path.len() as u32,
         )
     };
-    if ret == 0 {
-        Err(Error::last_os_error())
-    } else {
-        Ok(())
-    }
+    win32_bool_result(ret)
 }
 
 pub(crate) fn statvfs(path: &Path) -> Result<FilesystemCounters> {
@@ -241,18 +249,17 @@ pub(crate) fn statvfs(path: &Path) -> Result<FilesystemCounters> {
 }
 
 fn statvfs_root(root_path: &[u16]) -> Result<FilesystemCounters> {
-    query_root(root_path, Ok, legacy_statvfs)
+    statvfs_root_with(root_path, modern_statvfs(root_path)?)
 }
 
 #[inline(always)]
-fn query_root<T>(
+fn statvfs_root_with(
     root_path: &[u16],
-    modern: impl FnOnce(FilesystemCounters) -> Result<T>,
-    legacy: impl FnOnce(&[u16]) -> Result<T>,
-) -> Result<T> {
-    match modern_statvfs(root_path)? {
-        Some(counters) => modern(counters),
-        None => legacy(root_path),
+    modern: Option<FilesystemCounters>,
+) -> Result<FilesystemCounters> {
+    match modern {
+        Some(counters) => Ok(counters),
+        None => legacy_statvfs(root_path),
     }
 }
 
@@ -261,14 +268,25 @@ fn modern_statvfs(root_path: &[u16]) -> Result<Option<FilesystemCounters>> {
         // SAFETY: kernel32 is loaded in every Windows process and both string literals are
         // null-terminated. The resolved symbol is cast to its documented Windows ABI.
         let module = GetModuleHandleA(windows_sys::core::s!("kernel32.dll"));
-        if module.is_null() {
-            return None;
-        }
-        GetProcAddress(module, windows_sys::core::s!("GetDiskSpaceInformationW"))
-            .map(|function| std::mem::transmute(function))
+        resolve_module_symbol(module, get_disk_space_information)
     });
 
     modern_statvfs_with(root_path, get_disk_space_information)
+}
+
+fn get_disk_space_information(module: HMODULE) -> Option<GetDiskSpaceInformation> {
+    unsafe {
+        GetProcAddress(module, windows_sys::core::s!("GetDiskSpaceInformationW"))
+            .map(|function| std::mem::transmute(function))
+    }
+}
+
+fn resolve_module_symbol<T>(module: HMODULE, symbol: fn(HMODULE) -> Option<T>) -> Option<T> {
+    if module.is_null() {
+        None
+    } else {
+        symbol(module)
+    }
 }
 
 fn modern_statvfs_with(
@@ -315,18 +333,18 @@ fn io_error_from_hresult(result: windows_sys::core::HRESULT) -> Error {
 }
 
 fn modern_statvfs_unavailable(result: windows_sys::core::HRESULT) -> bool {
-    result == E_NOTIMPL
-        || result == hresult_from_win32(ERROR_CALL_NOT_IMPLEMENTED)
-        || result == hresult_from_win32(ERROR_INVALID_FUNCTION)
-        || result == hresult_from_win32(ERROR_NOT_SUPPORTED)
+    let not_implemented = result == E_NOTIMPL;
+    let call_not_implemented = result == hresult_from_win32(ERROR_CALL_NOT_IMPLEMENTED);
+    let invalid_function = result == hresult_from_win32(ERROR_INVALID_FUNCTION);
+    let not_supported = result == hresult_from_win32(ERROR_NOT_SUPPORTED);
+    not_implemented | call_not_implemented | invalid_function | not_supported
 }
 
 fn counters_from_disk_space_information(
     info: DISK_SPACE_INFORMATION,
 ) -> Result<FilesystemCounters> {
-    let allocation_granularity = (info.SectorsPerAllocationUnit as u64)
-        .checked_mul(info.BytesPerSector as u64)
-        .ok_or_else(|| Error::new(ErrorKind::InvalidData, "filesystem cluster size overflowed"))?;
+    let allocation_granularity =
+        u64::from(info.SectorsPerAllocationUnit) * u64::from(info.BytesPerSector);
     let checked_bytes = |units: u64| {
         allocation_granularity
             .checked_mul(units)
@@ -342,7 +360,14 @@ fn counters_from_disk_space_information(
 }
 
 fn legacy_statvfs(root_path: &[u16]) -> Result<FilesystemCounters> {
-    let geometry = cluster_geometry(root_path)?;
+    legacy_statvfs_after_geometry(root_path, cluster_geometry(root_path))
+}
+
+fn legacy_statvfs_after_geometry(
+    root_path: &[u16],
+    geometry: Result<u64>,
+) -> Result<FilesystemCounters> {
+    let geometry = geometry?;
     let bytes = byte_space(root_path)?;
 
     Ok(FilesystemCounters::windows_legacy_bytes(
@@ -367,17 +392,30 @@ pub(crate) fn space(path: &Path, kind: SpaceKind) -> Result<u64> {
 
     let mut root_path = [0u16; VOLUME_PATH_CAPACITY];
     if copy_exact_drive_root(&path_utf16, &mut root_path) {
-        match exact_root_space(root_space(&root_path, kind)) {
-            ExactRootSpace::Hit(value) => return Ok(value),
-            ExactRootSpace::ResolveVolume => {}
-            ExactRootSpace::Failed(error) => return Err(error),
-        }
+        let exact_root = root_space(&root_path, kind);
+        return space_after_exact_root(&path_utf16, kind, &mut root_path, exact_root, root_space);
     }
 
     root_path.fill(0);
     volume_path(&path_utf16, &mut root_path)?;
 
     root_space(&root_path, kind)
+}
+
+fn space_after_exact_root(
+    path: &[u16],
+    kind: SpaceKind,
+    root_path: &mut [u16; VOLUME_PATH_CAPACITY],
+    exact_root: Result<u64>,
+    root_query: fn(&[u16], SpaceKind) -> Result<u64>,
+) -> Result<u64> {
+    if let Some(value) = exact_root_value(exact_root)? {
+        return Ok(value);
+    }
+
+    root_path.fill(0);
+    volume_path(path, root_path)?;
+    root_query(root_path, kind)
 }
 
 const UNSUITABLE_HANDLE_SPACE_ATTRIBUTES: u32 = FILE_ATTRIBUTE_DEVICE
@@ -387,7 +425,16 @@ const UNSUITABLE_HANDLE_SPACE_ATTRIBUTES: u32 = FILE_ATTRIBUTE_DEVICE
     | FILE_ATTRIBUTE_RECALL_ON_OPEN;
 
 const fn handle_space_attributes_eligible(attributes: u32) -> bool {
-    attributes != INVALID_FILE_ATTRIBUTES && attributes & UNSUITABLE_HANDLE_SPACE_ATTRIBUTES == 0
+    let valid_attributes = attributes != INVALID_FILE_ATTRIBUTES;
+    let suitable_attributes = attributes & UNSUITABLE_HANDLE_SPACE_ATTRIBUTES == 0;
+    handle_space_attributes_decision(valid_attributes, suitable_attributes)
+}
+
+const fn handle_space_attributes_decision(
+    valid_attributes: bool,
+    suitable_attributes: bool,
+) -> bool {
+    valid_attributes && suitable_attributes
 }
 
 fn handle_space(path: &[u16], kind: SpaceKind) -> DirectSpace {
@@ -416,37 +463,53 @@ fn handle_space(path: &[u16], kind: SpaceKind) -> DirectSpace {
             std::ptr::null_mut(),
         )
     };
-    if handle == INVALID_HANDLE_VALUE {
-        return DirectSpace::Unavailable;
-    }
-    // SAFETY: successful `CreateFileW` returned one newly owned handle.
-    let handle = unsafe { OwnedHandle::from_raw_handle(handle) };
-    let mut status = IO_STATUS_BLOCK::default();
-    let mut info = FILE_FS_FULL_SIZE_INFORMATION::default();
-    let result = unsafe {
-        // SAFETY: `handle` remains valid, and `status` and `info` are writable,
-        // correctly sized output storage for this query class.
-        NtQueryVolumeInformationFile(
-            handle.as_raw_handle(),
-            &mut status,
-            std::ptr::from_mut(&mut info).cast(),
-            std::mem::size_of::<FILE_FS_FULL_SIZE_INFORMATION>() as u32,
-            FileFsFullSizeInformation,
-        )
-    };
-    if result != 0 {
-        return DirectSpace::Unavailable;
-    }
+    with_owned_handle(handle, |handle| {
+        let mut status = IO_STATUS_BLOCK::default();
+        let mut info = FILE_FS_FULL_SIZE_INFORMATION::default();
+        let result = unsafe {
+            // SAFETY: `handle` remains valid, and `status` and `info` are writable,
+            // correctly sized output storage for this query class.
+            NtQueryVolumeInformationFile(
+                handle.as_raw_handle(),
+                &mut status,
+                std::ptr::from_mut(&mut info).cast(),
+                std::mem::size_of::<FILE_FS_FULL_SIZE_INFORMATION>() as u32,
+                FileFsFullSizeInformation,
+            )
+        };
+        handle_space_query_result(result, info, kind)
+    })
+    .unwrap_or(DirectSpace::Unavailable)
+}
 
-    handle_space_from_info(info, kind)
+fn with_owned_handle<T>(handle: HANDLE, operation: impl FnOnce(OwnedHandle) -> T) -> Option<T> {
+    owned_handle(handle).map(operation)
+}
+
+fn owned_handle(handle: HANDLE) -> Option<OwnedHandle> {
+    if handle == INVALID_HANDLE_VALUE {
+        None
+    } else {
+        // SAFETY: the caller obtained `handle` from a successful CreateFileW call
+        // and transfers ownership to this function.
+        Some(unsafe { OwnedHandle::from_raw_handle(handle) })
+    }
+}
+
+fn handle_space_query_result(
+    result: i32,
+    info: FILE_FS_FULL_SIZE_INFORMATION,
+    kind: SpaceKind,
+) -> DirectSpace {
+    if result != 0 {
+        DirectSpace::Unavailable
+    } else {
+        handle_space_from_info(info, kind)
+    }
 }
 
 fn handle_space_from_info(info: FILE_FS_FULL_SIZE_INFORMATION, kind: SpaceKind) -> DirectSpace {
-    let Some(granularity) =
-        u64::from(info.SectorsPerAllocationUnit).checked_mul(u64::from(info.BytesPerSector))
-    else {
-        return DirectSpace::Unavailable;
-    };
+    let granularity = u64::from(info.SectorsPerAllocationUnit) * u64::from(info.BytesPerSector);
     if granularity == 0 {
         return DirectSpace::Unavailable;
     }
@@ -473,18 +536,11 @@ fn handle_space_from_info(info: FILE_FS_FULL_SIZE_INFORMATION, kind: SpaceKind) 
     }
 }
 
-#[derive(Debug)]
-enum ExactRootSpace {
-    Hit(u64),
-    ResolveVolume,
-    Failed(Error),
-}
-
-fn exact_root_space(result: Result<u64>) -> ExactRootSpace {
+fn exact_root_value(result: Result<u64>) -> Result<Option<u64>> {
     match result {
-        Ok(value) => ExactRootSpace::Hit(value),
-        Err(error) if is_volume_resolution_error(&error) => ExactRootSpace::ResolveVolume,
-        Err(error) => ExactRootSpace::Failed(error),
+        Ok(value) => Ok(Some(value)),
+        Err(error) if is_volume_resolution_error(&error) => Ok(None),
+        Err(error) => Err(error),
     }
 }
 
@@ -506,11 +562,19 @@ fn is_volume_resolution_error(error: &Error) -> bool {
 }
 
 fn root_space(root_path: &[u16], kind: SpaceKind) -> Result<u64> {
-    query_root(
-        root_path,
-        |counters| FsStats::from_counters(counters).map(|stats| stats.value(kind)),
-        |root_path| legacy_space(root_path, kind),
-    )
+    root_space_with(root_path, kind, modern_statvfs(root_path))
+}
+
+#[inline(always)]
+fn root_space_with(
+    root_path: &[u16],
+    kind: SpaceKind,
+    modern: Result<Option<FilesystemCounters>>,
+) -> Result<u64> {
+    match modern? {
+        Some(counters) => FsStats::from_counters(counters).map(|stats| stats.value(kind)),
+        None => legacy_space(root_path, kind),
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -534,7 +598,19 @@ fn direct_space(path: &[u16], kind: SpaceKind) -> DirectSpace {
             &mut actual_free,
         )
     };
-    if ret == 0 || caller_available > actual_free {
+    direct_space_result(ret, caller_available, actual_free, kind)
+}
+
+#[inline(always)]
+fn direct_space_result(
+    result: i32,
+    caller_available: u64,
+    actual_free: u64,
+    kind: SpaceKind,
+) -> DirectSpace {
+    let query_failed = result == 0;
+    let domain_invalid = caller_available > actual_free;
+    if query_failed || domain_invalid {
         DirectSpace::Unavailable
     } else {
         match kind {
@@ -546,11 +622,23 @@ fn direct_space(path: &[u16], kind: SpaceKind) -> DirectSpace {
 }
 
 fn legacy_space(root_path: &[u16], kind: SpaceKind) -> Result<u64> {
+    legacy_space_with(
+        kind,
+        || byte_space(root_path),
+        || cluster_geometry(root_path),
+    )
+}
+
+fn legacy_space_with(
+    kind: SpaceKind,
+    byte_query: impl FnOnce() -> Result<ByteSpace>,
+    geometry_query: impl FnOnce() -> Result<u64>,
+) -> Result<u64> {
     match kind {
-        SpaceKind::Free => byte_space(root_path).map(|space| space.actual_free),
-        SpaceKind::Available => byte_space(root_path).map(|space| space.caller_available),
-        SpaceKind::Total => byte_space(root_path).map(|space| space.caller_total),
-        SpaceKind::AllocationGranularity => cluster_geometry(root_path),
+        SpaceKind::Free => byte_query().map(|space| space.actual_free),
+        SpaceKind::Available => byte_query().map(|space| space.caller_available),
+        SpaceKind::Total => byte_query().map(|space| space.caller_total),
+        SpaceKind::AllocationGranularity => geometry_query(),
     }
 }
 
@@ -569,16 +657,17 @@ fn cluster_geometry(root_path: &[u16]) -> Result<u64> {
             &mut total_clusters,
         )
     };
-    if ret == 0 {
-        return Err(Error::last_os_error());
-    }
+    cluster_geometry_result(ret, sectors_per_cluster, bytes_per_sector)
+}
 
-    let allocation_granularity = (sectors_per_cluster as u64)
-        .checked_mul(bytes_per_sector as u64)
-        .ok_or_else(|| Error::new(ErrorKind::InvalidData, "filesystem cluster size overflowed"))?;
-    let allocation_granularity = validate_granularity(allocation_granularity)?;
-
-    Ok(allocation_granularity)
+fn cluster_geometry_result(
+    result: i32,
+    sectors_per_cluster: u32,
+    bytes_per_sector: u32,
+) -> Result<u64> {
+    win32_bool_result(result)?;
+    let allocation_granularity = u64::from(sectors_per_cluster) * u64::from(bytes_per_sector);
+    validate_granularity(allocation_granularity)
 }
 
 struct ByteSpace {
@@ -600,14 +689,25 @@ fn byte_space(root_path: &[u16]) -> Result<ByteSpace> {
             &mut total_number_of_free_bytes,
         )
     };
-    if ret == 0 {
-        return Err(Error::last_os_error());
-    }
+    byte_space_result(
+        ret,
+        free_bytes_available_to_caller,
+        total_number_of_bytes,
+        total_number_of_free_bytes,
+    )
+}
 
+fn byte_space_result(
+    result: i32,
+    caller_available: u64,
+    caller_total: u64,
+    actual_free: u64,
+) -> Result<ByteSpace> {
+    win32_bool_result(result)?;
     Ok(ByteSpace {
-        actual_free: total_number_of_free_bytes,
-        caller_available: free_bytes_available_to_caller,
-        caller_total: total_number_of_bytes,
+        actual_free,
+        caller_available,
+        caller_total,
     })
 }
 

@@ -48,6 +48,10 @@ impl FsStatsQuery {
     /// Prepares repeated statistics queries for the filesystem containing
     /// `path`.
     pub fn new(path: impl AsRef<Path>) -> Result<Self> {
+        Self::new_path(path.as_ref())
+    }
+
+    fn new_path(path: &Path) -> Result<Self> {
         let path = std::path::absolute(path)?;
         sys::StatsQuery::new(&path).map(|inner| Self { inner })
     }
