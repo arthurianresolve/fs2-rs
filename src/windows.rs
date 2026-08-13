@@ -42,7 +42,8 @@ type GetDiskSpaceInformation = unsafe extern "system" fn(
     *mut DISK_SPACE_INFORMATION,
 ) -> windows_sys::core::HRESULT;
 
-static GET_DISK_SPACE_INFORMATION: OnceLock<Option<GetDiskSpaceInformation>> = OnceLock::new();
+static GET_DISK_SPACE_INFORMATION: OnceLock<(bool, Option<GetDiskSpaceInformation>)> =
+    OnceLock::new();
 
 #[derive(Debug)]
 pub(crate) struct StatsQuery {
@@ -264,14 +265,82 @@ fn statvfs_root_with(
 }
 
 fn modern_statvfs(root_path: &[u16]) -> Result<Option<FilesystemCounters>> {
-    let get_disk_space_information = *GET_DISK_SPACE_INFORMATION.get_or_init(|| unsafe {
+    let get_disk_space_information = disk_space_information_provider().1;
+
+    modern_statvfs_with(root_path, get_disk_space_information)
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ProviderOutcome {
+    Available,
+    Unavailable,
+    Error,
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ProviderProbe {
+    pub(crate) module_present: bool,
+    pub(crate) symbol_present: bool,
+    pub(crate) outcome: ProviderOutcome,
+    pub(crate) error_raw_os: Option<i32>,
+}
+
+fn disk_space_information_provider() -> (bool, Option<GetDiskSpaceInformation>) {
+    *GET_DISK_SPACE_INFORMATION.get_or_init(|| unsafe {
         // SAFETY: kernel32 is loaded in every Windows process and both string literals are
         // null-terminated. The resolved symbol is cast to its documented Windows ABI.
         let module = GetModuleHandleA(windows_sys::core::s!("kernel32.dll"));
-        resolve_module_symbol(module, get_disk_space_information)
-    });
+        (
+            !module.is_null(),
+            resolve_module_symbol(module, get_disk_space_information),
+        )
+    })
+}
 
-    modern_statvfs_with(root_path, get_disk_space_information)
+#[cfg(test)]
+pub(crate) fn provider_probe(root_path: &[u16]) -> ProviderProbe {
+    let (module_present, provider) = disk_space_information_provider();
+    provider_probe_with(module_present, provider, root_path)
+}
+
+#[cfg(test)]
+fn provider_probe_with(
+    module_present: bool,
+    provider: Option<GetDiskSpaceInformation>,
+    root_path: &[u16],
+) -> ProviderProbe {
+    let symbol_present = provider.is_some();
+    let Some(provider) = provider else {
+        return ProviderProbe {
+            module_present,
+            symbol_present,
+            outcome: ProviderOutcome::Unavailable,
+            error_raw_os: None,
+        };
+    };
+
+    match modern_statvfs_with(root_path, Some(provider)) {
+        Ok(Some(_)) => ProviderProbe {
+            module_present,
+            symbol_present,
+            outcome: ProviderOutcome::Available,
+            error_raw_os: None,
+        },
+        Ok(None) => ProviderProbe {
+            module_present,
+            symbol_present,
+            outcome: ProviderOutcome::Unavailable,
+            error_raw_os: None,
+        },
+        Err(error) => ProviderProbe {
+            module_present,
+            symbol_present,
+            outcome: ProviderOutcome::Error,
+            error_raw_os: error.raw_os_error(),
+        },
+    }
 }
 
 fn get_disk_space_information(module: HMODULE) -> Option<GetDiskSpaceInformation> {

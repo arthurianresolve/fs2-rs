@@ -1,3 +1,4 @@
+use std::env;
 use std::ffi::OsString;
 use std::fs;
 use std::io::{Error, ErrorKind};
@@ -19,16 +20,17 @@ use windows_sys::Win32::Storage::FileSystem::{
 };
 
 use super::{
-    ByteSpace, DirectSpace, E_NOTIMPL, StatsQuery, VOLUME_PATH_CAPACITY, allocation_state_result,
-    byte_space_result, cluster_geometry_result, copy_exact_drive_root,
-    counters_from_disk_space_information, direct_space, direct_space_result, duplicate_result,
-    exact_root_value, get_disk_space_information, handle_space, handle_space_attributes_decision,
-    handle_space_attributes_eligible, handle_space_from_info, handle_space_query_result,
-    hresult_from_win32, is_volume_resolution_error, legacy_space, legacy_space_with,
-    legacy_statvfs, legacy_statvfs_after_geometry, modern_statvfs, modern_statvfs_unavailable,
-    modern_statvfs_with, resolve_module_symbol, root_space_with, space, space_after_exact_root,
-    statvfs_root_with, valid_drive_root_components, volume_path, volume_path_result, wide_path,
-    win32_bool_result, with_owned_handle,
+    ByteSpace, DirectSpace, E_NOTIMPL, ProviderOutcome, ProviderProbe, StatsQuery,
+    VOLUME_PATH_CAPACITY, allocation_state_result, byte_space_result, cluster_geometry_result,
+    copy_exact_drive_root, counters_from_disk_space_information, direct_space, direct_space_result,
+    duplicate_result, exact_root_value, get_disk_space_information, handle_space,
+    handle_space_attributes_decision, handle_space_attributes_eligible, handle_space_from_info,
+    handle_space_query_result, hresult_from_win32, is_volume_resolution_error, legacy_space,
+    legacy_space_with, legacy_statvfs, legacy_statvfs_after_geometry, modern_statvfs,
+    modern_statvfs_unavailable, modern_statvfs_with, provider_probe, provider_probe_with,
+    resolve_module_symbol, root_space_with, space, space_after_exact_root, statvfs_root_with,
+    valid_drive_root_components, volume_path, volume_path_result, wide_path, win32_bool_result,
+    with_owned_handle,
 };
 use crate::{FileExt, FilesystemCounters, SpaceKind, lock_contended_error};
 use tempfile::tempdir;
@@ -86,6 +88,23 @@ fn maps_native_result_seams_without_faulting_the_os() {
     assert_eq!(bytes.actual_free, 3);
     assert_eq!(bytes.caller_available, 1);
     assert_eq!(bytes.caller_total, 2);
+}
+
+#[test]
+fn injects_native_failures_at_result_adapters() {
+    assert!(allocation_state_result(0, FILE_STANDARD_INFO::default()).is_err());
+    assert!(byte_space_result(0, 0, 0, 0).is_err());
+    assert!(cluster_geometry_result(0, 0, 0).is_err());
+    assert!(volume_path_result(0).is_err());
+    assert_eq!(
+        direct_space_result(0, 0, 0, SpaceKind::Free),
+        DirectSpace::Unavailable
+    );
+    assert_eq!(
+        handle_space_query_result(1, FILE_FS_FULL_SIZE_INFORMATION::default(), SpaceKind::Free),
+        DirectSpace::Unavailable
+    );
+    assert!(duplicate_result(0, std::ptr::null_mut()).is_err());
 }
 
 #[test]
@@ -189,6 +208,80 @@ fn resolves_module_symbols_only_when_the_module_is_available() {
     };
     assert!(!module.is_null());
     assert!(resolve_module_symbol(module, get_disk_space_information).is_some());
+}
+
+#[test]
+fn records_provider_availability() {
+    let tempdir = tempdir().unwrap();
+    let mut root_path = [0u16; VOLUME_PATH_CAPACITY];
+    volume_path(&wide_path(tempdir.path()).unwrap(), &mut root_path).unwrap();
+
+    let probe = provider_probe(&root_path);
+    assert!(
+        probe.module_present,
+        "kernel32.dll must be loaded on Windows"
+    );
+
+    if let Some(output_path) = env::var_os("FS2_WINDOWS_PROVIDER_PROBE") {
+        write_provider_probe(Path::new(&output_path), probe).unwrap();
+    }
+}
+
+#[test]
+fn classifies_provider_faults_without_mutating_the_os() {
+    unsafe extern "system" fn unavailable_api(
+        _root_path: *const u16,
+        _info: *mut DISK_SPACE_INFORMATION,
+    ) -> windows_sys::core::HRESULT {
+        HRESULT_E_NOTIMPL
+    }
+
+    unsafe extern "system" fn failed_api(
+        _root_path: *const u16,
+        _info: *mut DISK_SPACE_INFORMATION,
+    ) -> windows_sys::core::HRESULT {
+        HRESULT_E_FAIL
+    }
+
+    let root_path = [0u16; VOLUME_PATH_CAPACITY];
+    assert_eq!(
+        provider_probe_with(false, None, &root_path),
+        ProviderProbe {
+            module_present: false,
+            symbol_present: false,
+            outcome: ProviderOutcome::Unavailable,
+            error_raw_os: None,
+        }
+    );
+    assert_eq!(
+        provider_probe_with(true, Some(unavailable_api), &root_path).outcome,
+        ProviderOutcome::Unavailable
+    );
+    assert_eq!(
+        provider_probe_with(true, Some(failed_api), &root_path),
+        ProviderProbe {
+            module_present: true,
+            symbol_present: true,
+            outcome: ProviderOutcome::Error,
+            error_raw_os: Some(HRESULT_E_FAIL),
+        }
+    );
+}
+
+fn write_provider_probe(path: &Path, probe: ProviderProbe) -> std::io::Result<()> {
+    let outcome = match probe.outcome {
+        ProviderOutcome::Available => "available",
+        ProviderOutcome::Unavailable => "unavailable",
+        ProviderOutcome::Error => "error",
+    };
+    let error = probe
+        .error_raw_os
+        .map_or_else(|| "null".to_owned(), |value| value.to_string());
+    let contents = format!(
+        "{{\n  \"schema_version\": 1,\n  \"api\": \"GetDiskSpaceInformationW\",\n  \"library\": \"kernel32.dll\",\n  \"module_present\": {},\n  \"symbol_present\": {},\n  \"outcome\": \"{}\",\n  \"error_raw_os\": {}\n}}\n",
+        probe.module_present, probe.symbol_present, outcome, error
+    );
+    fs::write(path, contents)
 }
 
 #[test]
