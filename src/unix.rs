@@ -342,6 +342,8 @@ pub(crate) fn space(path: &Path, kind: SpaceKind) -> Result<u64> {
 
 #[cfg(test)]
 mod test {
+    #[cfg(target_os = "macos")]
+    use std::cell::RefCell;
     use std::ffi::OsStr;
     use std::fs::{self, File};
     use std::io::ErrorKind;
@@ -448,30 +450,41 @@ mod test {
             .open(&path)
             .unwrap();
 
-        allocate_space_with(&file, 0, |_, _| {
-            panic!("a zero-length allocation must not call F_PREALLOCATE")
-        })
-        .unwrap();
+        let flags = RefCell::new(Vec::new());
+        let mut results = [-1, 0, -1, -1].into_iter();
+        let mut preallocate = |_: &File, fstore: &libc::fstore_t| -> libc::c_int {
+            flags.borrow_mut().push(fstore.fst_flags);
+            results.next().unwrap()
+        };
 
-        let mut flags = Vec::new();
-        let error = allocate_space_with(&file, 4096, |_, fstore| {
-            flags.push(fstore.fst_flags);
-            -1
-        })
-        .unwrap_err();
+        allocate_space_with(&file, 4096, &mut preallocate).unwrap();
+        assert_eq!(
+            flags.borrow().as_slice(),
+            &[libc::F_ALLOCATECONTIG, libc::F_ALLOCATEALL]
+        );
+
+        let error = allocate_space_with(&file, 4096, &mut preallocate).unwrap_err();
         assert!(error.raw_os_error().is_some());
-        assert_eq!(flags, vec![libc::F_ALLOCATECONTIG, libc::F_ALLOCATEALL]);
+        assert_eq!(
+            flags.borrow().as_slice(),
+            &[
+                libc::F_ALLOCATECONTIG,
+                libc::F_ALLOCATEALL,
+                libc::F_ALLOCATECONTIG,
+                libc::F_ALLOCATEALL,
+            ]
+        );
+
+        allocate_space_with(&file, 0, &mut preallocate).unwrap();
 
         let invalid = File::open(&path).unwrap();
         let invalid_fd = invalid.as_raw_fd();
         assert_eq!(unsafe { libc::close(invalid_fd) }, 0);
         assert!(
-            allocate_space_with(&invalid, 1, |_, _| {
-                panic!("metadata failure must happen before F_PREALLOCATE")
-            })
-            .unwrap_err()
-            .raw_os_error()
-            .is_some()
+            allocate_space_with(&invalid, 1, &mut preallocate)
+                .unwrap_err()
+                .raw_os_error()
+                .is_some()
         );
         std::mem::forget(invalid);
     }
