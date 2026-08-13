@@ -58,12 +58,12 @@
       "status": "internal_only",
       "failure_modes": ["wrong host or source revision", "native error not activated", "Application Verifier elevation unavailable", "Application Verifier setting not removed", "scenario or artifact drift"],
       "fallback": "retain failed or indeterminate output, use the deterministic Win32-boundary matrix as the minimum technical evidence, and do not promote without a clean exact-commit replay",
-      "residual_reliance": "independent review of scenario completeness, expected errors, execution logs, and verifier applicability"
+      "residual_reliance": "recorded internal independent review, controlled archive acceptance, and re-review after candidate changes"
     }
   ],
   "open_decisions": [
     "whether any tool function is used for certification credit",
     "whether qualification is required under the approved basis",
-    "assigned native-fault reviewer acceptance, independence declaration, review decision, and archive acceptance authority"
+    "archive acceptance authority and broader tool-reliance or independence decisions"
   ]
 }

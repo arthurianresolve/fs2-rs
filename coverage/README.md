@@ -44,7 +44,7 @@ The records are deliberately split by concern:
   those two Windows procedures.
 - `evidence-index.json` indexes the clean local snapshots for review, but keeps
   them explicitly disposable and unpromoted until the configured matrix is
-  complete, independently reviewed, and placed in a controlled archive.
+  complete and placed in a controlled archive.
 
 Windows manifests also retain `windows-provider.json`.  The
 `records_provider_availability` test records whether `kernel32.dll` and
@@ -127,9 +127,11 @@ acceptance or independence.  The local publication identity is also
 `arthurianresolve`, so the reviewer must explicitly assess implementation
 authorship, organizational or process separation, technical independence,
 independent expected results, common-mode dependencies, and the rationale for
-the shared GitHub identity.  The validator rejects approval without that
-declaration, all ten checklist items passing, reciprocal and resolved findings,
-and a decision bound to the exact candidate and native-fault manifest digest.
+the shared GitHub identity.  The validator required that declaration, all ten
+checklist items passing, reciprocal and resolved findings, and a decision bound
+to the exact candidate and native-fault manifest digest.  The current record
+satisfies that internal review condition; it remains non-certification,
+non-qualification, and non-authority evidence.
 
 If review findings change code, tests, collectors, validators, requirements,
 or assurance records, create and push a new candidate, regenerate clean native
@@ -147,11 +149,11 @@ this provenance is not eligible for the internal gate.
 
 ## Review state
 
-The current records are `draft` or `not_ready`.  The local snapshot closes the
+The overall coverage package remains `draft` or `not_ready`.  The local snapshot closes the
 emitted raw metrics and records provider availability for the Linux and
 Windows hosts exercised, but the configured Apple-silicon matrix, approved
 certification basis, assigned software level, qualified coverage-tool
-determination, independence plan, independent native-fault review, and
-external archive remain open.  Those
+determination, broader independence plan, and external archive remain open.
+The registered internal native-fault review condition is satisfied.  Those
 items remain explicit decisions rather than being inferred from passing tests
 or diagnostic branch percentages.

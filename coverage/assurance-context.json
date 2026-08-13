@@ -23,7 +23,7 @@
     "approve the applicable certification basis and assigned software level",
     "approve the requirements and verification baseline",
     "complete tool-use assessment and decide whether qualification is needed",
-    "obtain the assigned native-fault reviewer's acceptance and explicit independence declaration, and define the remaining configuration-management and archive controls",
+    "define the remaining configuration-management, archive, and broader independence controls",
     "perform target-specific applicability and object-code analysis as required"
   ]
 }

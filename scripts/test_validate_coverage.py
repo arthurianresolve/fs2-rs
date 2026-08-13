@@ -164,12 +164,16 @@ class CoverageRecordTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             validate_windows_native_fault_assessment(invalid, {"windows::test::records_os_mediated_native_failures", "appverifier_file_fault_is_observed"})
 
-    def test_native_fault_assessment_rejects_unapproved_review(self):
+    def test_native_fault_assessment_rejects_review_status_drift(self):
         invalid = copy.deepcopy(self.native_faults)
-        invalid["review_status"] = "approved"
+        invalid["review_status"] = "independent_review_pending"
 
         with self.assertRaises(ValidationError):
-            validate_windows_native_fault_assessment(invalid, {"windows::test::records_os_mediated_native_failures", "appverifier_file_fault_is_observed"})
+            validate_windows_native_fault_assessment(
+                invalid,
+                {"windows::test::records_os_mediated_native_failures", "appverifier_file_fault_is_observed"},
+                "independent_review_approved",
+            )
 
     def test_native_fault_assessment_rejects_promoted_external_basis(self):
         invalid = copy.deepcopy(self.native_faults)
@@ -233,10 +237,10 @@ class CoverageRecordTests(unittest.TestCase):
         approved["updated_at"] = "2026-08-14T11:00:00+00:00"
         return approved
 
-    def test_native_fault_review_accepts_assigned_reviewer(self):
+    def test_native_fault_review_accepts_recorded_approval(self):
         self.assertEqual(
             validate_windows_native_fault_review(self.native_fault_review),
-            "independent_review_pending",
+            "independent_review_approved",
         )
 
     def test_native_fault_review_accepts_bound_candidate_before_reviewer_acceptance(self):
@@ -251,6 +255,41 @@ class CoverageRecordTests(unittest.TestCase):
                 "state": "clean_candidate_bound",
             }
         )
+        ready["assignment"]["reviewer_acceptance"] = "pending"
+        ready["independence"] = copy.deepcopy(self.native_fault_review["independence"])
+        ready["independence"].update(
+            {
+                "status": "declaration_pending",
+                "implementation_authorship": "not_assessed",
+                "organizational_independence": "not_assessed",
+                "technical_independence": "not_assessed",
+                "expected_results_independently_established": "not_assessed",
+                "common_mode_independence": "not_assessed",
+                "same_identity_rationale": None,
+                "declaration_ref": None,
+                "declared_at": None,
+            }
+        )
+        ready["decision"] = {
+            "status": "pending",
+            "outcome": None,
+            "reviewer_login": None,
+            "reviewed_commit": None,
+            "native_fault_manifest_sha256": None,
+            "attestation": None,
+            "decision_ref": None,
+            "decided_at": None,
+        }
+        for check in ready["checklist"]:
+            check["status"] = "not_reviewed"
+            check["finding_refs"] = []
+        ready["closure_effect"] = {
+            "gap_id": "GAP-WINDOWS-NATIVE-ERRORS",
+            "current_effect": "none_review_incomplete",
+            "independent_review_condition_satisfied": False,
+            "gap_closure_permitted": False,
+            "remaining_conditions": ["obtain reviewer acceptance and complete the review"],
+        }
         ready["closure_effect"]["current_effect"] = "none_review_incomplete"
 
         self.assertEqual(
@@ -267,7 +306,7 @@ class CoverageRecordTests(unittest.TestCase):
 
     def test_native_fault_review_rejects_premature_approval(self):
         invalid = copy.deepcopy(self.native_fault_review)
-        invalid["status"] = "approved"
+        invalid["assignment"]["reviewer_acceptance"] = "pending"
 
         with self.assertRaises(ValidationError):
             validate_windows_native_fault_review(invalid)

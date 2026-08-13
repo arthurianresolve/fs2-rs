@@ -79,7 +79,6 @@
   "open_items": [
     "review and accept the six clean exact-commit run manifests for internal use",
     "produce the missing aarch64-apple-darwin matrix profiles",
-    "complete the assigned independent review of the clean exact-commit Windows manifest bound to IR-WINDOWS-NATIVE-FAULTS-001",
     "publish to a controlled external archive",
     "test retrieval and retention"
   ],
