@@ -214,6 +214,15 @@ class CoverageRecordTests(unittest.TestCase):
 
     def test_configuration_management_rejects_partial_candidate_binding(self):
         invalid = copy.deepcopy(self.configuration_management)
+        invalid["candidate"]["state"] = "awaiting_clean_exact_commit"
+        for field in (
+            "commit",
+            "tree",
+            "ci_run_id",
+            "assurance_package_manifest_sha256",
+            "retrieval_result_sha256",
+        ):
+            invalid["candidate"][field] = None
         invalid["candidate"]["commit"] = "1" * 40
 
         with self.assertRaises(ValidationError):
@@ -244,6 +253,22 @@ class CoverageRecordTests(unittest.TestCase):
 
     def test_archive_retrieval_rejects_partial_pending_result(self):
         invalid = copy.deepcopy(self.archive_retrieval)
+        invalid["status"] = "not_ready"
+        invalid["result"] = "pending"
+        for field in (
+            "package_id",
+            "source_commit",
+            "source_tree",
+            "workflow_run_id",
+            "manifest_sha256",
+            "retrieval_result_sha256",
+            "file_count",
+            "total_bytes",
+            "retrieved_at",
+            "verified_by",
+        ):
+            invalid[field] = None
+        invalid["discrepancies"] = []
         invalid["source_commit"] = "1" * 40
 
         with self.assertRaises(ValidationError):
@@ -251,7 +276,9 @@ class CoverageRecordTests(unittest.TestCase):
 
     def test_assurance_controls_reject_mixed_pending_states(self):
         invalid_retrieval = copy.deepcopy(self.archive_retrieval)
-        invalid_retrieval["result"] = "pass"
+        invalid_retrieval["result"] = (
+            "pass" if invalid_retrieval["result"] == "pending" else "pending"
+        )
 
         with self.assertRaises(ValidationError):
             validate_assurance_control_links(

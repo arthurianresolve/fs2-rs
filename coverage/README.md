@@ -142,11 +142,16 @@ job verifies that package before uploading `assurance-evidence-package` for 90
 days.
 
 After downloading the package without modification, repeat the retrieval
-verification and retain the generated result:
+verification using its embedded control record and retain the generated result:
 
 ```text
-python scripts/assurance_archive.py verify --package-dir <retrieved-package> --expected-commit <full-commit> --control-record coverage/archive-control.json --result target/assurance-retrieval-result.json
+python scripts/assurance_archive.py verify --package-dir <retrieved-package> --expected-commit <full-commit> --result target/assurance-retrieval-result.json
 ```
+
+To compare against a live checkout as an additional control, pass
+`--control-record` using `coverage/archive-control.json` from the package's
+exact source commit.  A later binding commit changes the live record's latest
+result and therefore must not be substituted for those source bytes.
 
 The verifier rejects a wrong commit, stale control-record digest, changed or
 missing file, unindexed file, unsafe path, symbolic link, case collision, or
