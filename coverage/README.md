@@ -151,7 +151,7 @@ The current records are `draft` or `not_ready`.  The local snapshot closes the
 emitted raw metrics and records provider availability for the Linux and
 Windows hosts exercised, but the configured Apple-silicon matrix, approved
 certification basis, assigned software level, qualified coverage-tool
-determination, independence plan, clean exact-commit native-fault evidence,
-independent native-fault review, and external archive remain open.  Those
+determination, independence plan, independent native-fault review, and
+external archive remain open.  Those
 items remain explicit decisions rather than being inferred from passing tests
 or diagnostic branch percentages.

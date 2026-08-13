@@ -2,7 +2,7 @@
   "record_type": "windows_native_fault_independent_review",
   "schema_version": 1,
   "id": "IR-WINDOWS-NATIVE-FAULTS-001",
-  "status": "assigned_awaiting_clean_baseline",
+  "status": "assigned_ready_for_review",
   "owner": "fs2 DO-178C coverage workstream",
   "assurance_context": "internal_assurance",
   "credit": "none",
@@ -36,13 +36,13 @@
     "repository": "arthurianresolve/fs2-rs",
     "branch": "DO-178C",
     "preparation_parent_commit": "5151d1685656c85f34236bf5ba75c76c801956cd",
-    "reviewed_commit": null,
-    "reviewed_tree": null,
-    "clean_native_fault_manifest_ref": null,
-    "clean_native_fault_manifest_sha256": null,
+    "reviewed_commit": "70cbe5e61efae8b21acf4d75c98a42140de10ce9",
+    "reviewed_tree": "4c5e70af25cbaf9626e450a52bd3bae990cb43d3",
+    "clean_native_fault_manifest_ref": "https://github.com/arthurianresolve/fs2-rs/actions/runs/31689316550/artifacts/9176726593#windows-native-fault-manifest.json",
+    "clean_native_fault_manifest_sha256": "f2d07ae6a07fcdb309be131f5cdbe027dae003d9a7c3918ce3d110e74a192723",
     "application_verifier_manifest_ref": null,
     "application_verifier_required_for_approval": false,
-    "state": "awaiting_committed_candidate_and_clean_ci_evidence"
+    "state": "clean_candidate_bound"
   },
   "review_scope": [
     "scenario completeness and API-boundary coverage",
@@ -95,23 +95,21 @@
   },
   "closure_effect": {
     "gap_id": "GAP-WINDOWS-NATIVE-ERRORS",
-    "current_effect": "none_assignment_only",
+    "current_effect": "none_review_incomplete",
     "independent_review_condition_satisfied": false,
     "gap_closure_permitted": false,
     "remaining_conditions": [
-      "commit and push the review candidate",
-      "produce and validate a clean exact-commit Windows native-fault manifest",
       "obtain reviewer acceptance and an explicit independence declaration",
       "complete every checklist objective and resolve every finding",
       "record a decision bound to the reviewed commit and manifest digest"
     ]
   },
   "created_at": "2026-08-13T09:50:29Z",
-  "updated_at": "2026-08-13T09:50:29Z",
+  "updated_at": "2026-08-13T10:04:12.4610633Z",
   "non_claims": [
     "Reviewer assignment is not reviewer acceptance, an independence determination, or review approval.",
     "The assigned GitHub identity matching the local commit identity requires explicit independence assessment and is not silently accepted.",
-    "No clean exact-commit candidate evidence is bound to this record yet.",
+    "The bound clean exact-commit candidate evidence does not establish reviewer acceptance or approval.",
     "This record does not establish certification credit, tool qualification, MC/DC, object-code coverage, or authority acceptance."
   ]
 }
