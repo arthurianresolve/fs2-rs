@@ -344,7 +344,7 @@ mod test {
 
     #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
     use super::linux_allocation_granularity;
-    use super::{SMALL_PATH_BUFFER_SIZE, statvfs, with_c_path};
+    use super::{SMALL_PATH_BUFFER_SIZE, statvfs, statvfs_cstr, with_c_path};
     use crate::{FileExt, lock_contended_error};
     use tempfile::tempdir;
 
@@ -374,12 +374,17 @@ mod test {
             bytes[length / 2] = 0;
             let path = Path::new(OsStr::from_bytes(&bytes));
 
-            let error = with_c_path(path, |_| -> Result<(), std::io::Error> {
-                panic!("query called with an invalid path")
-            })
-            .unwrap_err();
+            let error = with_c_path(path, statvfs_cstr).unwrap_err();
             assert_eq!(error.kind(), ErrorKind::InvalidInput);
         }
+    }
+
+    #[test]
+    fn stats_query_rejects_null_path() {
+        let path = Path::new(OsStr::from_bytes(b"bad\0path"));
+        let error = super::StatsQuery::new(path).unwrap_err();
+
+        assert_eq!(error.kind(), ErrorKind::InvalidInput);
     }
 
     #[test]
@@ -410,6 +415,28 @@ mod test {
             .unwrap();
         let file2 = file1.duplicate().unwrap();
         assert!(file1.as_raw_fd() != file2.as_raw_fd());
+    }
+
+    #[test]
+    fn duplicate_invalid_fd_reports_os_error() {
+        let tempdir = tempdir().unwrap();
+        let path = tempdir.path().join("fs2");
+        let file = File::create(path).unwrap();
+        let fd = file.as_raw_fd();
+
+        let close_result = unsafe {
+            // SAFETY: the test owns the descriptor and deliberately invalidates it
+            // to exercise the native duplication failure path.
+            libc::close(fd)
+        };
+        let duplicate_result = super::duplicate(&file);
+        std::mem::forget(file);
+
+        assert_eq!(close_result, 0);
+        assert_eq!(
+            duplicate_result.unwrap_err().raw_os_error(),
+            Some(libc::EBADF)
+        );
     }
 
     /// The duplicate method preserves file status flags.

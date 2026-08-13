@@ -382,6 +382,7 @@ mod tests {
     use tempfile::tempdir;
 
     use std::io::ErrorKind;
+    use std::path::Path;
 
     use super::{FilesystemCounters, FsStats, FsStatsQuery, SpaceKind, statvfs};
 
@@ -533,6 +534,28 @@ mod tests {
                 assert!(stats.available_space() <= stats.free_space());
             }
         }
+    }
+
+    #[test]
+    fn rejects_path_resolution_failure() {
+        let error = FsStatsQuery::new_path_with(Path::new("."), |_| {
+            Err(std::io::Error::new(
+                ErrorKind::PermissionDenied,
+                "path resolution failed",
+            ))
+        })
+        .unwrap_err();
+
+        assert_eq!(error.kind(), ErrorKind::PermissionDenied);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_invalid_counters_before_space_conversion() {
+        let error =
+            super::space_from_counters(counters(4096, 11, 1, 10), SpaceKind::Free).unwrap_err();
+
+        assert_eq!(error.kind(), ErrorKind::InvalidData);
     }
 
     #[cfg(windows)]
