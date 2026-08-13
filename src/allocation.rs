@@ -102,6 +102,87 @@ mod tests {
         allocate(&file, 0).unwrap();
     }
 
+    #[test]
+    fn evaluates_file_length_extension_decision() {
+        assert!(should_extend_file_length(0, 0, 1));
+        assert!(!should_extend_file_length(1, 0, 1));
+        assert!(!should_extend_file_length(0, 1, 1));
+        assert!(!should_extend_file_length(1, 1, 1));
+    }
+
+    #[test]
+    fn covers_platform_allocation_completion_variants() {
+        let tempdir = tempdir().unwrap();
+        let file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(tempdir.path().join("fs2"))
+            .unwrap();
+
+        allocation_completion(&file, 0, 1, true).unwrap();
+        allocation_completion(&file, 0, 1, false).unwrap();
+    }
+
+    #[test]
+    fn propagates_allocation_state_errors() {
+        let tempdir = tempdir().unwrap();
+        let file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(tempdir.path().join("fs2"))
+            .unwrap();
+
+        let error = Error::other("allocation state failed");
+        assert!(allocate_after_state(&file, 1, Err(error)).is_err());
+        assert!(
+            allocate_after_state(
+                &file,
+                0,
+                Ok(AllocationState {
+                    allocated_size: 0,
+                    file_size: 0,
+                }),
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn preserves_a_file_that_grew_between_allocation_snapshots() {
+        let tempdir = tempdir().unwrap();
+        let file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(tempdir.path().join("fs2"))
+            .unwrap();
+
+        file.set_len(1).unwrap();
+        extend_file_length(&file, 0, 1).unwrap();
+        assert_eq!(file.metadata().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn propagates_file_length_snapshot_and_update_errors() {
+        let tempdir = tempdir().unwrap();
+        let path = tempdir.path().join("fs2");
+        let file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&path)
+            .unwrap();
+
+        let error = Error::other("file length snapshot failed");
+        assert!(extend_file_length_after_snapshot(&file, 0, 1, Err(error)).is_err());
+
+        drop(file);
+        let readonly = OpenOptions::new().read(true).open(path).unwrap();
+        assert!(extend_file_length_after_snapshot(&readonly, 0, 1, Ok(0)).is_err());
+    }
+
     #[cfg(any(
         target_os = "windows",
         target_os = "freebsd",

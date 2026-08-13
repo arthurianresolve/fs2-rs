@@ -342,6 +342,8 @@ mod test {
     use std::os::unix::io::AsRawFd;
     use std::path::Path;
 
+    #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
+    use super::linux_allocation_granularity;
     use super::{SMALL_PATH_BUFFER_SIZE, statvfs, with_c_path};
     use crate::{FileExt, lock_contended_error};
     use tempfile::tempdir;
@@ -386,6 +388,13 @@ mod test {
         let error = statvfs(&tempdir.path().join("missing")).unwrap_err();
 
         assert_eq!(error.kind(), ErrorKind::NotFound);
+    }
+
+    #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
+    #[test]
+    fn uses_filesystem_block_size_when_fragment_size_is_zero() {
+        assert_eq!(linux_allocation_granularity(0, 4096), 4096);
+        assert_eq!(linux_allocation_granularity(1024, 4096), 1024);
     }
 
     /// The duplicate method returns a file with a new file descriptor.

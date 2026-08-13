@@ -240,11 +240,18 @@ mod test {
         assert_eq!(2 * blksize, file.allocated_size().unwrap());
         assert_eq!(blksize + 1, file.metadata().unwrap().len());
 
+        // Allocation also restores the logical length when physical space is
+        // already reserved. This protects the Windows metadata/set-length
+        // path and the equivalent Unix fast path.
+        file.allocate(2 * blksize - 1).unwrap();
+        assert_eq!(2 * blksize, file.allocated_size().unwrap());
+        assert_eq!(2 * blksize - 1, file.metadata().unwrap().len());
+
         // An allocation request that is already satisfied leaves both the
         // allocated space and the file length unchanged.
-        file.allocate(blksize + 1).unwrap();
+        file.allocate(2 * blksize - 1).unwrap();
         assert_eq!(2 * blksize, file.allocated_size().unwrap());
-        assert_eq!(blksize + 1, file.metadata().unwrap().len());
+        assert_eq!(2 * blksize - 1, file.metadata().unwrap().len());
     }
 
     #[cfg(target_os = "linux")]

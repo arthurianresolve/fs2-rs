@@ -1,28 +1,34 @@
 use std::ffi::OsString;
 use std::fs;
-use std::io::ErrorKind;
+use std::io::{Error, ErrorKind};
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
-use std::os::windows::io::AsRawHandle;
-use std::path::PathBuf;
+use std::os::windows::io::{AsRawHandle, IntoRawHandle};
+use std::path::{Path, PathBuf};
 
 use windows_sys::Wdk::System::SystemServices::FILE_FS_FULL_SIZE_INFORMATION;
 use windows_sys::Win32::Foundation::{
     ERROR_ACCESS_DENIED, ERROR_BAD_NETPATH, ERROR_BAD_PATHNAME, ERROR_CALL_NOT_IMPLEMENTED,
     ERROR_DIRECTORY, ERROR_INVALID_DRIVE, ERROR_INVALID_FUNCTION, ERROR_INVALID_NAME,
     ERROR_INVALID_PARAMETER, ERROR_NOT_SUPPORTED, ERROR_PATH_NOT_FOUND, GetHandleInformation,
-    HANDLE_FLAG_INHERIT,
+    HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE,
 };
 use windows_sys::Win32::Storage::FileSystem::{
     DISK_SPACE_INFORMATION, FILE_ATTRIBUTE_ARCHIVE, FILE_ATTRIBUTE_DEVICE,
     FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_OFFLINE, FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS,
-    FILE_ATTRIBUTE_RECALL_ON_OPEN, INVALID_FILE_ATTRIBUTES,
+    FILE_ATTRIBUTE_RECALL_ON_OPEN, FILE_STANDARD_INFO, INVALID_FILE_ATTRIBUTES,
 };
 
 use super::{
-    DirectSpace, E_NOTIMPL, ExactRootSpace, VOLUME_PATH_CAPACITY, copy_exact_drive_root,
-    counters_from_disk_space_information, direct_space, exact_root_space, handle_space,
-    handle_space_attributes_eligible, handle_space_from_info, hresult_from_win32, legacy_statvfs,
-    modern_statvfs, modern_statvfs_unavailable, modern_statvfs_with, space, volume_path, wide_path,
+    ByteSpace, DirectSpace, E_NOTIMPL, StatsQuery, VOLUME_PATH_CAPACITY, allocation_state_result,
+    byte_space_result, cluster_geometry_result, copy_exact_drive_root,
+    counters_from_disk_space_information, direct_space, direct_space_result, duplicate_result,
+    exact_root_value, get_disk_space_information, handle_space, handle_space_attributes_decision,
+    handle_space_attributes_eligible, handle_space_from_info, handle_space_query_result,
+    hresult_from_win32, is_volume_resolution_error, legacy_space, legacy_space_with,
+    legacy_statvfs, legacy_statvfs_after_geometry, modern_statvfs, modern_statvfs_unavailable,
+    modern_statvfs_with, resolve_module_symbol, root_space_with, space, space_after_exact_root,
+    statvfs_root_with, valid_drive_root_components, volume_path, volume_path_result, wide_path,
+    win32_bool_result, with_owned_handle,
 };
 use crate::{FileExt, FilesystemCounters, SpaceKind, lock_contended_error};
 use tempfile::tempdir;
@@ -45,6 +51,262 @@ const UNAVAILABLE_ERROR_ENCODINGS: [(u32, i32); 3] = [
     (ERROR_INVALID_FUNCTION, 0x8007_0001_u32 as i32),
     (ERROR_NOT_SUPPORTED, 0x8007_0032_u32 as i32),
 ];
+
+#[test]
+fn maps_win32_boolean_results() {
+    assert!(win32_bool_result(1).is_ok());
+    assert!(win32_bool_result(-1).is_ok());
+    assert!(win32_bool_result(0).is_err());
+}
+
+#[test]
+fn maps_native_result_seams_without_faulting_the_os() {
+    assert!(duplicate_result(0, std::ptr::null_mut()).is_err());
+    assert!(allocation_state_result(0, FILE_STANDARD_INFO::default()).is_err());
+    assert!(volume_path_result(0).is_err());
+
+    let info = FILE_STANDARD_INFO {
+        AllocationSize: 8,
+        EndOfFile: 6,
+        ..Default::default()
+    };
+    let state = allocation_state_result(1, info).unwrap();
+    assert_eq!(state.allocated_size, 8);
+    assert_eq!(state.file_size, 6);
+
+    assert_eq!(cluster_geometry_result(1, 2, 512).unwrap(), 1024);
+    assert_eq!(
+        cluster_geometry_result(1, u32::MAX, u32::MAX).unwrap(),
+        u64::from(u32::MAX) * u64::from(u32::MAX)
+    );
+    assert!(cluster_geometry_result(0, 2, 512).is_err());
+
+    assert!(byte_space_result(0, 1, 2, 3).is_err());
+    let bytes = byte_space_result(1, 1, 2, 3).unwrap();
+    assert_eq!(bytes.actual_free, 3);
+    assert_eq!(bytes.caller_available, 1);
+    assert_eq!(bytes.caller_total, 2);
+}
+
+#[test]
+fn selects_modern_or_legacy_query_without_native_provider_state() {
+    let counters = FilesystemCounters::windows_modern_bytes(4096, 8, 6, 10);
+    let tempdir = tempdir().unwrap();
+    let mut root_path = [0u16; VOLUME_PATH_CAPACITY];
+    volume_path(&wide_path(tempdir.path()).unwrap(), &mut root_path).unwrap();
+
+    assert_eq!(
+        crate::FsStats::from_counters(statvfs_root_with(&root_path, Some(counters)).unwrap())
+            .unwrap()
+            .total_space(),
+        10
+    );
+    assert!(statvfs_root_with(&root_path, None).is_ok());
+    let legacy = crate::FsStats::from_counters(legacy_statvfs(&root_path).unwrap()).unwrap();
+    assert_eq!(
+        root_space_with(&root_path, SpaceKind::AllocationGranularity, Ok(None)).unwrap(),
+        legacy.allocation_granularity()
+    );
+}
+
+#[test]
+fn maps_legacy_space_kinds_without_native_queries() {
+    for (kind, expected) in [
+        (SpaceKind::Free, 3),
+        (SpaceKind::Available, 1),
+        (SpaceKind::Total, 2),
+        (SpaceKind::AllocationGranularity, 4096),
+    ] {
+        let actual = legacy_space_with(
+            kind,
+            || {
+                Ok(ByteSpace {
+                    actual_free: 3,
+                    caller_available: 1,
+                    caller_total: 2,
+                })
+            },
+            || Ok(4096),
+        )
+        .unwrap();
+        assert_eq!(actual, expected, "{kind:?}");
+    }
+}
+
+#[test]
+fn relative_space_queries_resolve_the_volume_path() {
+    assert!(space(Path::new("."), SpaceKind::Free).is_ok());
+}
+
+#[test]
+fn rejects_unresolvable_volume_paths() {
+    let unavailable_drive = (b'A'..=b'Z')
+        .map(char::from)
+        .find(|letter| {
+            let root = format!("{}:\\", letter);
+            let mut canonical = [0; VOLUME_PATH_CAPACITY];
+            volume_path(&wide_path(Path::new(&root)).unwrap(), &mut canonical).is_err()
+        })
+        .expect("Windows should expose at least one unavailable drive letter");
+    let unavailable_root = format!("{}:\\missing", unavailable_drive);
+
+    assert!(StatsQuery::new(Path::new(&unavailable_root)).is_err());
+}
+
+#[test]
+fn space_rejects_unresolvable_volume_paths() {
+    let unavailable_drive = (b'A'..=b'Z')
+        .map(char::from)
+        .find(|letter| {
+            let root = format!("{}:\\", letter);
+            let mut canonical = [0; VOLUME_PATH_CAPACITY];
+            volume_path(&wide_path(Path::new(&root)).unwrap(), &mut canonical).is_err()
+        })
+        .expect("Windows should expose at least one unavailable drive letter");
+    let unavailable_root = format!("{}:\\missing", unavailable_drive);
+
+    assert!(space(Path::new(&unavailable_root), SpaceKind::Free).is_err());
+}
+
+#[test]
+fn allocation_preserves_readonly_native_errors() {
+    let tempdir = tempdir().unwrap();
+    let path = tempdir.path().join("fs2");
+    fs::write(&path, []).unwrap();
+
+    let readonly = fs::OpenOptions::new().read(true).open(path).unwrap();
+    assert!(readonly.allocate(4096).is_err());
+}
+
+#[test]
+fn resolves_module_symbols_only_when_the_module_is_available() {
+    assert!(resolve_module_symbol(std::ptr::null_mut(), get_disk_space_information).is_none());
+    let module = unsafe {
+        // SAFETY: the module name is a null-terminated static string.
+        windows_sys::Win32::System::LibraryLoader::GetModuleHandleA(windows_sys::core::s!(
+            "kernel32.dll"
+        ))
+    };
+    assert!(!module.is_null());
+    assert!(resolve_module_symbol(module, get_disk_space_information).is_some());
+}
+
+#[test]
+fn owns_only_valid_windows_handles() {
+    assert_eq!(with_owned_handle(INVALID_HANDLE_VALUE, |_| 7_u8), None);
+
+    let tempdir = tempdir().unwrap();
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(tempdir.path().join("fs2"))
+        .unwrap();
+    let handle = file.into_raw_handle();
+    assert_eq!(with_owned_handle(handle, |_| 7_u8), Some(7));
+}
+
+#[test]
+fn maps_handle_query_results_before_projecting_counters() {
+    let info = FILE_FS_FULL_SIZE_INFORMATION {
+        ActualAvailableAllocationUnits: 8,
+        CallerAvailableAllocationUnits: 6,
+        SectorsPerAllocationUnit: 2,
+        BytesPerSector: 512,
+        ..Default::default()
+    };
+
+    assert_eq!(
+        handle_space_query_result(1, info, SpaceKind::Free),
+        DirectSpace::Unavailable
+    );
+    assert_eq!(
+        handle_space_query_result(0, info, SpaceKind::Free),
+        DirectSpace::Hit(8192)
+    );
+}
+
+#[test]
+fn evaluates_handle_attribute_decision_independently() {
+    assert!(handle_space_attributes_decision(true, true));
+    assert!(!handle_space_attributes_decision(false, true));
+    assert!(!handle_space_attributes_decision(true, false));
+    assert!(!handle_space_attributes_decision(false, false));
+}
+
+#[test]
+fn maps_direct_space_results_and_rejects_invalid_domains() {
+    assert_eq!(
+        direct_space_result(1, 6, 8, SpaceKind::Free),
+        DirectSpace::Hit(8)
+    );
+    assert_eq!(
+        direct_space_result(1, 6, 8, SpaceKind::Available),
+        DirectSpace::Hit(6)
+    );
+    assert_eq!(
+        direct_space_result(1, 6, 8, SpaceKind::Total),
+        DirectSpace::Unavailable
+    );
+    assert_eq!(
+        direct_space_result(1, 6, 8, SpaceKind::AllocationGranularity),
+        DirectSpace::Unavailable
+    );
+    assert_eq!(
+        direct_space_result(0, 6, 8, SpaceKind::Free),
+        DirectSpace::Unavailable
+    );
+    assert_eq!(
+        direct_space_result(1, 9, 8, SpaceKind::Free),
+        DirectSpace::Unavailable
+    );
+}
+
+#[test]
+fn recognizes_only_volume_resolution_errors() {
+    assert!(!is_volume_resolution_error(&Error::other(
+        "provider failure"
+    )));
+    assert!(!is_volume_resolution_error(&Error::from_raw_os_error(
+        ERROR_ACCESS_DENIED as i32
+    )));
+}
+
+#[test]
+fn evaluates_drive_root_components_independently() {
+    let upper = u16::from(b'C');
+    let lower = u16::from(b'c');
+    let colon = u16::from(b':');
+    let slash = u16::from(b'/');
+    let backslash = u16::from(b'\\');
+
+    assert!(valid_drive_root_components(upper, colon, backslash, 0));
+    assert!(valid_drive_root_components(lower, colon, slash, 0));
+    assert!(!valid_drive_root_components(
+        u16::from(b'1'),
+        colon,
+        backslash,
+        0
+    ));
+    assert!(!valid_drive_root_components(
+        upper,
+        u16::from(b'x'),
+        backslash,
+        0
+    ));
+    assert!(!valid_drive_root_components(
+        upper,
+        colon,
+        u16::from(b'x'),
+        0
+    ));
+    assert!(!valid_drive_root_components(
+        upper,
+        colon,
+        backslash,
+        u16::from(b'x')
+    ));
+}
 
 #[test]
 fn maps_modern_disk_space_information() {
@@ -106,6 +368,44 @@ fn rejects_modern_disk_space_overflow() {
 }
 
 #[test]
+fn rejects_modern_total_space_overflow_after_valid_free_counters() {
+    let info = DISK_SPACE_INFORMATION {
+        ActualAvailableAllocationUnits: 1,
+        CallerAvailableAllocationUnits: 1,
+        ActualTotalAllocationUnits: u64::MAX,
+        SectorsPerAllocationUnit: 8,
+        BytesPerSector: 512,
+        ..Default::default()
+    };
+
+    assert_eq!(
+        counters_from_disk_space_information(info)
+            .unwrap_err()
+            .kind(),
+        ErrorKind::InvalidData
+    );
+}
+
+#[test]
+fn rejects_modern_available_space_overflow_after_valid_free_counters() {
+    let info = DISK_SPACE_INFORMATION {
+        ActualAvailableAllocationUnits: 1,
+        CallerAvailableAllocationUnits: u64::MAX,
+        ActualTotalAllocationUnits: 1,
+        SectorsPerAllocationUnit: 8,
+        BytesPerSector: 512,
+        ..Default::default()
+    };
+
+    assert_eq!(
+        counters_from_disk_space_information(info)
+            .unwrap_err()
+            .kind(),
+        ErrorKind::InvalidData
+    );
+}
+
+#[test]
 fn modern_and_legacy_stats_have_valid_domains() {
     let tempdir = tempdir().unwrap();
     let mut root_path = [0u16; VOLUME_PATH_CAPACITY];
@@ -139,6 +439,32 @@ fn modern_and_legacy_stats_have_valid_domains() {
             );
         }
     }
+}
+
+#[test]
+fn legacy_space_queries_cover_native_fallback_kinds() {
+    let tempdir = tempdir().unwrap();
+    let mut root_path = [0u16; VOLUME_PATH_CAPACITY];
+    volume_path(&wide_path(tempdir.path()).unwrap(), &mut root_path).unwrap();
+
+    for kind in [
+        SpaceKind::Free,
+        SpaceKind::Available,
+        SpaceKind::Total,
+        SpaceKind::AllocationGranularity,
+    ] {
+        assert!(
+            legacy_space(&root_path, kind).is_ok(),
+            "legacy native query failed for {kind:?}"
+        );
+    }
+}
+
+#[test]
+fn propagates_legacy_provider_errors_without_cross_querying() {
+    let geometry_error = Error::other("cluster geometry failed");
+    assert!(legacy_statvfs_after_geometry(&[0], Err(geometry_error)).is_err());
+    assert!(legacy_statvfs_after_geometry(&[0], Ok(1)).is_err());
 }
 
 #[test]
@@ -276,6 +602,11 @@ fn handle_space_rejects_invalid_file_counters() {
             CallerAvailableAllocationUnits: i64::MAX,
             ..valid
         },
+        FILE_FS_FULL_SIZE_INFORMATION {
+            ActualAvailableAllocationUnits: 1,
+            CallerAvailableAllocationUnits: i64::MAX,
+            ..valid
+        },
     ];
 
     for info in invalid {
@@ -304,6 +635,22 @@ fn copies_only_exact_drive_roots() {
             &wide_path(std::path::Path::new(path)).unwrap(),
             &mut root_path
         ));
+    }
+
+    for path in [
+        vec![],
+        vec![u16::from(b'1'), u16::from(b':'), u16::from(b'\\'), 0],
+        vec![u16::from(b'C'), u16::from(b'x'), u16::from(b'\\'), 0],
+        vec![u16::from(b'C'), u16::from(b':'), u16::from(b'x'), 0],
+        vec![
+            u16::from(b'C'),
+            u16::from(b':'),
+            u16::from(b'\\'),
+            u16::from(b'x'),
+        ],
+    ] {
+        root_path.fill(0);
+        assert!(!copy_exact_drive_root(&path, &mut root_path));
     }
 }
 
@@ -362,9 +709,81 @@ fn exact_drive_root_preserves_provider_errors() {
     let error = std::io::Error::from_raw_os_error(code);
 
     assert!(matches!(
-        exact_root_space(Err(error)),
-        ExactRootSpace::Failed(error) if error.raw_os_error() == Some(code)
+        exact_root_value(Err(error)),
+        Err(error) if error.raw_os_error() == Some(code)
     ));
+}
+
+#[test]
+fn exact_drive_root_returns_provider_error_for_unavailable_drive() {
+    let unavailable_root = (b'A'..=b'Z')
+        .map(|letter| format!("{}:\\", char::from(letter)))
+        .find(|root| !Path::new(root).exists())
+        .expect("Windows should expose at least one unavailable drive letter");
+
+    let error = space(Path::new(&unavailable_root), SpaceKind::Free).unwrap_err();
+    assert!(error.raw_os_error().is_some());
+}
+
+#[test]
+fn propagates_exact_root_query_errors_without_volume_fallback() {
+    let mut root_path = [0u16; VOLUME_PATH_CAPACITY];
+    let error = Error::other("exact root query failed");
+
+    assert!(
+        space_after_exact_root(
+            &[0],
+            SpaceKind::Free,
+            &mut root_path,
+            Err(error),
+            failing_root_space,
+        )
+        .is_err()
+    );
+
+    let tempdir = tempdir().unwrap();
+    let path = wide_path(tempdir.path()).unwrap();
+    assert!(
+        space_after_exact_root(
+            &path,
+            SpaceKind::Free,
+            &mut root_path,
+            Err(Error::from_raw_os_error(ERROR_PATH_NOT_FOUND as i32)),
+            failing_root_space,
+        )
+        .is_err()
+    );
+
+    let unavailable_root = (b'A'..=b'Z')
+        .map(|letter| format!("{}:\\missing", char::from(letter)))
+        .find(|root| !Path::new(root).exists())
+        .expect("Windows should expose at least one unavailable drive letter");
+    let path = wide_path(Path::new(&unavailable_root)).unwrap();
+    let resolution_error = Error::from_raw_os_error(ERROR_PATH_NOT_FOUND as i32);
+    assert!(
+        space_after_exact_root(
+            &path,
+            SpaceKind::Free,
+            &mut root_path,
+            Err(resolution_error),
+            failing_root_space,
+        )
+        .is_err()
+    );
+}
+
+fn failing_root_space(_: &[u16], _: SpaceKind) -> std::io::Result<u64> {
+    Err(Error::other("root query failed"))
+}
+
+#[test]
+fn statistics_preserve_unavailable_volume_errors() {
+    let unavailable_root = (b'A'..=b'Z')
+        .map(|letter| format!("{}:\\", char::from(letter)))
+        .find(|root| !Path::new(root).exists())
+        .expect("Windows should expose at least one unavailable drive letter");
+
+    assert!(crate::statvfs(Path::new(&unavailable_root)).is_err());
 }
 
 #[test]
@@ -395,10 +814,7 @@ fn modern_provider_only_falls_back_for_unavailable_errors() {
 fn exact_drive_root_only_resolves_volume_for_path_errors() {
     for (win32_error, _) in PATH_ERROR_ENCODINGS {
         let error = std::io::Error::from_raw_os_error(win32_error as i32);
-        assert!(matches!(
-            exact_root_space(Err(error)),
-            ExactRootSpace::ResolveVolume
-        ));
+        assert_eq!(exact_root_value(Err(error)).unwrap(), None);
     }
 }
 

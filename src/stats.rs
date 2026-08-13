@@ -376,7 +376,7 @@ mod tests {
 
     use std::io::ErrorKind;
 
-    use super::{FilesystemCounters, FsStats, FsStatsQuery, statvfs};
+    use super::{FilesystemCounters, FsStats, FsStatsQuery, SpaceKind, statvfs};
 
     fn counters(
         allocation_granularity: u64,
@@ -439,6 +439,7 @@ mod tests {
         assert_eq!(stats.available_space(), 24_576);
         assert_eq!(stats.total_space(), 40_960);
         assert_eq!(stats.allocation_granularity(), 4096);
+        assert_eq!(stats.value(SpaceKind::Available), 24_576);
     }
 
     #[test]
@@ -509,17 +510,21 @@ mod tests {
     fn prepared_query_returns_fresh_valid_snapshots() {
         let tempdir = tempdir().unwrap();
         let query = FsStatsQuery::new(tempdir.path()).unwrap();
+        let pathbuf = tempdir.path().to_path_buf();
+        let pathbuf_query = FsStatsQuery::new(pathbuf).unwrap();
 
-        for stats in [query.snapshot().unwrap(), query.snapshot().unwrap()] {
-            assert!(stats.total_space() > 0);
-            assert!(stats.allocation_granularity() > 0);
-            #[cfg(unix)]
-            {
-                assert!(stats.free_space() <= stats.total_space());
-                assert!(stats.available_space() <= stats.total_space());
+        for query in [&query, &pathbuf_query] {
+            for stats in [query.snapshot().unwrap(), query.snapshot().unwrap()] {
+                assert!(stats.total_space() > 0);
+                assert!(stats.allocation_granularity() > 0);
+                #[cfg(unix)]
+                {
+                    assert!(stats.free_space() <= stats.total_space());
+                    assert!(stats.available_space() <= stats.total_space());
+                }
+                #[cfg(windows)]
+                assert!(stats.available_space() <= stats.free_space());
             }
-            #[cfg(windows)]
-            assert!(stats.available_space() <= stats.free_space());
         }
     }
 
@@ -539,5 +544,14 @@ mod tests {
         assert_eq!(stats.free_space(), 50_000);
         assert_eq!(stats.available_space(), 10_000);
         assert_eq!(stats.total_space(), 40_000);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn rejects_invalid_legacy_available_space() {
+        let error =
+            FsStats::from_counters(legacy_counters(4096, 10_000, 20_000, 30_000)).unwrap_err();
+
+        assert_eq!(error.kind(), ErrorKind::InvalidData);
     }
 }
