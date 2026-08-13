@@ -29,56 +29,56 @@
     "status": "superseded_focused_only_dirty_working_tree; not release evidence"
   },
   "clean_local_snapshot": {
-    "commit": "5742f451067b17bb6c937cd8502837d353473d6a",
-    "tree": "bcbafb495a04aaced7479d444a2d2b96fed0e38b",
+    "commit": "26844b3aa0a32ddf7b39fdb01f5c39e816696ff7",
+    "tree": "aac4e2298fee64cc63d5977fc12fc00882bc6c95",
     "dirty": false,
-    "source_scope": "product source revision 19e8ec95f92077dc68f2e1c85f7d74e0bda5aed2",
+    "source_scope": "repository source and test revision 26844b3aa0a32ddf7b39fdb01f5c39e816696ff7",
     "targets": ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"],
     "profiles": {
       "linux_stable": {
-        "lines": {"covered": 838, "total": 838, "percent": 100.0},
-        "regions": {"covered": 1471, "total": 1471, "percent": 100.0},
-        "functions": {"covered": 120, "total": 120, "percent": 100.0}
+        "lines": {"covered": 849, "total": 849, "percent": 100.0},
+        "regions": {"covered": 1484, "total": 1484, "percent": 100.0},
+        "functions": {"covered": 121, "total": 121, "percent": 100.0}
       },
       "linux_branch": {
-        "lines": {"covered": 841, "total": 841, "percent": 100.0},
-        "regions": {"covered": 1468, "total": 1468, "percent": 100.0},
+        "lines": {"covered": 852, "total": 852, "percent": 100.0},
+        "regions": {"covered": 1481, "total": 1481, "percent": 100.0},
         "branches": {"covered": 30, "total": 30, "percent": 100.0},
-        "functions": {"covered": 120, "total": 120, "percent": 100.0}
+        "functions": {"covered": 121, "total": 121, "percent": 100.0}
       },
       "linux_condition_instrumentation": {
-        "lines": {"covered": 841, "total": 841, "percent": 100.0},
-        "regions": {"covered": 1468, "total": 1468, "percent": 100.0},
+        "lines": {"covered": 852, "total": 852, "percent": 100.0},
+        "regions": {"covered": 1481, "total": 1481, "percent": 100.0},
         "branches": {"covered": 30, "total": 30, "percent": 100.0},
-        "functions": {"covered": 120, "total": 120, "percent": 100.0},
+        "functions": {"covered": 121, "total": 121, "percent": 100.0},
         "independent_condition_total": false
       },
       "windows_stable": {
-        "lines": {"covered": 1044, "total": 1044, "percent": 100.0},
-        "regions": {"covered": 1613, "total": 1613, "percent": 100.0},
+        "lines": {"covered": 1051, "total": 1051, "percent": 100.0},
+        "regions": {"covered": 1617, "total": 1617, "percent": 100.0},
         "functions": {"covered": 143, "total": 143, "percent": 100.0}
       },
       "windows_branch": {
-        "lines": {"covered": 1044, "total": 1044, "percent": 100.0},
-        "regions": {"covered": 1611, "total": 1611, "percent": 100.0},
+        "lines": {"covered": 1051, "total": 1051, "percent": 100.0},
+        "regions": {"covered": 1615, "total": 1615, "percent": 100.0},
         "branches": {"covered": 80, "total": 80, "percent": 100.0},
         "functions": {"covered": 143, "total": 143, "percent": 100.0}
       },
       "windows_condition_instrumentation": {
-        "lines": {"covered": 1044, "total": 1044, "percent": 100.0},
-        "regions": {"covered": 1611, "total": 1611, "percent": 100.0},
+        "lines": {"covered": 1051, "total": 1051, "percent": 100.0},
+        "regions": {"covered": 1615, "total": 1615, "percent": 100.0},
         "branches": {"covered": 80, "total": 80, "percent": 100.0},
         "functions": {"covered": 143, "total": 143, "percent": 100.0},
         "independent_condition_total": false
       }
     },
     "run_ids": [
-      "20260813T042033Z-b8e5ef14dce7",
-      "20260813T042037Z-4698ce958dca",
-      "20260813T042042Z-dd41ac5d5465",
-      "20260813T041722Z-59f1f02c4300",
-      "20260813T041730Z-6033b8b125b0",
-      "20260813T041739Z-37f6384a7c18"
+      "20260813T070518Z-1077fed0375c",
+      "20260813T070527Z-c2f1ebfdc404",
+      "20260813T070535Z-885114fbb9ae",
+      "20260813T070302Z-6cd5982d066f",
+      "20260813T070319Z-b3915561809f",
+      "20260813T070344Z-d712657a1c90"
     ],
     "status": "clean_exact_commit_local_disposable; not release evidence"
   },
