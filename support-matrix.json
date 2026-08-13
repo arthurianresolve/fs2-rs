@@ -1,11 +1,16 @@
 {
-  "version": 5,
+  "version": 7,
   "evidence_levels": ["runtime", "compile", "not-covered"],
+  "coverage_profiles": {
+    "stable": {"requested_toolchain": "1.88", "metrics": ["line", "region"]},
+    "branch": {"requested_toolchain": "nightly-2026-07-23", "metrics": ["branch"]},
+    "condition": {"requested_toolchain": "nightly-2026-07-23", "metrics": ["condition_diagnostic"]}
+  },
   "targets": [
-    {"target": "x86_64-unknown-linux-gnu", "platform": "Linux", "evidence": "runtime", "allocation": "physical-reservation", "ci": {"job": "check", "runner": "ubuntu-latest", "toolchains": ["1.88", "stable"], "coverage": true}},
+    {"target": "x86_64-unknown-linux-gnu", "platform": "Linux", "evidence": "runtime", "allocation": "physical-reservation", "ci": {"job": "check", "runner": "ubuntu-latest", "toolchains": ["1.88", "stable"], "coverage_profiles": ["stable", "branch", "condition"]}},
     {"target": "x86_64-apple-darwin", "platform": "macOS Intel", "evidence": "runtime", "allocation": "physical-reservation", "ci": {"job": "check", "runner": "macos-15-intel", "toolchains": ["1.88", "stable"]}},
-    {"target": "aarch64-apple-darwin", "platform": "macOS Apple silicon", "evidence": "runtime", "allocation": "physical-reservation", "ci": {"job": "check", "runner": "macos-latest", "toolchains": ["1.88", "stable"], "coverage": true}},
-    {"target": "x86_64-pc-windows-msvc", "platform": "Windows MSVC", "evidence": "runtime", "allocation": "physical-reservation", "ci": {"job": "check", "runner": "windows-latest", "toolchains": ["1.88", "stable"], "coverage": true}},
+    {"target": "aarch64-apple-darwin", "platform": "macOS Apple silicon", "evidence": "runtime", "allocation": "physical-reservation", "ci": {"job": "check", "runner": "macos-latest", "toolchains": ["1.88", "stable"], "coverage_profiles": ["stable", "branch", "condition"]}},
+    {"target": "x86_64-pc-windows-msvc", "platform": "Windows MSVC", "evidence": "runtime", "allocation": "physical-reservation", "ci": {"job": "check", "runner": "windows-latest", "toolchains": ["1.88", "stable"], "coverage_profiles": ["stable", "branch", "condition"]}},
     {"target": "i686-unknown-linux-gnu", "platform": "32-bit Linux", "evidence": "compile", "allocation": "physical-reservation", "ci": {"job": "cross_check", "runner": "ubuntu-latest", "toolchains": ["1.88"]}},
     {"target": "aarch64-unknown-linux-gnu", "platform": "ARM64 Linux GNU", "evidence": "compile", "allocation": "physical-reservation", "ci": {"job": "cross_check", "runner": "ubuntu-latest", "toolchains": ["1.88"]}},
     {"target": "aarch64-unknown-linux-musl", "platform": "ARM64 Linux musl", "evidence": "compile", "allocation": "physical-reservation", "ci": {"job": "cross_check", "runner": "ubuntu-latest", "toolchains": ["1.88"]}},

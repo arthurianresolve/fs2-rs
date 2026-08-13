@@ -15,7 +15,7 @@ jobs:
       rust_version: ${{ steps.matrix.outputs.rust_version }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - run: python -m pip install --disable-pip-version-check --requirement scripts/requirements.txt
       - id: matrix
         run: python scripts/validate_support_matrix.py --github-output "$GITHUB_OUTPUT"
@@ -30,7 +30,7 @@ jobs:
       matrix: ${{ fromJSON(needs.support-matrix.outputs.matrices).check }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
         with:
           toolchain: ${{ matrix.toolchain }}
@@ -52,7 +52,7 @@ jobs:
       matrix: ${{ fromJSON(needs.support-matrix.outputs.matrices).cross_check }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
         with:
           toolchain: ${{ matrix.toolchain }}
@@ -68,7 +68,7 @@ jobs:
       matrix: ${{ fromJSON(needs.support-matrix.outputs.matrices).mingw }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Install MinGW import-library tools
         run: |
           sudo apt-get update
@@ -87,7 +87,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.support-matrix.outputs.matrices).uclibc }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
         with:
           toolchain: ${{ matrix.toolchain }}
@@ -103,19 +103,88 @@ jobs:
       matrix: ${{ fromJSON(needs.support-matrix.outputs.matrices).coverage }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
         with:
           toolchain: ${{ matrix.toolchain }}
           components: llvm-tools-preview
           targets: ${{ matrix.target }}
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@7f4eb899022d8fe70b20c4f3de697aa85c309026 # v2
         with:
           tool: cargo-llvm-cov@0.8.7
           fallback: none
-      - run: cargo llvm-cov --package fs2 --lib --tests --target ${{ matrix.target }} --locked --lcov --output-path coverage-${{ matrix.target }}.lcov -- --test-threads=1
-      - uses: actions/upload-artifact@v7
+      - name: Collect stable line and region coverage
+        run: python scripts/collect_coverage.py --profile stable --target ${{ matrix.target }} --output-dir target/coverage-${{ matrix.target }} --locked
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: coverage-${{ matrix.target }}
-          path: coverage-${{ matrix.target }}.lcov
+          path: target/coverage-${{ matrix.target }}
+          if-no-files-found: error
+
+  coverage_branch:
+    needs: support-matrix
+    name: Branch diagnostics / ${{ matrix.target }} / Rust ${{ matrix.toolchain }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.support-matrix.outputs.matrices).coverage_branch }}
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+        with:
+          toolchain: ${{ matrix.toolchain }}
+          components: llvm-tools-preview
+          targets: ${{ matrix.target }}
+      - uses: taiki-e/install-action@7f4eb899022d8fe70b20c4f3de697aa85c309026 # v2
+        with:
+          tool: cargo-llvm-cov@0.8.7
+          fallback: none
+      - name: Collect diagnostic branch coverage
+        run: python scripts/collect_coverage.py --profile branch --target ${{ matrix.target }} --output-dir target/coverage-branch-${{ matrix.target }} --locked
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: coverage-branch-${{ matrix.target }}
+          path: target/coverage-branch-${{ matrix.target }}
+          if-no-files-found: error
+
+  coverage-gate:
+    needs: [support-matrix, coverage, coverage_branch, coverage_condition]
+    name: Validate coverage staging bundles
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: target/coverage-artifacts
+      - name: Validate provenance and coverage records
+        run: python scripts/validate_coverage.py --runs-dir target/coverage-artifacts --require-pass
+      - name: Validate raw metric profiles and internal MC/DC closure
+        run: python scripts/validate_coverage_metrics.py --runs-dir target/coverage-artifacts --require-pass
+
+  coverage_condition:
+    needs: support-matrix
+    name: Condition diagnostics / ${{ matrix.target }} / Rust ${{ matrix.toolchain }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.support-matrix.outputs.matrices).coverage_condition }}
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+        with:
+          toolchain: ${{ matrix.toolchain }}
+          components: llvm-tools-preview
+          targets: ${{ matrix.target }}
+      - uses: taiki-e/install-action@7f4eb899022d8fe70b20c4f3de697aa85c309026 # v2
+        with:
+          tool: cargo-llvm-cov@0.8.7
+          fallback: none
+      - name: Collect diagnostic condition instrumentation
+        run: python scripts/collect_coverage.py --profile condition --target ${{ matrix.target }} --output-dir target/coverage-condition-${{ matrix.target }} --locked
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: coverage-condition-${{ matrix.target }}
+          path: target/coverage-condition-${{ matrix.target }}
           if-no-files-found: error

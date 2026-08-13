@@ -49,6 +49,15 @@ and rejects drift between registry job references and the workflow's actual
 matrix consumption. JSON is validated once into an immutable support registry;
 workflow validation and matrix generation consume only that model.
 
+The `coverage/` work package separately owns internal requirements-based
+coverage mappings, explicit production/test surface classifications, source
+decision inventory, tool-assessment boundaries, and a gap register. Stable
+line/region reporting and pinned-nightly branch diagnostics are separate
+profiles with exact commit, tree, lockfile, host, target, and toolchain
+provenance. Dirty or failed runs remain non-promotable; diagnostic branch
+coverage is not MC/DC, and the package does not establish certification,
+qualification, independence, or authority credit.
+
 ## Compatibility and performance evidence
 
 The compatibility oracle compiles one frozen v0.4 consumer against exact fs2

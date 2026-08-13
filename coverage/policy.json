@@ -1,0 +1,60 @@
+{
+  "record_type": "coverage_policy",
+  "schema_version": 1,
+  "status": "draft",
+  "owner": "fs2 DO-178C coverage workstream",
+  "claim_class": "internal_engineering_evidence",
+  "required_controls": [
+    "requirements_based_tests_pass",
+    "production_surface_is_explicit",
+    "source_level_decisions_are_inventoried",
+    "line_region_branch_and_function_metrics_are_reported_separately",
+    "exact_commit_tree_lockfile_host_target_and_toolchain_are_recorded",
+    "failed_and_indeterminate_runs_are_retained",
+    "coverage_artifacts_are_staged_outside_git_history"
+  ],
+  "metrics": {
+    "line": {
+      "meaning": "instrumented source line coverage",
+      "status": "internal_only"
+    },
+    "region": {
+      "meaning": "instrumented source region coverage",
+      "status": "internal_only"
+    },
+    "branch": {
+      "meaning": "LLVM diagnostic branch coverage from the pinned nightly profile",
+      "status": "diagnostic_only",
+      "mcdc_claim": false
+    },
+    "function": {
+      "meaning": "LLVM instrumented function coverage diagnostic; not a DO-178C structural coverage metric",
+      "status": "diagnostic_only"
+    },
+    "mcdc": {
+      "meaning": "not produced or accepted by this package",
+      "status": "not_assessed"
+    }
+  },
+  "denominator_rules": [
+    "include in-scope production code unless an explicit reviewed disposition exists",
+    "exclude test-only, generated, vendored, and target artifacts only with a recorded classification",
+    "do not infer certification scope from a cargo-llvm-cov default filter",
+    "do not convert branch coverage into MC/DC"
+  ],
+  "release_blockers": [
+    "missing exact-commit provenance",
+    "dirty or mixed-source run used as release evidence",
+    "missing requirements or decision mapping",
+    "failed, timed-out, or indeterminate execution",
+    "unreviewed denominator exclusion",
+    "open approved-basis, independence, tool-assurance, or archive decision"
+  ],
+  "non_claims": [
+    "This package is not a certification data package.",
+    "Passing tests are not authority acceptance.",
+    "LLVM branch coverage is not MC/DC.",
+    "Internal reports are not qualified-tool output.",
+    "A local or CI artifact is not an external controlled archive."
+  ]
+}

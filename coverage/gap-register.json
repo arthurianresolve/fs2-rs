@@ -1,0 +1,87 @@
+{
+  "record_type": "coverage_gap_register",
+  "schema_version": 1,
+  "status": "draft",
+  "owner": "fs2 DO-178C coverage workstream",
+  "baseline": {
+    "commit": "d1e0e22eaed156e2420058f52f119e10330e24df",
+    "tree": "57eefc23abc299981b3e5632be12b61ed8353287",
+    "measurement_status": "focused_only",
+    "dirty": true,
+    "host": "Windows x86_64 MSVC",
+    "target": "x86_64-pc-windows-msvc",
+    "toolchain": "1.88 and nightly-2026-07-23",
+    "cargo_llvm_cov": "0.8.7"
+  },
+  "observed_metrics": {
+    "stable_line": {"covered": 790, "total": 820, "percent": 96.34146341463415},
+    "stable_region": {"covered": 1241, "total": 1297, "percent": 95.68234387047032},
+    "branch_diagnostic": {"covered": 82, "total": 101, "percent": 81.1881188118812},
+    "mcdc": {"status": "not_assessed", "covered": null, "total": null}
+  },
+  "current_internal_metrics": {
+    "windows_stable_line": {"covered": 998, "total": 998, "percent": 100.0},
+    "windows_stable_region": {"covered": 1567, "total": 1567, "percent": 100.0},
+    "windows_branch": {"covered": 78, "total": 78, "percent": 100.0},
+    "windows_condition_diagnostic": {"covered": 78, "total": 78, "percent": 100.0},
+    "windows_function_diagnostic": {"covered": 138, "total": 138, "percent": 100.0},
+    "status": "focused_only_dirty_working_tree; not release evidence"
+  },
+  "gaps": [
+    {
+      "id": "GAP-ALLOC-CONST-BRANCH",
+      "source_refs": ["src/allocation.rs:17-48"],
+      "classification": "target_specific",
+      "observed_condition": "The platform allocation-length decision is retained in a testable completion seam; target-specific constants remain separate and require cross-host review.",
+      "required_action": "Retain separate Unix and Windows manifests and review target applicability; do not combine target denominators.",
+      "status": "closed",
+      "credit": "none"
+    },
+    {
+      "id": "GAP-UNIX-INVALID-COUNTERS",
+      "source_refs": ["src/stats.rs:163-172"],
+      "classification": "cross_host",
+      "observed_condition": "The Windows focused run cannot exercise Unix statvfs counter-ordering failures.",
+      "required_action": "Run the stable profile on a clean Unix target and review the Unix-specific invalid-counter tests.",
+      "status": "open",
+      "credit": "none"
+    },
+    {
+      "id": "GAP-WINDOWS-NATIVE-ERRORS",
+      "source_refs": ["src/windows.rs:68-95", "src/windows.rs:97-119", "src/windows.rs:123-142", "src/windows.rs:144-168", "src/windows.rs:223-237", "src/windows.rs:405-442"],
+      "classification": "native_failure_injection",
+      "observed_condition": "Several native API failure outcomes require controlled OS fault injection or a reviewed platform test harness.",
+      "required_action": "Add a reviewed fault-injection seam or record a platform-specific test disposition with independent review; retain every failed or indeterminate attempt.",
+      "status": "open",
+      "credit": "none"
+    },
+    {
+      "id": "GAP-WINDOWS-PROVIDER-AVAILABILITY",
+      "source_refs": ["src/windows.rs:259-322"],
+      "classification": "environment_specific",
+      "observed_condition": "Provider discovery and unavailable-HRESULT behavior depend on the Windows API surface present on the host.",
+      "required_action": "Run on the supported Windows matrix and retain the API version, host, and provider outcome in the run manifest.",
+      "status": "open",
+      "credit": "none"
+    },
+    {
+      "id": "GAP-MCDC-BASIS",
+      "source_refs": ["src/allocation.rs:17-30", "src/stats.rs:62-98", "src/windows.rs:248-474"],
+      "classification": "assurance_basis",
+      "observed_condition": "The repository has no approved MC/DC basis, assigned software level, qualified-tool determination, or authority acceptance record.",
+      "required_action": "Obtain and record the applicable approved basis and tool/independence decisions before considering any MC/DC or certification claim.",
+      "status": "open",
+      "credit": "none"
+    }
+  ],
+  "closure_rules": [
+    "An open gap cannot be covered by a percentage threshold alone.",
+    "Cross-host closure requires separate manifests and separate applicability review.",
+    "Native failure closure requires a deterministic test or an explicit reviewed disposition.",
+    "MC/DC status remains not_assessed until an approved basis and tool-assurance decision exist."
+  ],
+  "non_claims": [
+    "The observed metrics came from dirty focused-only runs and are not release evidence.",
+    "The branch metric is diagnostic branch coverage, not MC/DC."
+  ]
+}

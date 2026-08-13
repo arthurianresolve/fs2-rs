@@ -1,0 +1,18 @@
+{
+  "record_type": "evidence_index",
+  "schema_version": 1,
+  "status": "not_ready",
+  "owner": "fs2 DO-178C coverage workstream",
+  "archive_status": "not_archived",
+  "external_archive_uri": null,
+  "runs": [],
+  "open_items": [
+    "produce clean exact-commit runs",
+    "review and accept run manifests",
+    "publish to a controlled external archive",
+    "test retrieval and retention"
+  ],
+  "non_claims": [
+    "No run in this index is currently promoted as release evidence."
+  ]
+}

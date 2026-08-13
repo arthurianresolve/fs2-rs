@@ -59,6 +59,19 @@ CI validates the matrix and generates its native and cross-target job matrices
 from the registry, then runs native runtime tests and compile-checks the listed
 cross targets. Compile-only evidence does not imply runtime support.
 
+## Internal DO-178C coverage work package
+
+The [`coverage/`](coverage/) directory contains the `DO-178C` branch's internal
+requirements mappings, production-surface inventory, source-decision inventory,
+coverage policy, tool-assessment boundaries, gap register, and provenance
+contracts. Run `python scripts/validate_coverage.py` to validate those records.
+
+CI collects separate stable line/region and pinned-nightly branch reports in
+provenance-bound staging bundles. Branch coverage is diagnostic and is not an
+MC/DC claim. The current records are draft/internal-only: they do not establish
+certification credit, qualified-tool status, independence, object-code
+coverage, external archive acceptance, or authority acceptance.
+
 ## Benchmarking
 
 Stable Criterion benchmarks are provided for the public APIs in the separate

@@ -43,7 +43,13 @@ EXPECTED_MATRICES = (
     '"uclibc":{"include":[{"os":"ubuntu-latest","target":"armv7-unknown-linux-uclibceabihf","toolchain":"nightly"}]},'
     '"coverage":{"include":[{"os":"ubuntu-latest","target":"x86_64-unknown-linux-gnu","toolchain":"1.88"},'
     '{"os":"macos-latest","target":"aarch64-apple-darwin","toolchain":"1.88"},'
-    '{"os":"windows-latest","target":"x86_64-pc-windows-msvc","toolchain":"1.88"}]}}'
+    '{"os":"windows-latest","target":"x86_64-pc-windows-msvc","toolchain":"1.88"}]},'
+    '"coverage_branch":{"include":[{"os":"ubuntu-latest","target":"x86_64-unknown-linux-gnu","toolchain":"nightly-2026-07-23"},'
+    '{"os":"macos-latest","target":"aarch64-apple-darwin","toolchain":"nightly-2026-07-23"},'
+    '{"os":"windows-latest","target":"x86_64-pc-windows-msvc","toolchain":"nightly-2026-07-23"}]},'
+    '"coverage_condition":{"include":[{"os":"ubuntu-latest","target":"x86_64-unknown-linux-gnu","toolchain":"nightly-2026-07-23"},'
+    '{"os":"macos-latest","target":"aarch64-apple-darwin","toolchain":"nightly-2026-07-23"},'
+    '{"os":"windows-latest","target":"x86_64-pc-windows-msvc","toolchain":"nightly-2026-07-23"}]}}'
 )
 
 
@@ -64,7 +70,16 @@ class SupportMatrixTests(unittest.TestCase):
                     target.ci.toolchains
                 )
         expected_counts["coverage"] = sum(
-            target.ci is not None and target.ci.coverage for target in self.data.targets
+            target.ci is not None and "stable" in target.ci.coverage_profiles
+            for target in self.data.targets
+        )
+        expected_counts["coverage_branch"] = sum(
+            target.ci is not None and "branch" in target.ci.coverage_profiles
+            for target in self.data.targets
+        )
+        expected_counts["coverage_condition"] = sum(
+            target.ci is not None and "condition" in target.ci.coverage_profiles
+            for target in self.data.targets
         )
 
         actual_counts = {
@@ -176,7 +191,21 @@ class SupportMatrixTests(unittest.TestCase):
         invalid = copy.deepcopy(self.raw)
         for target in invalid["targets"]:
             if target["ci"] is not None:
-                target["ci"].pop("coverage", None)
+                target["ci"].pop("coverage_profiles", None)
+
+        with self.assertRaises(SystemExit):
+            parse_registry(invalid)
+
+    def test_rejects_unknown_coverage_profile(self):
+        invalid = copy.deepcopy(self.raw)
+        invalid["targets"][0]["ci"]["coverage_profiles"] = ["stable", "not-a-profile"]
+
+        with self.assertRaises(SystemExit):
+            parse_registry(invalid)
+
+    def test_rejects_incomplete_coverage_profile_selection(self):
+        invalid = copy.deepcopy(self.raw)
+        invalid["targets"][0]["ci"]["coverage_profiles"] = ["stable"]
 
         with self.assertRaises(SystemExit):
             parse_registry(invalid)

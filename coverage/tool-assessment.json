@@ -1,0 +1,61 @@
+{
+  "record_type": "tool_assessment",
+  "schema_version": 1,
+  "status": "assessment_open",
+  "owner": "fs2 DO-178C coverage workstream",
+  "toolchain": {
+    "coverage_collector": "scripts/collect_coverage.py",
+    "cargo_llvm_cov": "0.8.7",
+    "stable_profile": "package fs2 library and tests with line and region JSON",
+    "branch_profile": "pinned nightly-2026-07-23 with LLVM branch reporting"
+  },
+  "qualification_status": "not_qualified",
+  "credit_status": "internal_only",
+  "functions": [
+    {
+      "id": "TOOL-F-001",
+      "function": "instrumentation and compilation",
+      "status": "assessment_open",
+      "failure_modes": ["wrong source revision", "wrong target", "profile-dependent compilation"],
+      "fallback": "repeat from a clean exact-commit checkout with recorded toolchain",
+      "residual_reliance": "independent source and provenance checks"
+    },
+    {
+      "id": "TOOL-F-002",
+      "function": "test execution and raw profile collection",
+      "status": "assessment_open",
+      "failure_modes": ["test failure", "timeout", "crash", "partial profile"],
+      "fallback": "retain failed or indeterminate run and do not promote it",
+      "residual_reliance": "native exit, logs, test inventory, and artifact presence"
+    },
+    {
+      "id": "TOOL-F-003",
+      "function": "coverage report generation",
+      "status": "internal_only",
+      "failure_modes": ["stale report", "incomplete report", "source filter drift"],
+      "fallback": "re-run with pinned profile and compare source manifest",
+      "residual_reliance": "requirements and surface review"
+    },
+    {
+      "id": "TOOL-F-004",
+      "function": "policy and provenance validation",
+      "status": "internal_only",
+      "failure_modes": ["validator defect", "schema bypass", "hash mismatch"],
+      "fallback": "negative fixtures, code review, and independent replay",
+      "residual_reliance": "manual review and controlled archive acceptance"
+    },
+    {
+      "id": "TOOL-F-005",
+      "function": "archive integrity and retrieval",
+      "status": "not_implemented",
+      "failure_modes": ["missing artifact", "unverifiable retrieval", "retention loss"],
+      "fallback": "external controlled archive procedure",
+      "residual_reliance": "archive owner and retrieval test"
+    }
+  ],
+  "open_decisions": [
+    "whether any tool function is used for certification credit",
+    "whether qualification is required under the approved basis",
+    "independent review and archive acceptance authority"
+  ]
+}

@@ -23,6 +23,24 @@ ALLOCATION_CAPABILITIES = {"physical-reservation", "unsupported", "unknown"}
 MATRIX_EXPRESSION = re.compile(
     r"fromJSON\s*\(\s*needs\s*\.\s*support-matrix\s*\.\s*outputs\s*\.\s*matrices\s*\)\s*\.\s*([A-Za-z0-9_]+)"
 )
+PROFILE_JOB_NAMES = {
+    "stable": "coverage",
+    "branch": "coverage_branch",
+    "condition": "coverage_condition",
+}
+EXPECTED_PROFILE_METRICS = {
+    "stable": ("line", "region"),
+    "branch": ("branch",),
+    "condition": ("condition_diagnostic",),
+}
+BRANCH_TOOLCHAIN = "nightly-2026-07-23"
+
+
+@dataclass(frozen=True, slots=True)
+class CoverageProfile:
+    name: str
+    requested_toolchain: str
+    metrics: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,7 +48,12 @@ class CiSpec:
     job: str
     runner: str
     toolchains: tuple[str, ...]
-    coverage: bool
+    coverage_profiles: tuple[str, ...]
+
+    @property
+    def coverage(self) -> bool:
+        """Compatibility view for callers that only need a boolean."""
+        return bool(self.coverage_profiles)
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +69,7 @@ class TargetSpec:
 class SupportRegistry:
     version: int
     evidence_levels: frozenset[str]
+    coverage_profiles: dict[str, CoverageProfile]
     targets: tuple[TargetSpec, ...]
 
     @property
@@ -54,7 +78,7 @@ class SupportRegistry:
 
     @property
     def matrix_jobs(self) -> frozenset[str]:
-        return self.ci_jobs | {"coverage"}
+        return self.ci_jobs | {PROFILE_JOB_NAMES[name] for name in self.coverage_profiles}
 
 
 def is_ci_job_name(value: object) -> bool:
@@ -87,16 +111,40 @@ def matrix_reference(value: object) -> str | None:
     return referenced if is_ci_job_name(referenced) else None
 
 
+def parse_coverage_profiles(data: object) -> dict[str, CoverageProfile]:
+    if not isinstance(data, dict) or set(data) != set(EXPECTED_PROFILE_METRICS):
+        fail("coverage_profiles must define exactly stable, branch, and condition")
+    profiles: dict[str, CoverageProfile] = {}
+    for name, expected_metrics in EXPECTED_PROFILE_METRICS.items():
+        raw = data.get(name)
+        if not isinstance(raw, dict) or set(raw) != {"requested_toolchain", "metrics"}:
+            fail(f"coverage profile {name} has an invalid shape")
+        requested_toolchain = raw["requested_toolchain"]
+        metrics = raw["metrics"]
+        if not isinstance(requested_toolchain, str) or not requested_toolchain:
+            fail(f"coverage profile {name} must define a requested toolchain")
+        if not isinstance(metrics, list) or tuple(metrics) != expected_metrics:
+            fail(f"coverage profile {name} must define metrics {list(expected_metrics)}")
+        profiles[name] = CoverageProfile(name, requested_toolchain, tuple(metrics))
+    for name in ("branch", "condition"):
+        if profiles[name].requested_toolchain != BRANCH_TOOLCHAIN:
+            fail(f"{name} coverage must use {BRANCH_TOOLCHAIN}")
+    return profiles
+
+
 def parse_registry(data: object) -> SupportRegistry:
     if not isinstance(data, dict):
         fail("matrix must be a JSON object")
-    if data.get("version") != 5:
-        fail("version must be 5")
+    if set(data) != {"version", "evidence_levels", "coverage_profiles", "targets"}:
+        fail("matrix has unknown or missing top-level fields")
+    if data.get("version") != 7:
+        fail("version must be 7")
     evidence_levels = data.get("evidence_levels")
     if not isinstance(evidence_levels, list) or not all(
         isinstance(level, str) for level in evidence_levels
     ) or set(evidence_levels) != EVIDENCE_LEVELS:
         fail("evidence_levels must contain runtime, compile, and not-covered")
+    coverage_profiles = parse_coverage_profiles(data.get("coverage_profiles"))
 
     targets = data.get("targets")
     if not isinstance(targets, list) or not targets:
@@ -137,16 +185,14 @@ def parse_registry(data: object) -> SupportRegistry:
         if evidence == "not-covered":
             if ci is not None:
                 fail(f"not-covered target {target} must not have CI metadata")
-            parsed_targets.append(
-                TargetSpec(target, platform, evidence, allocation, None)
-            )
+            parsed_targets.append(TargetSpec(target, platform, evidence, allocation, None))
             continue
         if not isinstance(ci, dict):
             fail(f"CI metadata for {target} must be an object")
         ci_required = {"job", "runner", "toolchains"}
         if not ci_required <= ci.keys():
             fail(f"CI metadata for {target} is missing fields: {sorted(ci_required - ci.keys())}")
-        ci_unexpected = set(ci) - ci_required - {"coverage"}
+        ci_unexpected = set(ci) - ci_required - {"coverage_profiles"}
         if ci_unexpected:
             fail(f"CI metadata for {target} has unknown fields: {sorted(ci_unexpected)}")
         job = ci.get("job")
@@ -161,17 +207,22 @@ def parse_registry(data: object) -> SupportRegistry:
             isinstance(toolchain, str) for toolchain in toolchains
         ):
             fail(f"CI metadata for {target} must define toolchains")
-        coverage = ci.get("coverage", False)
-        if not isinstance(coverage, bool):
-            fail(f"CI coverage selection for {target} must be a boolean")
-        if coverage and evidence != "runtime":
+        selected_profiles = ci.get("coverage_profiles", [])
+        if not isinstance(selected_profiles, list) or not all(
+            isinstance(profile, str) for profile in selected_profiles
+        ) or len(set(selected_profiles)) != len(selected_profiles):
+            fail(f"coverage_profiles for {target} must be a unique string list")
+        unknown_profiles = set(selected_profiles) - set(coverage_profiles)
+        if unknown_profiles:
+            fail(f"unknown coverage profiles for {target}: {sorted(unknown_profiles)}")
+        if selected_profiles and evidence != "runtime":
             fail(f"compile target {target} cannot provide native coverage")
+        if evidence == "runtime" and selected_profiles and set(selected_profiles) != set(coverage_profiles):
+            fail(f"runtime coverage target {target} must select every defined coverage profile")
 
         jobs.add(job)
-        parsed_ci = CiSpec(job, runner, tuple(toolchains), coverage)
-        parsed_targets.append(
-            TargetSpec(target, platform, evidence, allocation, parsed_ci)
-        )
+        parsed_ci = CiSpec(job, runner, tuple(toolchains), tuple(selected_profiles))
+        parsed_targets.append(TargetSpec(target, platform, evidence, allocation, parsed_ci))
 
     if not jobs:
         fail("at least one CI job is required")
@@ -180,7 +231,7 @@ def parse_registry(data: object) -> SupportRegistry:
     if not any(target.ci is not None and target.ci.coverage for target in parsed_targets):
         fail("at least one native coverage target is required")
 
-    return SupportRegistry(5, frozenset(evidence_levels), tuple(parsed_targets))
+    return SupportRegistry(7, frozenset(evidence_levels), coverage_profiles, tuple(parsed_targets))
 
 
 def load_matrix(
@@ -218,6 +269,11 @@ def package_rust_version() -> str:
 
 
 def validate_toolchain_policy(registry: SupportRegistry, rust_version: str) -> None:
+    if registry.coverage_profiles["stable"].requested_toolchain != rust_version:
+        fail(
+            "stable coverage profile must use the package rust-version "
+            f"{rust_version}"
+        )
     for target in registry.targets:
         if target.ci is None:
             continue
@@ -284,17 +340,19 @@ def matrices(registry: SupportRegistry) -> dict[str, dict[str, list[dict[str, st
                 }
             )
 
-    generated["coverage"] = {
-        "include": [
-            {
-                "os": target.ci.runner,
-                "target": target.target,
-                "toolchain": target.ci.toolchains[0],
-            }
-            for target in registry.targets
-            if target.ci is not None and target.ci.coverage
-        ]
-    }
+    for profile_name, profile in registry.coverage_profiles.items():
+        job_name = PROFILE_JOB_NAMES[profile_name]
+        generated[job_name] = {
+            "include": [
+                {
+                    "os": target.ci.runner,
+                    "target": target.target,
+                    "toolchain": profile.requested_toolchain,
+                }
+                for target in registry.targets
+                if target.ci is not None and profile_name in target.ci.coverage_profiles
+            ]
+        }
     return generated
 
 

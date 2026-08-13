@@ -1,0 +1,37 @@
+{
+  "record_type": "run_manifest_schema",
+  "schema_version": 1,
+  "required": [
+    "run_id",
+    "repository",
+    "branch",
+    "commit",
+    "tree",
+    "dirty",
+    "cargo_lock_sha256",
+    "host",
+    "target",
+    "profile",
+    "requested_toolchain",
+    "resolved_toolchain",
+    "cargo_llvm_cov",
+    "command",
+    "environment",
+    "native_exit",
+    "status",
+    "artifacts"
+  ],
+  "enums": {
+    "profile": ["stable", "branch", "condition"],
+    "status": ["pass", "fail", "indeterminate", "provenance_error", "focused_only"]
+  },
+  "commit": "full 40-character hexadecimal commit",
+  "tree": "full 40-character hexadecimal tree",
+  "dirty": "boolean; true is never release eligible",
+  "artifact": {
+    "path": "repository-relative staging path",
+    "sha256": "64-character lowercase hexadecimal digest",
+    "bytes": "non-negative integer"
+  },
+  "promotion_rule": "Only pass manifests from clean exact-commit runs with complete artifacts may be reviewed for internal promotion; no manifest establishes certification credit."
+}

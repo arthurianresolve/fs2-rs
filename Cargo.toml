@@ -16,6 +16,7 @@ exclude = [
     "benchmarks/",
     "compatibility/",
     "CONTEXT.md",
+    "coverage/",
     "deny.toml",
     "scripts/",
     "support-matrix.json",

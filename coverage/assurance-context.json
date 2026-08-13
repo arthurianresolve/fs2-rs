@@ -1,0 +1,29 @@
+{
+  "record_type": "assurance_context",
+  "schema_version": 1,
+  "status": "draft",
+  "owner": "fs2 DO-178C coverage workstream",
+  "repository": "arthurianresolve/fs2-rs",
+  "branch": "DO-178C",
+  "baseline": {
+    "reference": "d1e0e22eaed156e2420058f52f119e10330e24df",
+    "reference_kind": "pre-implementation-full-commit",
+    "working_tree_state": "implementation_changes_are_bound_to_the_parent_for_exact_commit_review",
+    "exact_commit_required_for_evidence": true
+  },
+  "planning_target_level": "DAL_B",
+  "assigned_software_level": null,
+  "certification_credit": "none",
+  "approved_basis_refs": [],
+  "requirements_status": "derived_internal",
+  "mcdc_status": "not_assessed",
+  "tool_credit": "internal_only",
+  "independence_status": "not_assessed",
+  "open_items": [
+    "approve the applicable certification basis and assigned software level",
+    "approve the requirements and verification baseline",
+    "complete tool-use assessment and decide whether qualification is needed",
+    "define independence, review, configuration-management, and archive controls",
+    "perform target-specific applicability and object-code analysis as required"
+  ]
+}

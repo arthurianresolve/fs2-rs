@@ -1,0 +1,179 @@
+{
+  "record_type": "derived_requirements",
+  "schema_version": 1,
+  "status": "draft",
+  "owner": "fs2 DO-178C coverage workstream",
+  "basis": "derived from the public API documentation, platform contracts, and current implementation",
+  "requirements": [
+    {
+      "id": "REQ-ALLOC-001",
+      "statement": "allocate shall return success for a file whose requested length is already physically allocated.",
+      "source_refs": ["src/allocation.rs:16-25", "src/lib.rs:68-76"],
+      "platforms": ["unix", "windows"],
+      "verification_ids": ["allocation::tests::accepts_already_allocated_zero_length", "test::allocate_is_idempotent"],
+      "expected_result": "The call succeeds and does not reduce the file size.",
+      "status": "mapped",
+      "review": {"status": "internal_review_open", "reviewer": null}
+    },
+    {
+      "id": "REQ-ALLOC-002",
+      "statement": "allocate shall request physical reservation when the requested length exceeds the current allocation.",
+      "source_refs": ["src/allocation.rs:16-21", "src/unix.rs:55-107", "src/windows.rs:125-177"],
+      "platforms": ["unix", "windows"],
+      "verification_ids": ["allocation::tests::allocates_physical_space_when_needed", "test::allocate"],
+      "expected_result": "The platform allocation operation succeeds or returns its documented unsupported/error result.",
+      "status": "mapped",
+      "review": {"status": "internal_review_open", "reviewer": null}
+    },
+    {
+      "id": "REQ-ALLOC-003",
+      "statement": "allocate shall ensure logical file length reaches the requested length when the platform reservation operation does not extend it.",
+      "source_refs": ["src/allocation.rs:23-30", "src/allocation.rs:43-48"],
+      "platforms": ["unix", "windows"],
+      "verification_ids": ["allocation::tests::covers_platform_allocation_completion_variants", "test::allocate", "test::allocate_is_idempotent"],
+      "expected_result": "A successful call reports a file length at least equal to the requested length.",
+      "status": "mapped",
+      "review": {"status": "internal_review_open", "reviewer": null}
+    },
+    {
+      "id": "REQ-ALLOC-004",
+      "statement": "allocate shall reject a requested length that cannot be represented by the platform file-length type.",
+      "source_refs": ["src/lib.rs:225-238"],
+      "platforms": ["unix", "windows"],
+      "verification_ids": ["test::allocate_rejects_unrepresentable_length"],
+      "expected_result": "The call returns an error and does not create an invalid file state.",
+      "status": "mapped",
+      "review": {"status": "internal_review_open", "reviewer": null}
+    },
+    {
+      "id": "REQ-LOCK-001",
+      "statement": "shared locks shall be mutually compatible and shall contend with an exclusive lock.",
+      "source_refs": ["src/lock.rs:12-28", "src/lock_contract.rs:29-45"],
+      "platforms": ["unix", "windows"],
+      "verification_ids": ["lock_contract::shared_locks_are_compatible_but_exclusive_locks_are_not", "lock_contract::exclusive_locks_block_shared_and_exclusive_locks"],
+      "expected_result": "Compatible shared acquisition succeeds; exclusive acquisition reports the documented contention error.",
+      "status": "mapped",
+      "review": {"status": "internal_review_open", "reviewer": null}
+    },
+    {
+      "id": "REQ-LOCK-002",
+      "statement": "exclusive locks shall prevent shared and exclusive acquisition by another file handle until released.",
+      "source_refs": ["src/lock.rs:16-28", "src/lock_contract.rs:47-62"],
+      "platforms": ["unix", "windows"],
+      "verification_ids": ["lock_contract::exclusive_locks_block_shared_and_exclusive_locks"],
+      "expected_result": "Both contending non-blocking acquisitions report contention, and acquisition succeeds after release.",
+      "status": "mapped",
+      "review": {"status": "internal_review_open", "reviewer": null}
+    },
+    {
+      "id": "REQ-LOCK-003",
+      "statement": "blocking lock acquisition shall complete after the owner releases the lock.",
+      "source_refs": ["src/lock.rs:30-32", "src/lock_contract.rs:65-85"],
+      "platforms": ["unix", "windows"],
+      "verification_ids": ["lock_contract::blocking_acquisition_completes_after_release"],
+      "expected_result": "The waiting operation completes and can release its acquired lock.",
+      "status": "mapped",
+      "review": {"status": "internal_review_open", "reviewer": null}
+    },
+    {
+      "id": "REQ-LOCK-004",
+      "statement": "dropping a lock owner shall release its lock for another file handle.",
+      "source_refs": ["src/lock_contract.rs:48-62"],
+      "platforms": ["unix", "windows"],
+      "verification_ids": ["lock_contract::dropping_a_lock_owner_releases_the_lock"],
+      "expected_result": "The second handle can acquire a shared lock after the first owner is dropped.",
+      "status": "mapped",
+      "review": {"status": "internal_review_open", "reviewer": null}
+    },
+    {
+      "id": "REQ-STAT-001",
+      "statement": "filesystem statistics shall expose a consistent snapshot of free, available, total, and allocation-granularity counters.",
+      "source_refs": ["src/stats.rs:9-110", "src/unix.rs:200-334", "src/windows.rs:250-390"],
+      "platforms": ["unix", "windows"],
+      "verification_ids": ["stats::tests::constructs_stats_from_bytes", "stats::tests::filesystem_space", "stats::tests::prepared_query_returns_fresh_valid_snapshots", "windows::test::modern_and_legacy_stats_have_valid_domains"],
+      "expected_result": "The returned snapshot satisfies the platform-specific counter invariants.",
+      "status": "mapped",
+      "review": {"status": "internal_review_open", "reviewer": null}
+    },
+    {
+      "id": "REQ-STAT-002",
+      "statement": "filesystem statistics shall reject invalid zero-granularity, counter-ordering, overflow, or scalar snapshots.",
+      "source_refs": ["src/stats.rs:52-86", "src/windows.rs:303-390"],
+      "platforms": ["unix", "windows"],
+      "verification_ids": ["stats::tests::rejects_zero_granularity", "stats::tests::rejects_available_space_above_free_space", "windows::test::rejects_invalid_modern_scalar_snapshot", "windows::test::rejects_invalid_modern_snapshot_stats", "windows::test::rejects_modern_disk_space_overflow"],
+      "expected_result": "Invalid values return an error instead of an invalid statistics object.",
+      "status": "mapped",
+      "review": {"status": "internal_review_open", "reviewer": null}
+    },
+    {
+      "id": "REQ-STAT-003",
+      "statement": "a prepared statistics query shall resolve its path once and obtain fresh counters for every snapshot.",
+      "source_refs": ["src/stats.rs:31-55", "src/unix.rs:342-390", "src/windows.rs:405-465"],
+      "platforms": ["unix", "windows"],
+      "verification_ids": ["stats::tests::prepared_query_returns_fresh_valid_snapshots", "src/stats.rs:FsStatsQuery (line 31)"],
+      "expected_result": "Construction succeeds for a valid path and each snapshot is independently acquired and validated.",
+      "status": "mapped",
+      "review": {"status": "internal_review_open", "reviewer": null}
+    },
+    {
+      "id": "REQ-WIN-001",
+      "statement": "Windows statistics shall use the modern provider when available and preserve the legacy provider as an explicit fallback.",
+      "source_refs": ["src/windows.rs:250-390"],
+      "platforms": ["windows"],
+      "verification_ids": ["windows::test::maps_modern_disk_space_information", "windows::test::distinguishes_unavailable_and_failed_modern_api", "windows::test::modern_provider_only_falls_back_for_unavailable_errors"],
+      "expected_result": "Modern values are mapped when available; only classified unavailable errors select the legacy path.",
+      "status": "mapped",
+      "review": {"status": "internal_review_open", "reviewer": null}
+    },
+    {
+      "id": "REQ-WIN-002",
+      "statement": "Windows file-space queries shall use the alternate handle provider only for eligible online regular files.",
+      "source_refs": ["src/windows.rs:390-520"],
+      "platforms": ["windows"],
+      "verification_ids": ["windows::test::handle_space_attributes_only_accept_online_regular_files", "windows::test::handle_space_only_resolves_online_files", "windows::test::handle_space_projects_valid_file_counters", "windows::test::handle_space_rejects_invalid_file_counters"],
+      "expected_result": "Eligible files use the handle query; directories, offline files, and invalid counters follow the documented alternate/error path.",
+      "status": "mapped",
+      "review": {"status": "internal_review_open", "reviewer": null}
+    },
+    {
+      "id": "REQ-WIN-003",
+      "statement": "Windows exact drive-root handling shall preserve provider errors while resolving volume counters only for path-resolution failures.",
+      "source_refs": ["src/windows.rs:465-615"],
+      "platforms": ["windows"],
+      "verification_ids": ["windows::test::copies_only_exact_drive_roots", "windows::test::exact_drive_root_matches_canonical_resolution", "windows::test::exact_drive_root_only_resolves_volume_for_path_errors", "windows::test::exact_drive_root_preserves_provider_errors", "windows::test::exact_drive_root_scalar_errors_match_canonical_resolution", "windows::test::exact_drive_root_scalars_match_snapshot"],
+      "expected_result": "Drive-root and non-root paths return equivalent valid counters, with non-path provider errors preserved.",
+      "status": "mapped",
+      "review": {"status": "internal_review_open", "reviewer": null}
+    },
+    {
+      "id": "REQ-WIN-004",
+      "statement": "Windows path conversion shall reject embedded nulls before invoking native path APIs.",
+      "source_refs": ["src/windows.rs:190-215"],
+      "platforms": ["windows"],
+      "verification_ids": ["windows::test::statistics_reject_embedded_null_paths"],
+      "expected_result": "The conversion returns an invalid-input error and no native query is attempted.",
+      "status": "mapped",
+      "review": {"status": "internal_review_open", "reviewer": null}
+    },
+    {
+      "id": "REQ-WIN-005",
+      "statement": "Windows duplicated handles shall preserve the intended inheritance and lock-independence semantics.",
+      "source_refs": ["src/windows.rs:145-190", "src/windows/tests.rs:506-692"],
+      "platforms": ["windows"],
+      "verification_ids": ["windows::test::duplicate_new_handle", "windows::test::duplicate_preserves_legacy_handle_inheritance", "windows::test::lock_duplicate_handle_independence", "windows::test::lock_duplicate_cleanup"],
+      "expected_result": "The duplicate is usable, has the recorded inheritance behavior, and does not create an invalid lock lifecycle.",
+      "status": "mapped",
+      "review": {"status": "internal_review_open", "reviewer": null}
+    },
+    {
+      "id": "REQ-COMPAT-001",
+      "statement": "The public compatibility surface shall continue to compile and exercise the upstream duplicate, allocation, lock, and statistics entry points.",
+      "source_refs": ["tests/upstream_compat.rs:1-120", "src/lib.rs:40-170"],
+      "platforms": ["unix", "windows"],
+      "verification_ids": ["upstream_duplicate_and_allocation_surface", "upstream_legacy_lock_surface", "upstream_named_generic_function_items", "upstream_statistics_surface"],
+      "expected_result": "The compatibility tests compile and pass under the locked dependency graph.",
+      "status": "mapped",
+      "review": {"status": "internal_review_open", "reviewer": null}
+    }
+  ]
+}

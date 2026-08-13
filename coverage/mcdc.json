@@ -1,0 +1,211 @@
+{
+  "record_type": "source_mcdc_assessment",
+  "schema_version": 1,
+  "status": "assessment_open",
+  "owner": "fs2 DO-178C coverage workstream",
+  "claim_class": "internal_engineering_evidence",
+  "credit": "none",
+  "tool_support": {
+    "cargo_llvm_cov_mcdc": "not_available_on_pinned_nightly",
+    "diagnostic_condition_profile": "available_but_not_mcdc_acceptance",
+    "source_object_mapping": "not_assessed"
+  },
+  "decisions": [
+    {
+      "id": "MCDC-WIN-MODULE-AVAILABLE",
+      "source": "src/windows.rs:284-290",
+      "source_sha256": "99e9787c2d48338d15639c620605bb1dc75598f2f9b40835c570520a6b39aa54",
+      "symbol": "resolve_module_symbol",
+      "requirement_ids": ["REQ-WIN-001"],
+      "verification_ids": ["windows::test::resolves_module_symbols_only_when_the_module_is_available"],
+      "conditions": [
+        {"id": "C1", "expression": "module is non-null", "occurrence": "module_handle_available"}
+      ],
+      "observations": [
+        {"id": "OBS-MODULE-FALSE", "verification_id": "windows::test::resolves_module_symbols_only_when_the_module_is_available", "condition_states": {"C1": "false"}, "decision": false, "oracle": "pass", "result": "pass"},
+        {"id": "OBS-MODULE-TRUE", "verification_id": "windows::test::resolves_module_symbols_only_when_the_module_is_available", "condition_states": {"C1": "true"}, "decision": true, "oracle": "pass", "result": "pass"}
+      ],
+      "pairs": [
+        {"id": "PAIR-MODULE-C1", "target_condition": "C1", "baseline_observation": "OBS-MODULE-FALSE", "modified_observation": "OBS-MODULE-TRUE", "result": "pass"}
+      ],
+      "status": "closed_internal"
+    },
+    {
+      "id": "MCDC-WIN-HANDLE-OWNERSHIP",
+      "source": "src/windows.rs:489-496",
+      "source_sha256": "99e9787c2d48338d15639c620605bb1dc75598f2f9b40835c570520a6b39aa54",
+      "symbol": "owned_handle",
+      "requirement_ids": ["REQ-WIN-002"],
+      "verification_ids": ["windows::test::owns_only_valid_windows_handles"],
+      "conditions": [
+        {"id": "C1", "expression": "handle == INVALID_HANDLE_VALUE", "occurrence": "native_handle_invalid"}
+      ],
+      "observations": [
+        {"id": "OBS-HANDLE-INVALID", "verification_id": "windows::test::owns_only_valid_windows_handles", "condition_states": {"C1": "true"}, "decision": true, "oracle": "pass", "result": "pass"},
+        {"id": "OBS-HANDLE-VALID", "verification_id": "windows::test::owns_only_valid_windows_handles", "condition_states": {"C1": "false"}, "decision": false, "oracle": "pass", "result": "pass"}
+      ],
+      "pairs": [
+        {"id": "PAIR-HANDLE-C1", "target_condition": "C1", "baseline_observation": "OBS-HANDLE-INVALID", "modified_observation": "OBS-HANDLE-VALID", "result": "pass"}
+      ],
+      "status": "closed_internal"
+    },
+    {
+      "id": "MCDC-ALLOC-EXTEND",
+      "source": "src/allocation.rs:77-79",
+      "source_sha256": "6874933ba1e9696b777a3c0b5fbb2aaf00fc087515f77a07c0782424644f9c69",
+      "symbol": "should_extend_file_length",
+      "requirement_ids": ["REQ-ALLOC-003"],
+      "verification_ids": ["allocation::tests::evaluates_file_length_extension_decision"],
+      "conditions": [
+        {"id": "C1", "expression": "file_size < len", "occurrence": "prior_file_size_below_request"},
+        {"id": "C2", "expression": "current_file_size < len", "occurrence": "current_file_size_below_request"}
+      ],
+      "observations": [
+        {"id": "OBS-ALLOC-EXTEND-TT", "verification_id": "allocation::tests::evaluates_file_length_extension_decision", "condition_states": {"C1": "true", "C2": "true"}, "decision": true, "oracle": "pass", "result": "pass"},
+        {"id": "OBS-ALLOC-EXTEND-FT", "verification_id": "allocation::tests::evaluates_file_length_extension_decision", "condition_states": {"C1": "false", "C2": "true"}, "decision": false, "oracle": "pass", "result": "pass"},
+        {"id": "OBS-ALLOC-EXTEND-TF", "verification_id": "allocation::tests::evaluates_file_length_extension_decision", "condition_states": {"C1": "true", "C2": "false"}, "decision": false, "oracle": "pass", "result": "pass"},
+        {"id": "OBS-ALLOC-EXTEND-FF", "verification_id": "allocation::tests::evaluates_file_length_extension_decision", "condition_states": {"C1": "false", "C2": "false"}, "decision": false, "oracle": "pass", "result": "pass"}
+      ],
+      "pairs": [
+        {"id": "PAIR-ALLOC-EXTEND-C1", "target_condition": "C1", "baseline_observation": "OBS-ALLOC-EXTEND-TT", "modified_observation": "OBS-ALLOC-EXTEND-FT", "result": "pass"},
+        {"id": "PAIR-ALLOC-EXTEND-C2", "target_condition": "C2", "baseline_observation": "OBS-ALLOC-EXTEND-TT", "modified_observation": "OBS-ALLOC-EXTEND-TF", "result": "pass"}
+      ],
+      "status": "closed_internal"
+    },
+    {
+      "id": "MCDC-ALLOC-COMPLETION",
+      "source": "src/allocation.rs:43-45",
+      "source_sha256": "6874933ba1e9696b777a3c0b5fbb2aaf00fc087515f77a07c0782424644f9c69",
+      "symbol": "allocation_completion",
+      "requirement_ids": ["REQ-ALLOC-003"],
+      "verification_ids": ["allocation::tests::covers_platform_allocation_completion_variants"],
+      "conditions": [
+        {"id": "C1", "expression": "allocation_extends_length", "occurrence": "platform_reservation_extends_logical_length"}
+      ],
+      "observations": [
+        {"id": "OBS-ALLOC-COMPLETION-FALSE", "verification_id": "allocation::tests::covers_platform_allocation_completion_variants", "condition_states": {"C1": "false"}, "decision": false, "oracle": "pass", "result": "pass"},
+        {"id": "OBS-ALLOC-COMPLETION-TRUE", "verification_id": "allocation::tests::covers_platform_allocation_completion_variants", "condition_states": {"C1": "true"}, "decision": true, "oracle": "pass", "result": "pass"}
+      ],
+      "pairs": [
+        {"id": "PAIR-ALLOC-COMPLETION-C1", "target_condition": "C1", "baseline_observation": "OBS-ALLOC-COMPLETION-FALSE", "modified_observation": "OBS-ALLOC-COMPLETION-TRUE", "result": "pass"}
+      ],
+      "status": "closed_internal"
+    },
+    {
+      "id": "MCDC-WIN-DRIVE-ROOT",
+      "source": "src/windows.rs:225-232",
+      "source_sha256": "99e9787c2d48338d15639c620605bb1dc75598f2f9b40835c570520a6b39aa54",
+      "symbol": "valid_drive_root_components",
+      "requirement_ids": ["REQ-WIN-003"],
+      "verification_ids": ["windows::test::evaluates_drive_root_components_independently"],
+      "conditions": [
+        {"id": "C1", "expression": "drive is uppercase ASCII", "occurrence": "uppercase_drive_range"},
+        {"id": "C2", "expression": "drive is lowercase ASCII", "occurrence": "lowercase_drive_range"},
+        {"id": "C3", "expression": "colon == ':'", "occurrence": "drive_separator_colon"},
+        {"id": "C4", "expression": "separator is '\\' or '/'", "occurrence": "drive_root_separator"},
+        {"id": "C5", "expression": "terminator == 0", "occurrence": "wide_path_terminator"}
+      ],
+      "observations": [
+        {"id": "OBS-DRIVE-UTTTT", "verification_id": "windows::test::evaluates_drive_root_components_independently", "condition_states": {"C1": "true", "C2": "false", "C3": "true", "C4": "true", "C5": "true"}, "decision": true, "oracle": "pass", "result": "pass"},
+        {"id": "OBS-DRIVE-FFTTT", "verification_id": "windows::test::evaluates_drive_root_components_independently", "condition_states": {"C1": "false", "C2": "false", "C3": "true", "C4": "true", "C5": "true"}, "decision": false, "oracle": "pass", "result": "pass"},
+        {"id": "OBS-DRIVE-LFTTT", "verification_id": "windows::test::evaluates_drive_root_components_independently", "condition_states": {"C1": "false", "C2": "true", "C3": "true", "C4": "true", "C5": "true"}, "decision": true, "oracle": "pass", "result": "pass"},
+        {"id": "OBS-DRIVE-FFFTT", "verification_id": "windows::test::evaluates_drive_root_components_independently", "condition_states": {"C1": "false", "C2": "false", "C3": "false", "C4": "true", "C5": "true"}, "decision": false, "oracle": "pass", "result": "pass"},
+        {"id": "OBS-DRIVE-FFTFT", "verification_id": "windows::test::evaluates_drive_root_components_independently", "condition_states": {"C1": "false", "C2": "false", "C3": "true", "C4": "false", "C5": "true"}, "decision": false, "oracle": "pass", "result": "pass"},
+        {"id": "OBS-DRIVE-FFTTF", "verification_id": "windows::test::evaluates_drive_root_components_independently", "condition_states": {"C1": "false", "C2": "false", "C3": "true", "C4": "true", "C5": "false"}, "decision": false, "oracle": "pass", "result": "pass"},
+        {"id": "OBS-DRIVE-UFTTT", "verification_id": "windows::test::evaluates_drive_root_components_independently", "condition_states": {"C1": "true", "C2": "false", "C3": "false", "C4": "true", "C5": "true"}, "decision": false, "oracle": "pass", "result": "pass"},
+        {"id": "OBS-DRIVE-UFTFT", "verification_id": "windows::test::evaluates_drive_root_components_independently", "condition_states": {"C1": "true", "C2": "false", "C3": "true", "C4": "false", "C5": "true"}, "decision": false, "oracle": "pass", "result": "pass"},
+        {"id": "OBS-DRIVE-UFTTF", "verification_id": "windows::test::evaluates_drive_root_components_independently", "condition_states": {"C1": "true", "C2": "false", "C3": "true", "C4": "true", "C5": "false"}, "decision": false, "oracle": "pass", "result": "pass"}
+      ],
+      "pairs": [
+        {"id": "PAIR-DRIVE-C1", "target_condition": "C1", "baseline_observation": "OBS-DRIVE-UTTTT", "modified_observation": "OBS-DRIVE-FFTTT", "result": "pass"},
+        {"id": "PAIR-DRIVE-C2", "target_condition": "C2", "baseline_observation": "OBS-DRIVE-FFTTT", "modified_observation": "OBS-DRIVE-LFTTT", "result": "pass"},
+        {"id": "PAIR-DRIVE-C3", "target_condition": "C3", "baseline_observation": "OBS-DRIVE-UTTTT", "modified_observation": "OBS-DRIVE-UFTTT", "result": "pass"},
+        {"id": "PAIR-DRIVE-C4", "target_condition": "C4", "baseline_observation": "OBS-DRIVE-UTTTT", "modified_observation": "OBS-DRIVE-UFTFT", "result": "pass"},
+        {"id": "PAIR-DRIVE-C5", "target_condition": "C5", "baseline_observation": "OBS-DRIVE-UTTTT", "modified_observation": "OBS-DRIVE-UFTTF", "result": "pass"}
+      ],
+      "status": "closed_internal"
+    },
+    {
+      "id": "MCDC-WIN-MODERN-UNAVAILABLE",
+      "source": "src/windows.rs:335-340",
+      "source_sha256": "99e9787c2d48338d15639c620605bb1dc75598f2f9b40835c570520a6b39aa54",
+      "symbol": "modern_statvfs_unavailable",
+      "requirement_ids": ["REQ-WIN-001"],
+      "verification_ids": ["windows::test::modern_provider_only_falls_back_for_unavailable_errors"],
+      "conditions": [
+        {"id": "C1", "expression": "result == E_NOTIMPL", "occurrence": "hresult_e_notimpl"},
+        {"id": "C2", "expression": "result == ERROR_CALL_NOT_IMPLEMENTED", "occurrence": "win32_call_not_implemented"},
+        {"id": "C3", "expression": "result == ERROR_INVALID_FUNCTION", "occurrence": "win32_invalid_function"},
+        {"id": "C4", "expression": "result == ERROR_NOT_SUPPORTED", "occurrence": "win32_not_supported"}
+      ],
+      "observations": [
+        {"id": "OBS-MODERN-NONE", "verification_id": "windows::test::modern_provider_only_falls_back_for_unavailable_errors", "condition_states": {"C1": "false", "C2": "false", "C3": "false", "C4": "false"}, "decision": false, "oracle": "pass", "result": "pass"},
+        {"id": "OBS-MODERN-C1", "verification_id": "windows::test::modern_provider_only_falls_back_for_unavailable_errors", "condition_states": {"C1": "true", "C2": "false", "C3": "false", "C4": "false"}, "decision": true, "oracle": "pass", "result": "pass"},
+        {"id": "OBS-MODERN-C2", "verification_id": "windows::test::modern_provider_only_falls_back_for_unavailable_errors", "condition_states": {"C1": "false", "C2": "true", "C3": "false", "C4": "false"}, "decision": true, "oracle": "pass", "result": "pass"},
+        {"id": "OBS-MODERN-C3", "verification_id": "windows::test::modern_provider_only_falls_back_for_unavailable_errors", "condition_states": {"C1": "false", "C2": "false", "C3": "true", "C4": "false"}, "decision": true, "oracle": "pass", "result": "pass"},
+        {"id": "OBS-MODERN-C4", "verification_id": "windows::test::modern_provider_only_falls_back_for_unavailable_errors", "condition_states": {"C1": "false", "C2": "false", "C3": "false", "C4": "true"}, "decision": true, "oracle": "pass", "result": "pass"}
+      ],
+      "pairs": [
+        {"id": "PAIR-MODERN-C1", "target_condition": "C1", "baseline_observation": "OBS-MODERN-NONE", "modified_observation": "OBS-MODERN-C1", "result": "pass"},
+        {"id": "PAIR-MODERN-C2", "target_condition": "C2", "baseline_observation": "OBS-MODERN-NONE", "modified_observation": "OBS-MODERN-C2", "result": "pass"},
+        {"id": "PAIR-MODERN-C3", "target_condition": "C3", "baseline_observation": "OBS-MODERN-NONE", "modified_observation": "OBS-MODERN-C3", "result": "pass"},
+        {"id": "PAIR-MODERN-C4", "target_condition": "C4", "baseline_observation": "OBS-MODERN-NONE", "modified_observation": "OBS-MODERN-C4", "result": "pass"}
+      ],
+      "status": "closed_internal"
+    },
+    {
+      "id": "MCDC-WIN-HANDLE-ATTRIBUTES",
+      "source": "src/windows.rs:427-437",
+      "source_sha256": "99e9787c2d48338d15639c620605bb1dc75598f2f9b40835c570520a6b39aa54",
+      "symbol": "handle_space_attributes_eligible",
+      "requirement_ids": ["REQ-WIN-002"],
+      "verification_ids": ["windows::test::handle_space_attributes_only_accept_online_regular_files"],
+      "conditions": [
+        {"id": "C1", "expression": "attributes != INVALID_FILE_ATTRIBUTES", "occurrence": "attribute_query_succeeded"},
+        {"id": "C2", "expression": "attributes has no unsuitable flag", "occurrence": "online_regular_file_flags"}
+      ],
+      "observations": [
+        {"id": "OBS-ATTR-VALID", "verification_id": "windows::test::handle_space_attributes_only_accept_online_regular_files", "condition_states": {"C1": "true", "C2": "true"}, "decision": true, "oracle": "pass", "result": "pass"},
+        {"id": "OBS-ATTR-INVALID", "verification_id": "windows::test::evaluates_handle_attribute_decision_independently", "condition_states": {"C1": "false", "C2": "true"}, "decision": false, "oracle": "pass", "result": "pass"},
+        {"id": "OBS-ATTR-DEVICE", "verification_id": "windows::test::handle_space_attributes_only_accept_online_regular_files", "condition_states": {"C1": "true", "C2": "false"}, "decision": false, "oracle": "pass", "result": "pass"}
+      ],
+      "pairs": [
+        {"id": "PAIR-ATTR-C1", "target_condition": "C1", "baseline_observation": "OBS-ATTR-VALID", "modified_observation": "OBS-ATTR-INVALID", "result": "pass"},
+        {"id": "PAIR-ATTR-C2", "target_condition": "C2", "baseline_observation": "OBS-ATTR-VALID", "modified_observation": "OBS-ATTR-DEVICE", "result": "pass"}
+      ],
+      "status": "closed_internal"
+    },
+    {
+      "id": "MCDC-WIN-DIRECT-SPACE",
+      "source": "src/windows.rs:605-622",
+      "source_sha256": "99e9787c2d48338d15639c620605bb1dc75598f2f9b40835c570520a6b39aa54",
+      "symbol": "direct_space_result",
+      "requirement_ids": ["REQ-STAT-001", "REQ-WIN-002"],
+      "verification_ids": ["windows::test::maps_direct_space_results_and_rejects_invalid_domains"],
+      "conditions": [
+        {"id": "C1", "expression": "result == 0", "occurrence": "native_query_failed"},
+        {"id": "C2", "expression": "caller_available > actual_free", "occurrence": "counter_domain_invalid"}
+      ],
+      "observations": [
+        {"id": "OBS-DIRECT-OK", "verification_id": "windows::test::maps_direct_space_results_and_rejects_invalid_domains", "condition_states": {"C1": "false", "C2": "false"}, "decision": false, "oracle": "pass", "result": "pass"},
+        {"id": "OBS-DIRECT-ERROR", "verification_id": "windows::test::maps_direct_space_results_and_rejects_invalid_domains", "condition_states": {"C1": "true", "C2": "false"}, "decision": true, "oracle": "pass", "result": "pass"},
+        {"id": "OBS-DIRECT-DOMAIN", "verification_id": "windows::test::maps_direct_space_results_and_rejects_invalid_domains", "condition_states": {"C1": "false", "C2": "true"}, "decision": true, "oracle": "pass", "result": "pass"}
+      ],
+      "pairs": [
+        {"id": "PAIR-DIRECT-C1", "target_condition": "C1", "baseline_observation": "OBS-DIRECT-OK", "modified_observation": "OBS-DIRECT-ERROR", "result": "pass"},
+        {"id": "PAIR-DIRECT-C2", "target_condition": "C2", "baseline_observation": "OBS-DIRECT-OK", "modified_observation": "OBS-DIRECT-DOMAIN", "result": "pass"}
+      ],
+      "status": "closed_internal"
+    }
+  ],
+  "out_of_scope": [
+    {"id": "MCDC-OOS-OBJECT", "scope": "object_code", "reason": "No object-code mapping or object-code analysis is present in this repository."},
+    {"id": "MCDC-OOS-CFG", "scope": "cfg_and_compiler_generated", "reason": "Compile-time target selection and compiler-generated paths require target-specific authority review."},
+    {"id": "MCDC-OOS-NATIVE", "scope": "native_api_fault_injection", "reason": "The records use deterministic pure decision seams; native fault-injection and independence are not claimed."}
+  ],
+  "open_dispositions": [
+    "An approved requirements and software-level basis is not present.",
+    "The pinned cargo-llvm-cov/nightly combination does not produce an MC/DC report.",
+    "Tool qualification, independence, object-code analysis, archive control, and authority acceptance remain open."
+  ]
+}
