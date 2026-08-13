@@ -40,6 +40,9 @@ The records are deliberately split by concern:
   retrieval procedure, and unresolved external-archive authorities.
 - `archive-retrieval.json` binds the latest executed internal retrieval drill
   after the package has been downloaded and verified.
+- `retrieval-results/` retains the canonical generated result for that drill;
+  the static validator recomputes its normalized-LF SHA-256 and cross-checks
+  every provenance and inventory field against the binding records.
 - `gap-register.json` preserves the historical focused-run measurements,
   records the current clean cross-host CI snapshot separately, and lists open
   closure actions.  An open gap is not silently converted into a pass.

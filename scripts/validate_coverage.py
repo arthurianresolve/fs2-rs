@@ -70,6 +70,10 @@ MCDC_DISPOSITIONS = {
     "not_applicable_sequential_query",
     "not_applicable_error_propagation",
 }
+ARCHIVE_RETRIEVAL_RESULT_NON_CLAIMS = [
+    "This result verifies an internal staging package, not retrieval from a controlled external archive.",
+    "A pass does not establish retention, backup, disposition authority, certification credit, or authority acceptance.",
+]
 
 
 class ValidationError(Exception):
@@ -1470,6 +1474,66 @@ def validate_archive_retrieval(record: dict[str, Any]) -> None:
             fail(f"{label}.{field} is incomplete")
 
 
+def validate_archive_retrieval_result(
+    result: dict[str, Any], retrieval: dict[str, Any], label: str
+) -> None:
+    fields = {
+        "commit",
+        "discrepancies",
+        "external_archive_verified",
+        "file_count",
+        "manifest_sha256",
+        "non_claims",
+        "package_id",
+        "record_type",
+        "schema_version",
+        "scope",
+        "status",
+        "total_bytes",
+        "tree",
+        "verified_utc",
+        "workflow_run_id",
+    }
+    if set(result) != fields:
+        fail(f"{label} fields do not match the registered contract")
+    if (
+        result["record_type"] != "assurance_archive_retrieval_result"
+        or result["schema_version"] != 1
+        or result["scope"] != "internal_github_actions_staging"
+        or result["status"] != "pass"
+        or result["external_archive_verified"] is not False
+        or result["discrepancies"] != []
+        or result["non_claims"] != ARCHIVE_RETRIEVAL_RESULT_NON_CLAIMS
+        or not COMMIT_RE.fullmatch(str(result["commit"]))
+        or not COMMIT_RE.fullmatch(str(result["tree"]))
+        or not SHA256_RE.fullmatch(str(result["manifest_sha256"]))
+        or not isinstance(result["workflow_run_id"], str)
+        or not result["workflow_run_id"].isdigit()
+        or not isinstance(result["file_count"], int)
+        or result["file_count"] <= 0
+        or not isinstance(result["total_bytes"], int)
+        or result["total_bytes"] <= 0
+    ):
+        fail(f"{label} is not a complete passing internal retrieval result")
+    validate_created_utc(result["verified_utc"], f"{label}.verified_utc")
+    expected_package_id = (
+        f"ASSURANCE-{result['commit'][:12]}-{result['workflow_run_id']}"
+    )
+    if result["package_id"] != expected_package_id:
+        fail(f"{label}.package_id does not match its commit and workflow run")
+    if not (
+        result["package_id"] == retrieval["package_id"]
+        and result["commit"] == retrieval["source_commit"]
+        and result["tree"] == retrieval["source_tree"]
+        and result["workflow_run_id"] == retrieval["workflow_run_id"]
+        and result["manifest_sha256"] == retrieval["manifest_sha256"]
+        and result["file_count"] == retrieval["file_count"]
+        and result["total_bytes"] == retrieval["total_bytes"]
+        and result["verified_utc"] == retrieval["retrieved_at"]
+    ):
+        fail(f"{label} disagrees with coverage/archive-retrieval.json")
+
+
 def validate_assurance_control_links(
     context: dict[str, Any],
     configuration: dict[str, Any],
@@ -1540,6 +1604,18 @@ def validate_assurance_control_links(
         == package["retrieval_result_sha256"]
     ):
         fail(f"{label}: bound candidate provenance or digests disagree")
+    result_ref = latest["result_ref"]
+    if not re.fullmatch(
+        r"coverage/retrieval-results/ASSURANCE-[0-9a-f]{12}-[0-9]+\.json",
+        result_ref,
+    ):
+        fail(f"{label}: retrieval result reference is not canonical")
+    result_path = source_path(result_ref, f"{label}.result_ref")
+    if canonical_source_sha256(result_path) != latest["result_sha256"]:
+        fail(f"{label}: retrieval result digest does not match its referenced file")
+    validate_archive_retrieval_result(
+        load_json(result_path), retrieval, result_ref
+    )
 
 
 def validate_verification_inventory(inventory: dict[str, Any]) -> set[str]:

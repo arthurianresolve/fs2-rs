@@ -17,6 +17,7 @@ from validate_coverage import (
     validate_context,
     validate_archive_control,
     validate_archive_retrieval,
+    validate_archive_retrieval_result,
     validate_assurance_control_links,
     validate_configuration_management,
     validate_decisions,
@@ -60,6 +61,45 @@ class CoverageRecordTests(unittest.TestCase):
         self.native_fault_review = load_json(
             COVERAGE / "windows-native-fault-review.json"
         )
+
+    @staticmethod
+    def passing_archive_result_fixture():
+        commit = "1" * 40
+        tree = "2" * 40
+        workflow_run_id = "123456"
+        manifest_sha256 = "3" * 64
+        retrieved_at = "2026-08-13T18:30:02Z"
+        retrieval = {
+            "package_id": f"ASSURANCE-{commit[:12]}-{workflow_run_id}",
+            "source_commit": commit,
+            "source_tree": tree,
+            "workflow_run_id": workflow_run_id,
+            "manifest_sha256": manifest_sha256,
+            "file_count": 670,
+            "total_bytes": 474754873,
+            "retrieved_at": retrieved_at,
+        }
+        result = {
+            "commit": commit,
+            "discrepancies": [],
+            "external_archive_verified": False,
+            "file_count": retrieval["file_count"],
+            "manifest_sha256": manifest_sha256,
+            "non_claims": [
+                "This result verifies an internal staging package, not retrieval from a controlled external archive.",
+                "A pass does not establish retention, backup, disposition authority, certification credit, or authority acceptance.",
+            ],
+            "package_id": retrieval["package_id"],
+            "record_type": "assurance_archive_retrieval_result",
+            "schema_version": 1,
+            "scope": "internal_github_actions_staging",
+            "status": "pass",
+            "total_bytes": retrieval["total_bytes"],
+            "tree": tree,
+            "verified_utc": retrieved_at,
+            "workflow_run_id": workflow_run_id,
+        }
+        return result, retrieval
 
     def test_static_records_are_valid(self):
         validate_static_records()
@@ -274,6 +314,26 @@ class CoverageRecordTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             validate_archive_retrieval(invalid)
 
+    def test_archive_retrieval_result_accepts_exact_binding(self):
+        result, retrieval = self.passing_archive_result_fixture()
+
+        validate_archive_retrieval_result(result, retrieval, "retrieval-result")
+
+    def test_archive_retrieval_result_rejects_record_drift(self):
+        result, retrieval = self.passing_archive_result_fixture()
+        result["file_count"] += 1
+
+        with self.assertRaises(ValidationError):
+            validate_archive_retrieval_result(result, retrieval, "retrieval-result")
+
+    def test_archive_retrieval_result_rejects_noncanonical_package_id(self):
+        result, retrieval = self.passing_archive_result_fixture()
+        result["package_id"] = "ASSURANCE-wrong"
+        retrieval["package_id"] = result["package_id"]
+
+        with self.assertRaises(ValidationError):
+            validate_archive_retrieval_result(result, retrieval, "retrieval-result")
+
     def test_assurance_controls_reject_mixed_pending_states(self):
         invalid_retrieval = copy.deepcopy(self.archive_retrieval)
         invalid_retrieval["result"] = (
@@ -288,6 +348,102 @@ class CoverageRecordTests(unittest.TestCase):
                 invalid_retrieval,
                 load_json(COVERAGE / "evidence-index.json"),
             )
+
+    def test_assurance_controls_validate_referenced_retrieval_result(self):
+        result, retrieval_values = self.passing_archive_result_fixture()
+        result_ref = (
+            "coverage/retrieval-results/"
+            f"{retrieval_values['package_id']}.json"
+        )
+        result_path = ROOT / result_ref
+        self.assertFalse(result_path.exists())
+        result_path.write_text(
+            json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        try:
+            result_sha256 = canonical_source_sha256(result_path)
+            configuration = copy.deepcopy(self.configuration_management)
+            configuration["candidate"].update(
+                {
+                    "state": "clean_exact_commit_internal_staging_verified",
+                    "commit": retrieval_values["source_commit"],
+                    "tree": retrieval_values["source_tree"],
+                    "ci_run_id": retrieval_values["workflow_run_id"],
+                    "assurance_package_manifest_sha256": retrieval_values[
+                        "manifest_sha256"
+                    ],
+                    "retrieval_result_sha256": result_sha256,
+                }
+            )
+            configuration["pending_change"]["state"] = (
+                "evidence_bound_review_pending"
+            )
+            configuration["release_control"]["current_state"] = (
+                "internal_staging_verified"
+            )
+
+            archive_control = copy.deepcopy(self.archive_control)
+            archive_control["retrieval"]["latest_result"].update(
+                {
+                    "status": "pass_internal_staging",
+                    "workflow_run_id": retrieval_values["workflow_run_id"],
+                    "source_commit": retrieval_values["source_commit"],
+                    "manifest_sha256": retrieval_values["manifest_sha256"],
+                    "result_sha256": result_sha256,
+                    "verified_at": retrieval_values["retrieved_at"],
+                    "result_ref": result_ref,
+                }
+            )
+
+            retrieval = copy.deepcopy(self.archive_retrieval)
+            retrieval.update(retrieval_values)
+            retrieval.update(
+                {
+                    "status": "draft",
+                    "result": "pass",
+                    "retrieval_result_sha256": result_sha256,
+                    "verified_by": "test",
+                }
+            )
+
+            evidence_index = load_json(COVERAGE / "evidence-index.json")
+            evidence_index["archive_status"] = "internal_staging_verified"
+            evidence_index["assurance_package"].update(
+                {
+                    "status": "verified_internal_staging",
+                    "workflow_run_id": retrieval_values["workflow_run_id"],
+                    "commit": retrieval_values["source_commit"],
+                    "tree": retrieval_values["source_tree"],
+                    "manifest_sha256": retrieval_values["manifest_sha256"],
+                    "retrieval_result_sha256": result_sha256,
+                }
+            )
+
+            validate_assurance_control_links(
+                self.context,
+                configuration,
+                archive_control,
+                retrieval,
+                evidence_index,
+            )
+
+            result["file_count"] += 1
+            result_path.write_text(
+                json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True)
+                + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaises(ValidationError):
+                validate_assurance_control_links(
+                    self.context,
+                    configuration,
+                    archive_control,
+                    retrieval,
+                    evidence_index,
+                )
+        finally:
+            result_path.unlink(missing_ok=True)
 
     def test_assurance_controls_reject_context_baseline_drift(self):
         invalid_context = copy.deepcopy(self.context)

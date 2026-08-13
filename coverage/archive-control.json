@@ -40,7 +40,7 @@
     "disposition_authority": null
   },
   "retrieval": {
-    "procedure": "Download the named workflow artifact without modification, locate assurance-archive-manifest.json and its packaged canonical control record, run the registered verify command against the exact source commit, and retain the result plus manifest digest. Historical self-contained verification uses the packaged control; an optional live-control comparison must use the exact control record from the package source commit.",
+    "procedure": "Download the named workflow artifact without modification, locate assurance-archive-manifest.json and its packaged canonical control record, run the registered verify command against the exact source commit, and retain the canonical generated result under coverage/retrieval-results plus its LF-normalized SHA-256. Historical self-contained verification uses the packaged control; an optional live-control comparison must use the exact control record from the package source commit.",
     "latest_result": {
       "status": "pending_first_current_package",
       "workflow_run_id": null,
