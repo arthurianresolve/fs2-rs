@@ -388,6 +388,8 @@ mod tests {
     use std::io::ErrorKind;
     use std::path::Path;
 
+    #[cfg(unix)]
+    use super::space_from_counters;
     use super::{FilesystemCounters, FsStats, FsStatsQuery, SpaceKind, statvfs};
 
     fn counters(
@@ -440,6 +442,18 @@ mod tests {
         assert_eq!(stats.available_space(), 24_576);
         assert_eq!(stats.total_space(), 40_960);
         assert_eq!(stats.allocation_granularity(), 4096);
+        assert_eq!(
+            space_from_counters(counters(4096, 8, 6, 10), SpaceKind::Free).unwrap(),
+            32_768
+        );
+        assert_eq!(
+            space_from_counters(counters(4096, 8, 6, 10), SpaceKind::Available).unwrap(),
+            24_576
+        );
+        assert_eq!(
+            space_from_counters(counters(4096, 8, 6, 10), SpaceKind::Total).unwrap(),
+            40_960
+        );
     }
 
     #[cfg(windows)]
