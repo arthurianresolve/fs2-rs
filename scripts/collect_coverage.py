@@ -57,6 +57,12 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def canonical_text_sha256(path: Path) -> str:
+    """Hash text inputs with a host-independent LF line-ending contract."""
+    contents = path.read_bytes().replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    return hashlib.sha256(contents).hexdigest()
+
+
 def git(*arguments: str) -> str:
     result = subprocess.run(
         ["git", *arguments], cwd=ROOT, capture_output=True, text=True, check=False
@@ -183,7 +189,7 @@ def preflight(
     lockfile = ROOT / "Cargo.lock"
     if not lockfile.is_file():
         raise CollectionError("Cargo.lock is missing")
-    return branch, tree, dirty, sha256(lockfile)
+    return branch, tree, dirty, canonical_text_sha256(lockfile)
 
 
 def profile_command(profile: str, target: str, output_dir: Path) -> list[str]:
@@ -303,7 +309,7 @@ def collect(args: argparse.Namespace) -> int:
             dirty = True
         lockfile = ROOT / "Cargo.lock"
         if lockfile.is_file():
-            lock_hash = sha256(lockfile)
+            lock_hash = canonical_text_sha256(lockfile)
         (output_dir / "preflight-error.txt").write_text(
             f"{error}\n", encoding="utf-8", newline="\n"
         )

@@ -59,8 +59,10 @@ provenance-error manifests may be retained for analysis but cannot satisfy it.
 
 Each run must retain the full commit, tree, lockfile hash, host, target,
 toolchain, tool version, command, native exit status, logs, raw report, and
-artifact hashes.  A report without this provenance is not eligible for the
-internal gate.
+artifact hashes.  The registered `Cargo.lock` digest uses canonical LF text
+normalization so equivalent Windows and Unix checkouts compare identically;
+artifact digests remain byte-for-byte hashes.  A report without this
+provenance is not eligible for the internal gate.
 
 ## Review state
 

@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from collect_coverage import sha256
+from collect_coverage import canonical_text_sha256, sha256
 from validate_coverage import (
     COVERAGE,
     ROOT,
@@ -118,6 +118,16 @@ class CoverageRecordTests(unittest.TestCase):
             crlf.write_bytes(b"fn main() {\r\n    println!(\"ok\");\r\n}\r\n")
 
             self.assertEqual(canonical_source_sha256(lf), canonical_source_sha256(crlf))
+
+    def test_lock_hash_is_line_ending_independent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            lf = root / "Cargo.lock"
+            crlf = root / "Cargo-crlf.lock"
+            lf.write_bytes(b"version = 3\n[[package]]\nname = \"fs2\"\n")
+            crlf.write_bytes(b"version = 3\r\n[[package]]\r\nname = \"fs2\"\r\n")
+
+            self.assertEqual(canonical_text_sha256(lf), canonical_text_sha256(crlf))
 
     def test_parses_grouped_cargo_test_listing(self):
         output = """
