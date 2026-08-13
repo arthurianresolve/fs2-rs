@@ -5,7 +5,7 @@
   "owner": "fs2 DO-178C coverage workstream",
   "claim_class": "internal_engineering_evidence",
   "credit": "none",
-  "review_status": "independent_review_pending",
+  "review_status": "independent_review_approved",
   "external_references": [
     {
       "id": "MICROSOFT-APPLICATION-VERIFIER",
@@ -116,11 +116,11 @@
     "A clean exact-commit Windows native-fault run must retain the scenario output, commands, native exit, host, toolchain, and artifact hashes.",
     "The deterministic result-adapter matrix and the real Windows-returned error matrix must both remain mapped.",
     "Application Verifier evidence is optional robustness depth and cannot substitute for deterministic native-boundary scenarios.",
-    "The current candidate is bound to a clean exact-commit native-fault manifest and is prepared for independent reviewer assessment; approval and re-review are required before the native-fault gap can close. The review scope includes scenario completeness, expected results, execution evidence, and the Driver Verifier applicability disposition."
+    "The independent reviewer approval recorded in IR-WINDOWS-NATIVE-FAULTS-001 covers the current candidate's scenario completeness, expected results, execution evidence, and Driver Verifier applicability disposition; retain the bound evidence and re-review if the candidate changes."
   ],
   "non_claims": [
     "The scenario matrix is not kernel-mode Driver Verifier injection.",
-    "The current native-fault manifest has not been independently approved for this candidate; any future approval is limited to the registered internal engineering condition.",
+    "The independent review approval is limited to the registered internal engineering condition.",
     "The record does not establish tool qualification, certification credit, MC/DC, object-code coverage, or authority acceptance."
   ]
 }

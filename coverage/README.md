@@ -132,11 +132,10 @@ checklist items passing, reciprocal and resolved findings, and a decision bound
 to the exact candidate and native-fault manifest digest.  The previous
 approval was bound to candidate `70cbe5e`; the current candidate `15da349`
 changed the reviewed source and assurance records.  The current record is
-rebound to the clean Windows manifest for `15da349` (SHA-256
-`8d22fea7c99a9181c4538fe82079207e453f67579fa260ed3341308df17cc464`) and is
-`assigned_ready_for_review`; it remains non-certification,
-non-qualification, and non-authority evidence until a fresh review is
-completed.
+bound to the clean Windows manifest for `15da349` (SHA-256
+`8d22fea7c99a9181c4538fe82079207e453f67579fa260ed3341308df17cc464`) and
+records the fresh approval for the registered internal review condition.  It
+remains non-certification, non-qualification, and non-authority evidence.
 
 If review findings change code, tests, collectors, validators, requirements,
 or assurance records, create and push a new candidate, regenerate clean native
@@ -157,8 +156,8 @@ this provenance is not eligible for the internal gate.
 The overall coverage package remains `draft` or `not_ready`.  The current CI
 snapshot closes the emitted raw metrics for Linux, Windows, and the configured
 Apple-silicon matrix, and records Windows provider availability.  The current
-native-fault review is pending for candidate `15da349`; the approved
-certification basis, assigned software level, qualified coverage-tool
+native-fault review condition is satisfied for candidate `15da349`; the
+approved certification basis, assigned software level, qualified coverage-tool
 determination, broader independence plan, and external archive remain open.
 These items remain explicit decisions rather than being inferred from passing
 tests or diagnostic branch percentages.

@@ -244,10 +244,10 @@ class CoverageRecordTests(unittest.TestCase):
         approved["updated_at"] = "2026-08-14T11:00:00+00:00"
         return approved
 
-    def test_native_fault_review_is_pending_for_current_candidate(self):
+    def test_native_fault_review_accepts_current_candidate_approval(self):
         self.assertEqual(
             validate_windows_native_fault_review(self.native_fault_review),
-            "independent_review_pending",
+            "independent_review_approved",
         )
 
     def test_native_fault_review_accepts_bound_candidate_before_reviewer_acceptance(self):
@@ -313,7 +313,7 @@ class CoverageRecordTests(unittest.TestCase):
 
     def test_native_fault_review_rejects_premature_approval(self):
         invalid = copy.deepcopy(self.native_fault_review)
-        invalid["status"] = "approved"
+        invalid["assignment"]["reviewer_acceptance"] = "pending"
 
         with self.assertRaises(ValidationError):
             validate_windows_native_fault_review(invalid)
