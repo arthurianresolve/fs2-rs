@@ -8,7 +8,14 @@
   "tool_support": {
     "cargo_llvm_cov_mcdc": "not_available_on_pinned_nightly",
     "diagnostic_condition_profile": "available_but_not_mcdc_acceptance",
-    "source_object_mapping": "not_assessed"
+    "source_object_mapping": "not_assessed",
+    "latest_probe": {
+      "toolchain": "nightly-2026-08-13",
+      "rustc": "rustc 1.99.0-nightly (c98d0cb27 2026-08-12)",
+      "command": "rustc +nightly-2026-08-13 -Z coverage-options=mcdc -C instrument-coverage - --crate-type=lib --emit=metadata",
+      "native_exit": 1,
+      "diagnostic": "incorrect value mcdc for unstable option coverage-options - block | branch | condition was expected"
+    }
   },
   "decisions": [
     {
@@ -50,9 +57,28 @@
       "status": "closed_internal"
     },
     {
+      "id": "MCDC-ALLOC-NEEDS-SPACE",
+      "source": "src/allocation.rs:17-30",
+      "source_sha256": "34aa31f65b79fde296a5bd56aad9853485e0aa18bed09a7f6444777634f6c563",
+      "symbol": "allocate_after_state",
+      "requirement_ids": ["REQ-ALLOC-002"],
+      "verification_ids": ["allocation::tests::accepts_already_allocated_zero_length", "allocation::tests::allocates_physical_space_when_needed"],
+      "conditions": [
+        {"id": "C1", "expression": "allocated_size < len", "occurrence": "allocation_needed"}
+      ],
+      "observations": [
+        {"id": "OBS-ALLOC-NEEDS-FALSE", "verification_id": "allocation::tests::accepts_already_allocated_zero_length", "condition_states": {"C1": "false"}, "decision": false, "oracle": "pass", "result": "pass"},
+        {"id": "OBS-ALLOC-NEEDS-TRUE", "verification_id": "allocation::tests::allocates_physical_space_when_needed", "condition_states": {"C1": "true"}, "decision": true, "oracle": "pass", "result": "pass"}
+      ],
+      "pairs": [
+        {"id": "PAIR-ALLOC-NEEDS-C1", "target_condition": "C1", "baseline_observation": "OBS-ALLOC-NEEDS-FALSE", "modified_observation": "OBS-ALLOC-NEEDS-TRUE", "result": "pass"}
+      ],
+      "status": "closed_internal"
+    },
+    {
       "id": "MCDC-ALLOC-EXTEND",
       "source": "src/allocation.rs:77-79",
-      "source_sha256": "6874933ba1e9696b777a3c0b5fbb2aaf00fc087515f77a07c0782424644f9c69",
+      "source_sha256": "34aa31f65b79fde296a5bd56aad9853485e0aa18bed09a7f6444777634f6c563",
       "symbol": "should_extend_file_length",
       "requirement_ids": ["REQ-ALLOC-003"],
       "verification_ids": ["allocation::tests::evaluates_file_length_extension_decision"],
@@ -75,7 +101,7 @@
     {
       "id": "MCDC-ALLOC-COMPLETION",
       "source": "src/allocation.rs:43-45",
-      "source_sha256": "6874933ba1e9696b777a3c0b5fbb2aaf00fc087515f77a07c0782424644f9c69",
+      "source_sha256": "34aa31f65b79fde296a5bd56aad9853485e0aa18bed09a7f6444777634f6c563",
       "symbol": "allocation_completion",
       "requirement_ids": ["REQ-ALLOC-003"],
       "verification_ids": ["allocation::tests::covers_platform_allocation_completion_variants"],
@@ -88,6 +114,139 @@
       ],
       "pairs": [
         {"id": "PAIR-ALLOC-COMPLETION-C1", "target_condition": "C1", "baseline_observation": "OBS-ALLOC-COMPLETION-FALSE", "modified_observation": "OBS-ALLOC-COMPLETION-TRUE", "result": "pass"}
+      ],
+      "status": "closed_internal"
+    },
+    {
+      "id": "MCDC-STAT-GRANULARITY",
+      "source": "src/stats.rs:160-165",
+      "source_sha256": "ef3808c67d8146d6045fcd73f2bf6423945ae33bcf9f86a9ef80ec70d2eade22",
+      "symbol": "validate_granularity",
+      "requirement_ids": ["REQ-STAT-001"],
+      "verification_ids": ["stats::tests::rejects_zero_granularity", "stats::tests::constructs_stats_from_block_counts"],
+      "conditions": [
+        {"id": "C1", "expression": "allocation_granularity == 0", "occurrence": "zero_granularity"}
+      ],
+      "observations": [
+        {"id": "OBS-STAT-GRANULARITY-TRUE", "verification_id": "stats::tests::rejects_zero_granularity", "condition_states": {"C1": "true"}, "decision": true, "oracle": "pass", "result": "pass"},
+        {"id": "OBS-STAT-GRANULARITY-FALSE", "verification_id": "stats::tests::constructs_stats_from_block_counts", "condition_states": {"C1": "false"}, "decision": false, "oracle": "pass", "result": "pass"}
+      ],
+      "pairs": [
+        {"id": "PAIR-STAT-GRANULARITY-C1", "target_condition": "C1", "baseline_observation": "OBS-STAT-GRANULARITY-FALSE", "modified_observation": "OBS-STAT-GRANULARITY-TRUE", "result": "pass"}
+      ],
+      "status": "closed_internal"
+    },
+    {
+      "id": "MCDC-STAT-UNIX-FREE-TOTAL",
+      "source": "src/stats.rs:180-182",
+      "source_sha256": "ef3808c67d8146d6045fcd73f2bf6423945ae33bcf9f86a9ef80ec70d2eade22",
+      "symbol": "validate_space_values",
+      "requirement_ids": ["REQ-STAT-001", "REQ-STAT-002"],
+      "verification_ids": ["stats::tests::rejects_free_space_above_total_space", "stats::tests::constructs_stats_from_block_counts"],
+      "conditions": [
+        {"id": "C1", "expression": "free_space > total_space", "occurrence": "free_space_exceeds_total"}
+      ],
+      "observations": [
+        {"id": "OBS-STAT-UNIX-FREE-TOTAL-TRUE", "verification_id": "stats::tests::rejects_free_space_above_total_space", "condition_states": {"C1": "true"}, "decision": true, "oracle": "pass", "result": "pass"},
+        {"id": "OBS-STAT-UNIX-FREE-TOTAL-FALSE", "verification_id": "stats::tests::constructs_stats_from_block_counts", "condition_states": {"C1": "false"}, "decision": false, "oracle": "pass", "result": "pass"}
+      ],
+      "pairs": [
+        {"id": "PAIR-STAT-UNIX-FREE-TOTAL-C1", "target_condition": "C1", "baseline_observation": "OBS-STAT-UNIX-FREE-TOTAL-FALSE", "modified_observation": "OBS-STAT-UNIX-FREE-TOTAL-TRUE", "result": "pass"}
+      ],
+      "status": "closed_internal"
+    },
+    {
+      "id": "MCDC-STAT-UNIX-AVAILABLE-TOTAL",
+      "source": "src/stats.rs:183-188",
+      "source_sha256": "ef3808c67d8146d6045fcd73f2bf6423945ae33bcf9f86a9ef80ec70d2eade22",
+      "symbol": "validate_space_values",
+      "requirement_ids": ["REQ-STAT-001", "REQ-STAT-002"],
+      "verification_ids": ["stats::tests::rejects_available_space_above_total_space", "stats::tests::constructs_stats_from_block_counts"],
+      "conditions": [
+        {"id": "C1", "expression": "available_space > total_space", "occurrence": "available_space_exceeds_total"}
+      ],
+      "observations": [
+        {"id": "OBS-STAT-UNIX-AVAILABLE-TOTAL-TRUE", "verification_id": "stats::tests::rejects_available_space_above_total_space", "condition_states": {"C1": "true"}, "decision": true, "oracle": "pass", "result": "pass"},
+        {"id": "OBS-STAT-UNIX-AVAILABLE-TOTAL-FALSE", "verification_id": "stats::tests::constructs_stats_from_block_counts", "condition_states": {"C1": "false"}, "decision": false, "oracle": "pass", "result": "pass"}
+      ],
+      "pairs": [
+        {"id": "PAIR-STAT-UNIX-AVAILABLE-TOTAL-C1", "target_condition": "C1", "baseline_observation": "OBS-STAT-UNIX-AVAILABLE-TOTAL-FALSE", "modified_observation": "OBS-STAT-UNIX-AVAILABLE-TOTAL-TRUE", "result": "pass"}
+      ],
+      "status": "closed_internal"
+    },
+    {
+      "id": "MCDC-STAT-WIN-AVAILABLE-FREE",
+      "source": "src/stats.rs:193-200",
+      "source_sha256": "ef3808c67d8146d6045fcd73f2bf6423945ae33bcf9f86a9ef80ec70d2eade22",
+      "symbol": "validate_available_space_values",
+      "requirement_ids": ["REQ-STAT-001", "REQ-STAT-002"],
+      "verification_ids": ["stats::tests::rejects_available_space_above_free_space", "stats::tests::constructs_stats_from_bytes"],
+      "conditions": [
+        {"id": "C1", "expression": "available_space > free_space", "occurrence": "available_space_exceeds_free"}
+      ],
+      "observations": [
+        {"id": "OBS-STAT-WIN-AVAILABLE-FREE-TRUE", "verification_id": "stats::tests::rejects_available_space_above_free_space", "condition_states": {"C1": "true"}, "decision": true, "oracle": "pass", "result": "pass"},
+        {"id": "OBS-STAT-WIN-AVAILABLE-FREE-FALSE", "verification_id": "stats::tests::constructs_stats_from_bytes", "condition_states": {"C1": "false"}, "decision": false, "oracle": "pass", "result": "pass"}
+      ],
+      "pairs": [
+        {"id": "PAIR-STAT-WIN-AVAILABLE-FREE-C1", "target_condition": "C1", "baseline_observation": "OBS-STAT-WIN-AVAILABLE-FREE-FALSE", "modified_observation": "OBS-STAT-WIN-AVAILABLE-FREE-TRUE", "result": "pass"}
+      ],
+      "status": "closed_internal"
+    },
+    {
+      "id": "MCDC-STAT-WIN-FREE-TOTAL",
+      "source": "src/stats.rs:203-212",
+      "source_sha256": "ef3808c67d8146d6045fcd73f2bf6423945ae33bcf9f86a9ef80ec70d2eade22",
+      "symbol": "validate_modern_space_values",
+      "requirement_ids": ["REQ-STAT-001", "REQ-STAT-002"],
+      "verification_ids": ["windows::test::rejects_invalid_modern_snapshot_stats", "stats::tests::constructs_stats_from_bytes"],
+      "conditions": [
+        {"id": "C1", "expression": "free_space > total_space", "occurrence": "modern_free_space_exceeds_total"}
+      ],
+      "observations": [
+        {"id": "OBS-STAT-WIN-FREE-TOTAL-TRUE", "verification_id": "windows::test::rejects_invalid_modern_snapshot_stats", "condition_states": {"C1": "true"}, "decision": true, "oracle": "pass", "result": "pass"},
+        {"id": "OBS-STAT-WIN-FREE-TOTAL-FALSE", "verification_id": "stats::tests::constructs_stats_from_bytes", "condition_states": {"C1": "false"}, "decision": false, "oracle": "pass", "result": "pass"}
+      ],
+      "pairs": [
+        {"id": "PAIR-STAT-WIN-FREE-TOTAL-C1", "target_condition": "C1", "baseline_observation": "OBS-STAT-WIN-FREE-TOTAL-FALSE", "modified_observation": "OBS-STAT-WIN-FREE-TOTAL-TRUE", "result": "pass"}
+      ],
+      "status": "closed_internal"
+    },
+    {
+      "id": "MCDC-WIN-WIDE-PATH",
+      "source": "src/windows.rs:199-209",
+      "source_sha256": "99e9787c2d48338d15639c620605bb1dc75598f2f9b40835c570520a6b39aa54",
+      "symbol": "wide_path",
+      "requirement_ids": ["REQ-WIN-004"],
+      "verification_ids": ["windows::test::statistics_reject_embedded_null_paths", "windows::test::copies_only_exact_drive_roots"],
+      "conditions": [
+        {"id": "C1", "expression": "code_unit == 0", "occurrence": "embedded_null_code_unit"}
+      ],
+      "observations": [
+        {"id": "OBS-WIN-WIDE-PATH-TRUE", "verification_id": "windows::test::statistics_reject_embedded_null_paths", "condition_states": {"C1": "true"}, "decision": true, "oracle": "pass", "result": "pass"},
+        {"id": "OBS-WIN-WIDE-PATH-FALSE", "verification_id": "windows::test::copies_only_exact_drive_roots", "condition_states": {"C1": "false"}, "decision": false, "oracle": "pass", "result": "pass"}
+      ],
+      "pairs": [
+        {"id": "PAIR-WIN-WIDE-PATH-C1", "target_condition": "C1", "baseline_observation": "OBS-WIN-WIDE-PATH-FALSE", "modified_observation": "OBS-WIN-WIDE-PATH-TRUE", "result": "pass"}
+      ],
+      "status": "closed_internal"
+    },
+    {
+      "id": "MCDC-WIN-DUPLICATE",
+      "source": "src/windows.rs:91-95",
+      "source_sha256": "99e9787c2d48338d15639c620605bb1dc75598f2f9b40835c570520a6b39aa54",
+      "symbol": "duplicate_result",
+      "requirement_ids": ["REQ-WIN-005"],
+      "verification_ids": ["windows::test::maps_native_result_seams_without_faulting_the_os", "windows::test::duplicate_new_handle"],
+      "conditions": [
+        {"id": "C1", "expression": "duplicate result == 0", "occurrence": "duplicate_native_call_failed"}
+      ],
+      "observations": [
+        {"id": "OBS-WIN-DUPLICATE-TRUE", "verification_id": "windows::test::maps_native_result_seams_without_faulting_the_os", "condition_states": {"C1": "true"}, "decision": true, "oracle": "pass", "result": "pass"},
+        {"id": "OBS-WIN-DUPLICATE-FALSE", "verification_id": "windows::test::duplicate_new_handle", "condition_states": {"C1": "false"}, "decision": false, "oracle": "pass", "result": "pass"}
+      ],
+      "pairs": [
+        {"id": "PAIR-WIN-DUPLICATE-C1", "target_condition": "C1", "baseline_observation": "OBS-WIN-DUPLICATE-FALSE", "modified_observation": "OBS-WIN-DUPLICATE-TRUE", "result": "pass"}
       ],
       "status": "closed_internal"
     },
@@ -205,7 +364,8 @@
   ],
   "open_dispositions": [
     "An approved requirements and software-level basis is not present.",
-    "The pinned cargo-llvm-cov/nightly combination does not produce an MC/DC report.",
+    "The latest available cargo-llvm-cov release and nightly compiler probe do not produce an MC/DC report.",
+    "The internal source-pair records are manually reviewed engineering evidence, not tool-generated MC/DC acceptance evidence.",
     "Tool qualification, independence, object-code analysis, archive control, and authority acceptance remain open."
   ]
 }

@@ -19,6 +19,10 @@ The records are deliberately split by concern:
   reducing a denominator.
 - `decision-inventory.json` records source-level decisions and their mapped
   tests.  The inventory is an assessment input, not an MC/DC result.
+- `mcdc.json` records manually reviewed source-level condition observations and
+  independence pairs.  Its reported closure is internal engineering evidence
+  for the registered source-pair scope only; it is not tool-generated MC/DC,
+  object-code coverage, qualified-tool output, or certification credit.
 - `policy.json` defines the internal gates and non-claims.
 - `tool-assessment.json` records the intended functions, failure modes, and
   residual reliance for the coverage tools.
@@ -55,6 +59,11 @@ MC/DC coverage:
 ```text
 python scripts/collect_coverage.py --profile branch --target x86_64-pc-windows-msvc --output-dir target/coverage-branch --expected-commit <full-commit> --locked
 ```
+
+The latest available probe on `nightly-2026-08-13` also rejects
+`-Z coverage-options=mcdc`; the accepted compiler values remain
+`block|branch|condition`.  Until an approved basis and a capable, assessed
+toolchain exist, the source-pair records remain internal, non-credit evidence.
 
 The CI staging gate adds `--require-pass`; focused, failed, indeterminate, or
 provenance-error manifests may be retained for analysis but cannot satisfy it.
