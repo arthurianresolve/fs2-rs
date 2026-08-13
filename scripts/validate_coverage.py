@@ -713,6 +713,11 @@ def validate_manifest(path: Path, expected_commit: str | None = None) -> None:
         fail(f"{label}.commit does not match expected commit {expected_commit}")
     if not isinstance(manifest["dirty"], bool):
         fail(f"{label}.dirty must be boolean")
+    host = manifest["host"]
+    if not isinstance(host, dict) or not isinstance(host.get("target"), str) or not host["target"]:
+        fail(f"{label}.host.target must record the compiler host target")
+    if manifest["status"] == "pass" and host["target"] != manifest["target"]:
+        fail(f"{label} cannot claim native pass coverage for a non-native target")
     if manifest["profile"] not in {"stable", "branch", "condition"}:
         fail(f"{label}.profile is invalid")
     if not isinstance(manifest["target"], str) or not manifest["target"]:

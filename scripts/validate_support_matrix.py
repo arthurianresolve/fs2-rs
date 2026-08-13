@@ -323,6 +323,113 @@ def validate_workflow(registry: SupportRegistry, workflow: dict) -> None:
         missing = sorted(declared - consumed)
         fail(f"workflow matrix consumption drift: missing={missing}")
 
+    validate_coverage_workflow(jobs)
+
+
+def validate_coverage_workflow(jobs: dict) -> None:
+    """Validate that every generated native profile produces a gated artifact."""
+    matrix_target = "${{ matrix.target }}"
+    for profile, job_name in PROFILE_JOB_NAMES.items():
+        job = jobs.get(job_name)
+        if not isinstance(job, dict):
+            fail(f"coverage profile job {job_name} is missing")
+        if job.get("needs") != "support-matrix" or job.get("runs-on") != "${{ matrix.os }}":
+            fail(f"coverage profile job {job_name} has invalid dependency or runner contract")
+
+        steps = job.get("steps")
+        if not isinstance(steps, list):
+            fail(f"coverage profile job {job_name} must define steps")
+        run_commands = [
+            step.get("run", "")
+            for step in steps
+            if isinstance(step, dict) and isinstance(step.get("run"), str)
+        ]
+        collectors = [
+            command for command in run_commands if "python scripts/collect_coverage.py" in command
+        ]
+        if len(collectors) != 1:
+            fail(f"coverage profile job {job_name} must have exactly one collector command")
+        collector = collectors[0]
+        required_fragments = (
+            f"--profile {profile}",
+            f"--target {matrix_target}",
+            "--output-dir",
+            "--locked",
+        )
+        if any(fragment not in collector for fragment in required_fragments):
+            fail(f"coverage profile job {job_name} has an incomplete collector command")
+
+        toolchain_steps = [
+            step
+            for step in steps
+            if isinstance(step, dict)
+            and isinstance(step.get("uses"), str)
+            and "dtolnay/rust-toolchain@" in step["uses"]
+        ]
+        if len(toolchain_steps) != 1 or toolchain_steps[0].get("with", {}).get("components") != "llvm-tools-preview":
+            fail(f"coverage profile job {job_name} must install llvm-tools-preview")
+
+        uploads = [
+            step
+            for step in steps
+            if isinstance(step, dict)
+            and isinstance(step.get("uses"), str)
+            and "actions/upload-artifact@" in step["uses"]
+        ]
+        if len(uploads) != 1:
+            fail(f"coverage profile job {job_name} must upload exactly one artifact")
+        upload = uploads[0]
+        expected_prefix = {
+            "stable": "coverage-",
+            "branch": "coverage-branch-",
+            "condition": "coverage-condition-",
+        }[profile]
+        upload_with = upload.get("with", {})
+        if not isinstance(upload_with, dict):
+            fail(f"coverage profile job {job_name} has invalid artifact settings")
+        artifact_name = upload_with.get("name", "")
+        artifact_path = upload_with.get("path", "")
+        if (
+            not isinstance(artifact_name, str)
+            or not artifact_name.startswith(expected_prefix)
+            or matrix_target not in artifact_name
+            or not isinstance(artifact_path, str)
+            or matrix_target not in artifact_path
+            or upload_with.get("if-no-files-found") != "error"
+        ):
+            fail(f"coverage profile job {job_name} has incomplete artifact retention settings")
+
+    gate = jobs.get("coverage-gate")
+    if not isinstance(gate, dict):
+        fail("coverage-gate job is missing")
+    expected_needs = {"support-matrix", *PROFILE_JOB_NAMES.values()}
+    needs = gate.get("needs")
+    if not isinstance(needs, list) or set(needs) != expected_needs:
+        fail("coverage-gate must require support-matrix and every coverage profile job")
+    gate_steps = gate.get("steps")
+    if not isinstance(gate_steps, list):
+        fail("coverage-gate must define steps")
+    gate_commands = [
+        step.get("run", "")
+        for step in gate_steps
+        if isinstance(step, dict) and isinstance(step.get("run"), str)
+    ]
+    if not any(
+        "python scripts/validate_coverage.py" in command
+        and "--runs-dir target/coverage-artifacts" in command
+        and "--require-pass" in command
+        for command in gate_commands
+    ):
+        fail("coverage-gate must require passing provenance manifests")
+    if not any(
+        "python scripts/validate_coverage_metrics.py" in command
+        and "--runs-dir target/coverage-artifacts" in command
+        and "--require-pass" in command
+        and "--require-matrix" in command
+        for command in gate_commands
+    ):
+        fail("coverage-gate must require the complete native coverage matrix")
+
 
 def matrices(registry: SupportRegistry) -> dict[str, dict[str, list[dict[str, str]]]]:
     generated: dict[str, dict[str, list[dict[str, str]]]] = {}

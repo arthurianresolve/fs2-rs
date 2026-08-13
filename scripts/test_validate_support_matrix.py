@@ -213,6 +213,25 @@ class SupportMatrixTests(unittest.TestCase):
     def test_declared_matrices_are_consumed_by_workflow_jobs(self):
         validate_workflow(self.data, load_workflow())
 
+    def test_coverage_jobs_retain_profile_collection_contract(self):
+        workflow = copy.deepcopy(load_workflow())
+        collector = next(
+            step
+            for step in workflow["jobs"]["coverage_condition"]["steps"]
+            if "collect_coverage.py" in step.get("run", "")
+        )
+        collector["run"] = collector["run"].replace("--locked", "")
+
+        with self.assertRaises(SystemExit):
+            validate_workflow(self.data, workflow)
+
+    def test_coverage_gate_requires_every_profile_job(self):
+        workflow = copy.deepcopy(load_workflow())
+        workflow["jobs"]["coverage-gate"]["needs"].remove("coverage_condition")
+
+        with self.assertRaises(SystemExit):
+            validate_workflow(self.data, workflow)
+
     def test_registry_toolchains_match_package_rust_version(self):
         validate_toolchain_policy(self.data, package_rust_version())
 

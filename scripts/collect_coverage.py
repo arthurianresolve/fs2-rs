@@ -83,6 +83,21 @@ def command_output(command: list[str]) -> str:
     return (result.stdout.strip() or result.stderr.strip())
 
 
+def rustc_host_target(verbose_version: str) -> str:
+    """Extract the compiler host triple used to execute the coverage run."""
+    target = next(
+        (
+            line.split(":", 1)[1].strip()
+            for line in verbose_version.splitlines()
+            if line.startswith("host:")
+        ),
+        None,
+    )
+    if not target:
+        raise CollectionError("rustc --version --verbose did not report a host target")
+    return target
+
+
 def resolve_output_dir(value: Path) -> Path:
     output_dir = value if value.is_absolute() else ROOT / value
     output_dir = output_dir.resolve()
@@ -125,6 +140,7 @@ def base_manifest(
     lock_hash: str,
     requested_toolchain: str,
     resolved_toolchain: str,
+    host_target: str,
     cargo_llvm_cov: str,
     command: list[str],
     environment: dict[str, str],
@@ -142,6 +158,7 @@ def base_manifest(
             "release": platform.release(),
             "machine": platform.machine(),
             "python": platform.python_version(),
+            "target": host_target,
         },
         "target": target,
         "profile": profile,
@@ -263,6 +280,7 @@ def collect(args: argparse.Namespace) -> int:
     dirty = False
     lock_hash = "0" * 64
     resolved_toolchain = "unresolved"
+    host_target = "unresolved"
     cargo_llvm_cov = "unresolved"
     try:
         branch, tree, dirty, lock_hash = preflight(
@@ -271,6 +289,11 @@ def collect(args: argparse.Namespace) -> int:
         resolved_toolchain = command_output(
             ["rustc", f"+{requested_toolchain}", "--version", "--verbose"]
         )
+        host_target = rustc_host_target(resolved_toolchain)
+        if host_target != args.target:
+            raise CollectionError(
+                f"native coverage requires compiler host {args.target!r}; found {host_target!r}"
+            )
         cargo_llvm_cov = command_output(
             ["cargo", f"+{requested_toolchain}", "llvm-cov", "--version"]
         )
@@ -334,6 +357,7 @@ def collect(args: argparse.Namespace) -> int:
         lock_hash=lock_hash,
         requested_toolchain=requested_toolchain,
         resolved_toolchain=resolved_toolchain,
+        host_target=host_target,
         cargo_llvm_cov=cargo_llvm_cov,
         command=command,
         environment=environment,

@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from collect_coverage import canonical_text_sha256, sha256
+from collect_coverage import canonical_text_sha256, rustc_host_target, sha256
 from validate_coverage import (
     COVERAGE,
     ROOT,
@@ -152,6 +152,12 @@ class CoverageRecordTests(unittest.TestCase):
 
             self.assertEqual(canonical_text_sha256(lf), canonical_text_sha256(crlf))
 
+    def test_extracts_rustc_host_target(self):
+        self.assertEqual(
+            rustc_host_target("rustc test\nhost: x86_64-pc-windows-msvc\n"),
+            "x86_64-pc-windows-msvc",
+        )
+
     def test_parses_grouped_cargo_test_listing(self):
         output = """
         Running unittests src\\lib.rs
@@ -190,7 +196,13 @@ class RunManifestTests(unittest.TestCase):
             "tree": "0" * 40,
             "dirty": False,
             "cargo_lock_sha256": lock_hash,
-            "host": {"system": "test", "release": "test", "machine": "test", "python": "test"},
+            "host": {
+                "system": "test",
+                "release": "test",
+                "machine": "test",
+                "python": "test",
+                "target": "x86_64-pc-windows-msvc",
+            },
             "target": "x86_64-pc-windows-msvc",
             "profile": "stable",
             "requested_toolchain": "stable",
@@ -221,6 +233,21 @@ class RunManifestTests(unittest.TestCase):
             run_root = Path(directory)
             manifest = self.make_manifest(run_root)
             manifest["dirty"] = True
+            manifest["artifacts"] = [
+                {"path": name, "sha256": sha256(run_root / name), "bytes": (run_root / name).stat().st_size}
+                for name in ("coverage.json", "stdout.log", "stderr.log")
+            ]
+            path = run_root / "run-manifest.json"
+            path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            with self.assertRaises(ValidationError):
+                validate_manifest(path)
+
+    def test_manifest_rejects_pass_with_non_native_target(self):
+        with tempfile.TemporaryDirectory(prefix="fs2-coverage-manifest-") as directory:
+            run_root = Path(directory)
+            manifest = self.make_manifest(run_root)
+            manifest["host"]["target"] = "x86_64-unknown-linux-gnu"
             manifest["artifacts"] = [
                 {"path": name, "sha256": sha256(run_root / name), "bytes": (run_root / name).stat().st_size}
                 for name in ("coverage.json", "stdout.log", "stderr.log")

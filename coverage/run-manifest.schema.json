@@ -28,6 +28,9 @@
   "commit": "full 40-character hexadecimal commit",
   "tree": "full 40-character hexadecimal tree",
   "dirty": "boolean; true is never release eligible",
+  "host": {
+    "target": "Rust compiler host target; pass manifests must match the requested target"
+  },
   "artifact": {
     "path": "repository-relative staging path",
     "sha256": "64-character lowercase hexadecimal digest",
