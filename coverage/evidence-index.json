@@ -5,10 +5,65 @@
   "owner": "fs2 DO-178C coverage workstream",
   "archive_status": "not_archived",
   "external_archive_uri": null,
-  "runs": [],
+  "runs": [
+    {
+      "run_id": "20260813T042033Z-b8e5ef14dce7",
+      "profile": "stable",
+      "target": "x86_64-unknown-linux-gnu",
+      "commit": "5742f451067b17bb6c937cd8502837d353473d6a",
+      "tree": "bcbafb495a04aaced7479d444a2d2b96fed0e38b",
+      "status": "pass",
+      "disposition": "local_disposable_not_promoted"
+    },
+    {
+      "run_id": "20260813T042037Z-4698ce958dca",
+      "profile": "branch",
+      "target": "x86_64-unknown-linux-gnu",
+      "commit": "5742f451067b17bb6c937cd8502837d353473d6a",
+      "tree": "bcbafb495a04aaced7479d444a2d2b96fed0e38b",
+      "status": "pass",
+      "disposition": "local_disposable_not_promoted"
+    },
+    {
+      "run_id": "20260813T042042Z-dd41ac5d5465",
+      "profile": "condition",
+      "target": "x86_64-unknown-linux-gnu",
+      "commit": "5742f451067b17bb6c937cd8502837d353473d6a",
+      "tree": "bcbafb495a04aaced7479d444a2d2b96fed0e38b",
+      "status": "pass",
+      "disposition": "local_disposable_not_promoted"
+    },
+    {
+      "run_id": "20260813T041722Z-59f1f02c4300",
+      "profile": "stable",
+      "target": "x86_64-pc-windows-msvc",
+      "commit": "5742f451067b17bb6c937cd8502837d353473d6a",
+      "tree": "bcbafb495a04aaced7479d444a2d2b96fed0e38b",
+      "status": "pass",
+      "disposition": "local_disposable_not_promoted"
+    },
+    {
+      "run_id": "20260813T041730Z-6033b8b125b0",
+      "profile": "branch",
+      "target": "x86_64-pc-windows-msvc",
+      "commit": "5742f451067b17bb6c937cd8502837d353473d6a",
+      "tree": "bcbafb495a04aaced7479d444a2d2b96fed0e38b",
+      "status": "pass",
+      "disposition": "local_disposable_not_promoted"
+    },
+    {
+      "run_id": "20260813T041739Z-37f6384a7c18",
+      "profile": "condition",
+      "target": "x86_64-pc-windows-msvc",
+      "commit": "5742f451067b17bb6c937cd8502837d353473d6a",
+      "tree": "bcbafb495a04aaced7479d444a2d2b96fed0e38b",
+      "status": "pass",
+      "disposition": "local_disposable_not_promoted"
+    }
+  ],
   "open_items": [
-    "produce clean exact-commit runs",
-    "review and accept run manifests",
+    "review and accept the six clean exact-commit run manifests",
+    "produce the missing aarch64-apple-darwin matrix profiles",
     "publish to a controlled external archive",
     "test retrieval and retention"
   ],

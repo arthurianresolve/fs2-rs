@@ -6,6 +6,7 @@
   "baseline": {
     "commit": "d1e0e22eaed156e2420058f52f119e10330e24df",
     "tree": "57eefc23abc299981b3e5632be12b61ed8353287",
+    "record_role": "historical_pre_implementation_baseline",
     "measurement_status": "focused_only",
     "dirty": true,
     "host": "Windows x86_64 MSVC",
@@ -19,13 +20,67 @@
     "branch_diagnostic": {"covered": 82, "total": 101, "percent": 81.1881188118812},
     "mcdc": {"status": "not_assessed", "covered": null, "total": null}
   },
-  "current_internal_metrics": {
+  "historical_internal_metrics": {
     "windows_stable_line": {"covered": 998, "total": 998, "percent": 100.0},
     "windows_stable_region": {"covered": 1567, "total": 1567, "percent": 100.0},
     "windows_branch": {"covered": 78, "total": 78, "percent": 100.0},
     "windows_condition_diagnostic": {"covered": 78, "total": 78, "percent": 100.0},
     "windows_function_diagnostic": {"covered": 138, "total": 138, "percent": 100.0},
-    "status": "focused_only_dirty_working_tree; not release evidence"
+    "status": "superseded_focused_only_dirty_working_tree; not release evidence"
+  },
+  "clean_local_snapshot": {
+    "commit": "5742f451067b17bb6c937cd8502837d353473d6a",
+    "tree": "bcbafb495a04aaced7479d444a2d2b96fed0e38b",
+    "dirty": false,
+    "source_scope": "product source revision 19e8ec95f92077dc68f2e1c85f7d74e0bda5aed2",
+    "targets": ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"],
+    "profiles": {
+      "linux_stable": {
+        "lines": {"covered": 838, "total": 838, "percent": 100.0},
+        "regions": {"covered": 1471, "total": 1471, "percent": 100.0},
+        "functions": {"covered": 120, "total": 120, "percent": 100.0}
+      },
+      "linux_branch": {
+        "lines": {"covered": 841, "total": 841, "percent": 100.0},
+        "regions": {"covered": 1468, "total": 1468, "percent": 100.0},
+        "branches": {"covered": 30, "total": 30, "percent": 100.0},
+        "functions": {"covered": 120, "total": 120, "percent": 100.0}
+      },
+      "linux_condition_instrumentation": {
+        "lines": {"covered": 841, "total": 841, "percent": 100.0},
+        "regions": {"covered": 1468, "total": 1468, "percent": 100.0},
+        "branches": {"covered": 30, "total": 30, "percent": 100.0},
+        "functions": {"covered": 120, "total": 120, "percent": 100.0},
+        "independent_condition_total": false
+      },
+      "windows_stable": {
+        "lines": {"covered": 1044, "total": 1044, "percent": 100.0},
+        "regions": {"covered": 1613, "total": 1613, "percent": 100.0},
+        "functions": {"covered": 143, "total": 143, "percent": 100.0}
+      },
+      "windows_branch": {
+        "lines": {"covered": 1044, "total": 1044, "percent": 100.0},
+        "regions": {"covered": 1611, "total": 1611, "percent": 100.0},
+        "branches": {"covered": 80, "total": 80, "percent": 100.0},
+        "functions": {"covered": 143, "total": 143, "percent": 100.0}
+      },
+      "windows_condition_instrumentation": {
+        "lines": {"covered": 1044, "total": 1044, "percent": 100.0},
+        "regions": {"covered": 1611, "total": 1611, "percent": 100.0},
+        "branches": {"covered": 80, "total": 80, "percent": 100.0},
+        "functions": {"covered": 143, "total": 143, "percent": 100.0},
+        "independent_condition_total": false
+      }
+    },
+    "run_ids": [
+      "20260813T042033Z-b8e5ef14dce7",
+      "20260813T042037Z-4698ce958dca",
+      "20260813T042042Z-dd41ac5d5465",
+      "20260813T041722Z-59f1f02c4300",
+      "20260813T041730Z-6033b8b125b0",
+      "20260813T041739Z-37f6384a7c18"
+    ],
+    "status": "clean_exact_commit_local_disposable; not release evidence"
   },
   "gaps": [
     {
@@ -35,7 +90,8 @@
       "observed_condition": "The platform allocation-length decision is retained in a testable completion seam; target-specific constants remain separate and require cross-host review.",
       "required_action": "Retain separate Unix and Windows manifests and review target applicability; do not combine target denominators.",
       "status": "closed",
-      "credit": "none"
+      "credit": "none",
+      "closure_basis": "The exact clean cross-host snapshot retains separate Linux and Windows manifests and reports target-specific denominators."
     },
     {
       "id": "GAP-UNIX-INVALID-COUNTERS",
@@ -43,8 +99,9 @@
       "classification": "cross_host",
       "observed_condition": "The Windows focused run cannot exercise Unix statvfs counter-ordering failures.",
       "required_action": "Run the stable profile on a clean Unix target and review the Unix-specific invalid-counter tests.",
-      "status": "open",
-      "credit": "none"
+      "status": "closed",
+      "credit": "none",
+      "closure_basis": "The clean x86_64-unknown-linux-gnu stable profile exercised the Unix invalid-counter tests and closed its emitted line, region, and function metrics."
     },
     {
       "id": "GAP-WINDOWS-NATIVE-ERRORS",
@@ -61,6 +118,15 @@
       "classification": "environment_specific",
       "observed_condition": "Provider discovery and unavailable-HRESULT behavior depend on the Windows API surface present on the host.",
       "required_action": "Run on the supported Windows matrix and retain the API version, host, and provider outcome in the run manifest.",
+      "status": "open",
+      "credit": "none"
+    },
+    {
+      "id": "GAP-MACOS-COVERAGE-MATRIX",
+      "source_refs": ["support-matrix.json:1-20"],
+      "classification": "cross_host_matrix",
+      "observed_condition": "The local evidence set cannot execute the configured aarch64-apple-darwin native coverage profiles.",
+      "required_action": "Retain the strict CI matrix gate and produce clean stable, branch, and condition-instrumentation manifests on the configured macOS Apple-silicon runner.",
       "status": "open",
       "credit": "none"
     },
@@ -82,6 +148,9 @@
   ],
   "non_claims": [
     "The observed metrics came from dirty focused-only runs and are not release evidence.",
-    "The branch metric is diagnostic branch coverage, not MC/DC."
+    "The historical focused metrics are superseded by the clean local snapshot.",
+    "The clean local snapshot is disposable internal evidence and does not satisfy the configured macOS matrix.",
+    "The branch metric is diagnostic branch coverage, not MC/DC.",
+    "The condition-instrumentation profile does not provide an independent condition total."
   ]
 }

@@ -415,8 +415,35 @@ def validate_evidence_index(index: dict[str, Any]) -> None:
         fail(f"{label} has the wrong record type or schema version")
     if index["archive_status"] != "not_archived" or index["external_archive_uri"] is not None:
         fail(f"{label} must not imply an external archive")
-    if not isinstance(index["runs"], list):
+    runs = index["runs"]
+    if not isinstance(runs, list) or not runs:
         fail(f"{label}.runs must be a list")
+    identifiers: set[str] = set()
+    provenance: set[tuple[str, str]] = set()
+    for index_number, run in enumerate(runs):
+        run_label = f"{label}.runs[{index_number}]"
+        if not isinstance(run, dict):
+            fail(f"{run_label} must be an object")
+        required_fields(
+            run,
+            {"run_id", "profile", "target", "commit", "tree", "status", "disposition"},
+            run_label,
+        )
+        run_id = run["run_id"]
+        if not isinstance(run_id, str) or not run_id or run_id in identifiers:
+            fail(f"{run_label}.run_id must be unique and non-empty")
+        identifiers.add(run_id)
+        if run["profile"] not in {"stable", "branch", "condition"}:
+            fail(f"{run_label}.profile is invalid")
+        if not isinstance(run["target"], str) or not run["target"]:
+            fail(f"{run_label}.target must be non-empty")
+        if not COMMIT_RE.fullmatch(str(run["commit"])) or not COMMIT_RE.fullmatch(str(run["tree"])):
+            fail(f"{run_label} must contain full commit and tree values")
+        if run["status"] != "pass" or run["disposition"] != "local_disposable_not_promoted":
+            fail(f"{run_label} contains an unsupported promotion disposition")
+        provenance.add((run["commit"], run["tree"]))
+    if len(provenance) != 1:
+        fail(f"{label}.runs must share one exact commit and tree snapshot")
 
 
 def validate_verification_inventory(inventory: dict[str, Any]) -> set[str]:
@@ -528,7 +555,7 @@ def validate_test_inventory() -> None:
 
 def validate_gap_register(gaps: dict[str, Any]) -> None:
     label = "coverage/gap-register.json"
-    required_fields(gaps, {"record_type", "schema_version", "status", "owner", "baseline", "observed_metrics", "gaps", "closure_rules", "non_claims"}, label)
+    required_fields(gaps, {"record_type", "schema_version", "status", "owner", "baseline", "observed_metrics", "historical_internal_metrics", "clean_local_snapshot", "gaps", "closure_rules", "non_claims"}, label)
     check_status(gaps, label)
     if gaps["record_type"] != "coverage_gap_register" or gaps["schema_version"] != 1:
         fail(f"{label} has the wrong record type or schema version")
@@ -542,6 +569,52 @@ def validate_gap_register(gaps: dict[str, Any]) -> None:
         fail(f"{label}.observed_metrics must separate stable, branch, and MC/DC status")
     if metrics["mcdc"].get("status") != "not_assessed":
         fail(f"{label} must retain MC/DC as not assessed")
+    snapshot = gaps["clean_local_snapshot"]
+    if not isinstance(snapshot, dict):
+        fail(f"{label}.clean_local_snapshot must be an object")
+    required_fields(
+        snapshot,
+        {"commit", "tree", "dirty", "source_scope", "targets", "profiles", "run_ids", "status"},
+        f"{label}.clean_local_snapshot",
+    )
+    if not COMMIT_RE.fullmatch(str(snapshot["commit"])) or not COMMIT_RE.fullmatch(str(snapshot["tree"])):
+        fail(f"{label}.clean_local_snapshot must contain full commit and tree values")
+    if snapshot["dirty"] is not False or snapshot["status"] != "clean_exact_commit_local_disposable; not release evidence":
+        fail(f"{label}.clean_local_snapshot must remain clean and non-promotable")
+    if not isinstance(snapshot["targets"], list) or len(snapshot["targets"]) < 2 or not all(
+        isinstance(target, str) and target for target in snapshot["targets"]
+    ):
+        fail(f"{label}.clean_local_snapshot.targets must identify multiple targets")
+    run_ids = snapshot["run_ids"]
+    if not isinstance(run_ids, list) or len(run_ids) != 6 or len(set(run_ids)) != len(run_ids) or not all(
+        isinstance(run_id, str) and run_id for run_id in run_ids
+    ):
+        fail(f"{label}.clean_local_snapshot.run_ids must identify six unique runs")
+    profiles = snapshot["profiles"]
+    expected_profiles = {
+        "linux_stable",
+        "linux_branch",
+        "linux_condition_instrumentation",
+        "windows_stable",
+        "windows_branch",
+        "windows_condition_instrumentation",
+    }
+    if not isinstance(profiles, dict) or set(profiles) != expected_profiles:
+        fail(f"{label}.clean_local_snapshot.profiles must contain the six local profile snapshots")
+    for profile_name, profile in profiles.items():
+        if not isinstance(profile, dict):
+            fail(f"{label}.clean_local_snapshot.profiles.{profile_name} must be an object")
+        for metric_name, metric in profile.items():
+            if metric_name == "independent_condition_total":
+                if metric is not False:
+                    fail(f"{label}.clean_local_snapshot.profiles.{profile_name} cannot claim an independent condition total")
+                continue
+            if not isinstance(metric, dict) or set(metric) != {"covered", "total", "percent"}:
+                fail(f"{label}.clean_local_snapshot.profiles.{profile_name}.{metric_name} is invalid")
+            if metric["total"] <= 0 or metric["covered"] != metric["total"] or metric["percent"] != 100.0:
+                fail(f"{label}.clean_local_snapshot.profiles.{profile_name}.{metric_name} is not closed")
+    if not isinstance(gaps["historical_internal_metrics"], dict) or gaps["historical_internal_metrics"].get("status") != "superseded_focused_only_dirty_working_tree; not release evidence":
+        fail(f"{label}.historical_internal_metrics must be explicitly superseded")
     records = gaps["gaps"]
     if not isinstance(records, list) or not records:
         fail(f"{label}.gaps must be non-empty")
@@ -557,6 +630,10 @@ def validate_gap_register(gaps: dict[str, Any]) -> None:
         identifiers.add(identifier)
         if record["status"] not in {"open", "closed", "deferred"} or record["credit"] != "none":
             fail(f"{item_label} contains an unsupported gap status or credit")
+        if record["status"] == "closed" and (
+            not isinstance(record.get("closure_basis"), str) or not record["closure_basis"].strip()
+        ):
+            fail(f"{item_label} must record a closure basis")
         for reference in record["source_refs"]:
             source_path(reference, f"{item_label}.source_refs")
         for field in ("classification", "observed_condition", "required_action"):

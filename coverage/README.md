@@ -22,12 +22,14 @@ The records are deliberately split by concern:
 - `policy.json` defines the internal gates and non-claims.
 - `tool-assessment.json` records the intended functions, failure modes, and
   residual reliance for the coverage tools.
-- `gap-register.json` records the current focused-run measurements and open
+- `gap-register.json` preserves the historical focused-run measurements,
+  records the clean local cross-host snapshot separately, and lists open
   closure actions.  An open gap is not silently converted into a pass.
 - `run-manifest.schema.json` defines the provenance fields emitted by
   `scripts/collect_coverage.py`.
-- `evidence-index.json` is an intentionally empty staging index until a clean,
-  exact-commit run is produced and independently reviewed.
+- `evidence-index.json` indexes the clean local snapshots for review, but keeps
+  them explicitly disposable and unpromoted until the configured matrix is
+  complete, independently reviewed, and placed in a controlled archive.
 
 ## Local validation
 
@@ -66,8 +68,9 @@ provenance is not eligible for the internal gate.
 
 ## Review state
 
-The current records are `draft` or `not_ready`.  The repository does not yet
-contain an approved certification basis, assigned software level, qualified
-coverage tool determination, independence plan, or external archive.  Those
-items remain explicit open decisions rather than being inferred from passing
-tests or diagnostic branch percentages.
+The current records are `draft` or `not_ready`.  The local snapshot closes the
+emitted raw metrics for the Linux and Windows hosts exercised, but the
+configured Apple-silicon matrix, approved certification basis, assigned
+software level, qualified coverage-tool determination, independence plan, and
+external archive remain open.  Those items remain explicit decisions rather
+than being inferred from passing tests or diagnostic branch percentages.

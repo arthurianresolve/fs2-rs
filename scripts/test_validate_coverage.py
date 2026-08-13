@@ -16,6 +16,8 @@ from validate_coverage import (
     load_json,
     validate_context,
     validate_decisions,
+    validate_evidence_index,
+    validate_gap_register,
     validate_manifest,
     validate_policy,
     validate_requirements,
@@ -102,6 +104,20 @@ class CoverageRecordTests(unittest.TestCase):
 
         with self.assertRaises(ValidationError):
             validate_tool_assessment(invalid)
+
+    def test_evidence_index_rejects_local_promotion(self):
+        invalid = load_json(COVERAGE / "evidence-index.json")
+        invalid["runs"][0]["disposition"] = "promoted"
+
+        with self.assertRaises(ValidationError):
+            validate_evidence_index(invalid)
+
+    def test_gap_register_requires_closed_gap_basis(self):
+        invalid = load_json(COVERAGE / "gap-register.json")
+        invalid["gaps"][0].pop("closure_basis")
+
+        with self.assertRaises(ValidationError):
+            validate_gap_register(invalid)
 
     def test_invalid_fixture_is_rejected(self):
         invalid = load_json(COVERAGE / "fixtures" / "invalid-unknown-status.json")
