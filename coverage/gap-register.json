@@ -29,10 +29,10 @@
     "status": "superseded_focused_only_dirty_working_tree; not release evidence"
   },
   "clean_local_snapshot": {
-    "commit": "26844b3aa0a32ddf7b39fdb01f5c39e816696ff7",
-    "tree": "aac4e2298fee64cc63d5977fc12fc00882bc6c95",
+    "commit": "16bf6a8211ac7b8c345fa8ebe6d98acc2ec3ba6c",
+    "tree": "e4b119a9fc0dd58f7ba0c84dcff69f998c63c3f1",
     "dirty": false,
-    "source_scope": "repository source and test revision 26844b3aa0a32ddf7b39fdb01f5c39e816696ff7",
+    "source_scope": "repository source and coverage-tool revision 16bf6a8211ac7b8c345fa8ebe6d98acc2ec3ba6c",
     "targets": ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"],
     "profiles": {
       "linux_stable": {
@@ -54,31 +54,31 @@
         "independent_condition_total": false
       },
       "windows_stable": {
-        "lines": {"covered": 1051, "total": 1051, "percent": 100.0},
-        "regions": {"covered": 1617, "total": 1617, "percent": 100.0},
-        "functions": {"covered": 143, "total": 143, "percent": 100.0}
+        "lines": {"covered": 1094, "total": 1094, "percent": 100.0},
+        "regions": {"covered": 1653, "total": 1653, "percent": 100.0},
+        "functions": {"covered": 146, "total": 146, "percent": 100.0}
       },
       "windows_branch": {
-        "lines": {"covered": 1051, "total": 1051, "percent": 100.0},
-        "regions": {"covered": 1615, "total": 1615, "percent": 100.0},
-        "branches": {"covered": 80, "total": 80, "percent": 100.0},
-        "functions": {"covered": 143, "total": 143, "percent": 100.0}
+        "lines": {"covered": 1094, "total": 1094, "percent": 100.0},
+        "regions": {"covered": 1651, "total": 1651, "percent": 100.0},
+        "branches": {"covered": 82, "total": 82, "percent": 100.0},
+        "functions": {"covered": 146, "total": 146, "percent": 100.0}
       },
       "windows_condition_instrumentation": {
-        "lines": {"covered": 1051, "total": 1051, "percent": 100.0},
-        "regions": {"covered": 1615, "total": 1615, "percent": 100.0},
-        "branches": {"covered": 80, "total": 80, "percent": 100.0},
-        "functions": {"covered": 143, "total": 143, "percent": 100.0},
+        "lines": {"covered": 1094, "total": 1094, "percent": 100.0},
+        "regions": {"covered": 1651, "total": 1651, "percent": 100.0},
+        "branches": {"covered": 82, "total": 82, "percent": 100.0},
+        "functions": {"covered": 146, "total": 146, "percent": 100.0},
         "independent_condition_total": false
       }
     },
     "run_ids": [
-      "20260813T070518Z-1077fed0375c",
-      "20260813T070527Z-c2f1ebfdc404",
-      "20260813T070535Z-885114fbb9ae",
-      "20260813T070302Z-6cd5982d066f",
-      "20260813T070319Z-b3915561809f",
-      "20260813T070344Z-d712657a1c90"
+      "20260813T073924Z-6860a95bdd57",
+      "20260813T073933Z-fb171c09153c",
+      "20260813T073941Z-db6f927ba49a",
+      "20260813T073618Z-e814e68b67a0",
+      "20260813T073630Z-5869f9dbf7d0",
+      "20260813T073641Z-dc3ec8cb562c"
     ],
     "status": "clean_exact_commit_local_disposable; not release evidence"
   },
@@ -107,10 +107,20 @@
       "id": "GAP-WINDOWS-NATIVE-ERRORS",
       "source_refs": ["src/windows.rs:68-95", "src/windows.rs:97-119", "src/windows.rs:123-142", "src/windows.rs:144-168", "src/windows.rs:223-237", "src/windows.rs:405-442"],
       "classification": "native_failure_injection",
-      "observed_condition": "Several native API failure outcomes require controlled OS fault injection or a reviewed platform test harness.",
-      "required_action": "Add a reviewed fault-injection seam or record a platform-specific test disposition with independent review; retain every failed or indeterminate attempt.",
+      "observed_condition": "Several native API failure outcomes still require controlled OS fault injection or a reviewed platform test harness. The exact-head suite now covers deterministic result-adapter injection and provider failure classification without mutating the OS; those seams do not close kernel or driver fault injection or independence.",
+      "required_action": "Obtain a reviewed platform-specific disposition or controlled OS fault-injection harness with independent review; retain every failed or indeterminate attempt and preserve the deterministic adapter evidence.",
       "status": "open",
       "credit": "none"
+    },
+    {
+      "id": "GAP-WINDOWS-NATIVE-ADAPTERS",
+      "source_refs": ["src/windows.rs:68-95", "src/windows.rs:97-119", "src/windows.rs:123-142", "src/windows.rs:144-168", "src/windows.rs:183-190", "src/windows.rs:223-237", "src/windows.rs:674-690"],
+      "classification": "deterministic_adapter",
+      "observed_condition": "The prior evidence set did not have one explicit Windows test identity for native return failures across the result adapters.",
+      "required_action": "Retain the explicit adapter-failure matrix and its platform traceability; do not treat it as kernel fault injection or certification credit.",
+      "status": "closed",
+      "credit": "none",
+      "closure_basis": "windows::test::injects_native_failures_at_result_adapters exercises allocation, byte-space, cluster-geometry, volume-path, direct-space, handle-query, and duplicate result adapters with injected failure returns. It is recorded in verification-inventory.json and executed by the exact clean Windows stable, branch, and condition manifests at 16bf6a8211ac7b8c345fa8ebe6d98acc2ec3ba6c."
     },
     {
       "id": "GAP-WINDOWS-PROVIDER-AVAILABILITY",
@@ -118,8 +128,9 @@
       "classification": "environment_specific",
       "observed_condition": "Provider discovery and unavailable-HRESULT behavior depend on the Windows API surface present on the host.",
       "required_action": "Run on the supported Windows matrix and retain the API version, host, and provider outcome in the run manifest.",
-      "status": "open",
-      "credit": "none"
+      "status": "closed",
+      "credit": "none",
+      "closure_basis": "The exact clean x86_64-pc-windows-msvc stable, branch, and condition manifests at 16bf6a8211ac7b8c345fa8ebe6d98acc2ec3ba6c retain windows-provider.json and host version 10.0.26100. Each records kernel32.dll, GetDiskSpaceInformationW, module_present=true, symbol_present=true, and outcome=available. This closes local internal provider observation only; it does not establish independence, tool qualification, authority credit, or certification acceptance."
     },
     {
       "id": "GAP-MACOS-COVERAGE-MATRIX",

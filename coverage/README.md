@@ -87,8 +87,9 @@ this provenance is not eligible for the internal gate.
 ## Review state
 
 The current records are `draft` or `not_ready`.  The local snapshot closes the
-emitted raw metrics for the Linux and Windows hosts exercised, but the
-configured Apple-silicon matrix, approved certification basis, assigned
-software level, qualified coverage-tool determination, independence plan, and
+emitted raw metrics and records provider availability for the Linux and
+Windows hosts exercised, but the configured Apple-silicon matrix, approved
+certification basis, assigned software level, qualified coverage-tool
+determination, independence plan, native OS fault-injection disposition, and
 external archive remain open.  Those items remain explicit decisions rather
 than being inferred from passing tests or diagnostic branch percentages.

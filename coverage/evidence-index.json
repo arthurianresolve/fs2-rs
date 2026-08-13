@@ -7,63 +7,79 @@
   "external_archive_uri": null,
   "runs": [
     {
-      "run_id": "20260813T070518Z-1077fed0375c",
+      "run_id": "20260813T073924Z-6860a95bdd57",
       "profile": "stable",
       "target": "x86_64-unknown-linux-gnu",
-      "commit": "26844b3aa0a32ddf7b39fdb01f5c39e816696ff7",
-      "tree": "aac4e2298fee64cc63d5977fc12fc00882bc6c95",
+      "commit": "16bf6a8211ac7b8c345fa8ebe6d98acc2ec3ba6c",
+      "tree": "e4b119a9fc0dd58f7ba0c84dcff69f998c63c3f1",
       "status": "pass",
-      "disposition": "local_disposable_not_promoted"
+      "disposition": "local_disposable_not_promoted",
+      "provider_outcome": "not_applicable"
     },
     {
-      "run_id": "20260813T070527Z-c2f1ebfdc404",
+      "run_id": "20260813T073933Z-fb171c09153c",
       "profile": "branch",
       "target": "x86_64-unknown-linux-gnu",
-      "commit": "26844b3aa0a32ddf7b39fdb01f5c39e816696ff7",
-      "tree": "aac4e2298fee64cc63d5977fc12fc00882bc6c95",
+      "commit": "16bf6a8211ac7b8c345fa8ebe6d98acc2ec3ba6c",
+      "tree": "e4b119a9fc0dd58f7ba0c84dcff69f998c63c3f1",
       "status": "pass",
-      "disposition": "local_disposable_not_promoted"
+      "disposition": "local_disposable_not_promoted",
+      "provider_outcome": "not_applicable"
     },
     {
-      "run_id": "20260813T070535Z-885114fbb9ae",
+      "run_id": "20260813T073941Z-db6f927ba49a",
       "profile": "condition",
       "target": "x86_64-unknown-linux-gnu",
-      "commit": "26844b3aa0a32ddf7b39fdb01f5c39e816696ff7",
-      "tree": "aac4e2298fee64cc63d5977fc12fc00882bc6c95",
+      "commit": "16bf6a8211ac7b8c345fa8ebe6d98acc2ec3ba6c",
+      "tree": "e4b119a9fc0dd58f7ba0c84dcff69f998c63c3f1",
       "status": "pass",
-      "disposition": "local_disposable_not_promoted"
+      "disposition": "local_disposable_not_promoted",
+      "provider_outcome": "not_applicable"
     },
     {
-      "run_id": "20260813T070302Z-6cd5982d066f",
+      "run_id": "20260813T073618Z-e814e68b67a0",
       "profile": "stable",
       "target": "x86_64-pc-windows-msvc",
-      "commit": "26844b3aa0a32ddf7b39fdb01f5c39e816696ff7",
-      "tree": "aac4e2298fee64cc63d5977fc12fc00882bc6c95",
+      "commit": "16bf6a8211ac7b8c345fa8ebe6d98acc2ec3ba6c",
+      "tree": "e4b119a9fc0dd58f7ba0c84dcff69f998c63c3f1",
       "status": "pass",
-      "disposition": "local_disposable_not_promoted"
+      "disposition": "local_disposable_not_promoted",
+      "provider_outcome": "available",
+      "provider_api": "GetDiskSpaceInformationW",
+      "provider_library": "kernel32.dll",
+      "host_version": "10.0.26100"
     },
     {
-      "run_id": "20260813T070319Z-b3915561809f",
+      "run_id": "20260813T073630Z-5869f9dbf7d0",
       "profile": "branch",
       "target": "x86_64-pc-windows-msvc",
-      "commit": "26844b3aa0a32ddf7b39fdb01f5c39e816696ff7",
-      "tree": "aac4e2298fee64cc63d5977fc12fc00882bc6c95",
+      "commit": "16bf6a8211ac7b8c345fa8ebe6d98acc2ec3ba6c",
+      "tree": "e4b119a9fc0dd58f7ba0c84dcff69f998c63c3f1",
       "status": "pass",
-      "disposition": "local_disposable_not_promoted"
+      "disposition": "local_disposable_not_promoted",
+      "provider_outcome": "available",
+      "provider_api": "GetDiskSpaceInformationW",
+      "provider_library": "kernel32.dll",
+      "host_version": "10.0.26100"
     },
     {
-      "run_id": "20260813T070344Z-d712657a1c90",
+      "run_id": "20260813T073641Z-dc3ec8cb562c",
       "profile": "condition",
       "target": "x86_64-pc-windows-msvc",
-      "commit": "26844b3aa0a32ddf7b39fdb01f5c39e816696ff7",
-      "tree": "aac4e2298fee64cc63d5977fc12fc00882bc6c95",
+      "commit": "16bf6a8211ac7b8c345fa8ebe6d98acc2ec3ba6c",
+      "tree": "e4b119a9fc0dd58f7ba0c84dcff69f998c63c3f1",
       "status": "pass",
-      "disposition": "local_disposable_not_promoted"
+      "disposition": "local_disposable_not_promoted",
+      "provider_outcome": "available",
+      "provider_api": "GetDiskSpaceInformationW",
+      "provider_library": "kernel32.dll",
+      "host_version": "10.0.26100"
     }
   ],
   "open_items": [
-    "review and accept the six clean exact-commit run manifests",
+    "review and accept the six clean exact-commit run manifests for internal use",
     "produce the missing aarch64-apple-darwin matrix profiles",
+    "obtain an approved disposition or controlled OS fault-injection harness for native failures",
     "publish to a controlled external archive",
     "test retrieval and retention"
   ],
