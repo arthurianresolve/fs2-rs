@@ -52,7 +52,14 @@ impl FsStatsQuery {
     }
 
     fn new_path(path: &Path) -> Result<Self> {
-        let path = std::path::absolute(path)?;
+        Self::new_path_with(path, |path| std::path::absolute(path))
+    }
+
+    fn new_path_with(
+        path: &Path,
+        resolve: impl FnOnce(&Path) -> Result<std::path::PathBuf>,
+    ) -> Result<Self> {
+        let path = resolve(path)?;
         sys::StatsQuery::new(&path).map(|inner| Self { inner })
     }
 
