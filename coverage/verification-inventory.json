@@ -19,7 +19,7 @@
     {"id": "lock_contract::legacy_lock_methods_share_the_contract", "kind": "unit", "platforms": ["unix", "windows"]},
     {"id": "lock_contract::shared_locks_are_compatible_but_exclusive_locks_are_not", "kind": "unit", "platforms": ["unix", "windows"]},
     {"id": "stats::tests::accepts_quota_limited_legacy_total_space", "kind": "unit", "platforms": ["windows"]},
-    {"id": "stats::tests::constructs_stats_from_bytes", "kind": "unit", "platforms": ["unix", "windows"]},
+    {"id": "stats::tests::constructs_stats_from_bytes", "kind": "unit", "platforms": ["windows"]},
     {"id": "stats::tests::filesystem_space", "kind": "unit", "platforms": ["unix", "windows"]},
     {"id": "stats::tests::prepared_query_returns_fresh_valid_snapshots", "kind": "unit", "platforms": ["unix", "windows"]},
     {"id": "stats::tests::rejects_available_space_above_free_space", "kind": "unit", "platforms": ["windows"]},
