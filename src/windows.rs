@@ -1,5 +1,6 @@
 use std::fs::File;
 use std::io::{Error, ErrorKind, Result};
+use std::mem::MaybeUninit;
 use std::os::windows::ffi::OsStrExt;
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::path::Path;
@@ -208,6 +209,30 @@ fn wide_path(path: &Path) -> Result<Vec<u16>> {
     }
     encoded.push(0);
     Ok(encoded)
+}
+
+#[inline(always)]
+fn with_wide_path(path: &Path, kind: SpaceKind, is_absolute: bool) -> Result<u64> {
+    let path = path.as_os_str();
+    let mut inline = [MaybeUninit::<u16>::uninit(); VOLUME_PATH_CAPACITY];
+    let mut length = 0;
+    for code_unit in path.encode_wide() {
+        if code_unit == 0 {
+            return Err(Error::new(ErrorKind::InvalidInput, "path contained a null"));
+        }
+
+        if length == VOLUME_PATH_CAPACITY - 1 {
+            let path = wide_path(Path::new(path))?;
+            return space_with_wide_path(&path, kind, is_absolute);
+        }
+
+        inline[length].write(code_unit);
+        length += 1;
+    }
+    inline[length].write(0);
+    // SAFETY: every element through `length` was initialized above.
+    let path = unsafe { std::slice::from_raw_parts(inline.as_ptr().cast::<u16>(), length + 1) };
+    space_with_wide_path(path, kind, is_absolute)
 }
 
 fn copy_exact_drive_root(path: &[u16], root_path: &mut [u16; VOLUME_PATH_CAPACITY]) -> bool {
@@ -448,11 +473,15 @@ fn legacy_statvfs_after_geometry(
 }
 
 pub(crate) fn space(path: &Path, kind: SpaceKind) -> Result<u64> {
-    let path_utf16 = wide_path(path)?;
-    if path.is_absolute() {
-        match direct_space(&path_utf16, kind) {
+    with_wide_path(path, kind, path.is_absolute())
+}
+
+#[inline(always)]
+fn space_with_wide_path(path_utf16: &[u16], kind: SpaceKind, is_absolute: bool) -> Result<u64> {
+    if is_absolute {
+        match direct_space(path_utf16, kind) {
             DirectSpace::Hit(value) => return Ok(value),
-            DirectSpace::Unavailable => match handle_space(&path_utf16, kind) {
+            DirectSpace::Unavailable => match handle_space(path_utf16, kind) {
                 DirectSpace::Hit(value) => return Ok(value),
                 DirectSpace::Unavailable => {}
             },
@@ -460,13 +489,13 @@ pub(crate) fn space(path: &Path, kind: SpaceKind) -> Result<u64> {
     }
 
     let mut root_path = [0u16; VOLUME_PATH_CAPACITY];
-    if copy_exact_drive_root(&path_utf16, &mut root_path) {
+    if copy_exact_drive_root(path_utf16, &mut root_path) {
         let exact_root = root_space(&root_path, kind);
-        return space_after_exact_root(&path_utf16, kind, &mut root_path, exact_root, root_space);
+        return space_after_exact_root(path_utf16, kind, &mut root_path, exact_root, root_space);
     }
 
     root_path.fill(0);
-    volume_path(&path_utf16, &mut root_path)?;
+    volume_path(path_utf16, &mut root_path)?;
 
     root_space(&root_path, kind)
 }
