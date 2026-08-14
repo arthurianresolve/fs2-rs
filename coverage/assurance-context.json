@@ -8,7 +8,7 @@
   "baseline": {
     "reference": "48ec3af6b807d9e70bd7d388baa8dbb1a3b69c40",
     "reference_kind": "current_predecessor_assurance_commit",
-    "working_tree_state": "candidate_bound_to_clean_exact_commit_internal_staging; independent_review_pending",
+    "working_tree_state": "candidate_bound_to_clean_exact_commit_internal_staging; candidate_specific_independent_review_approved",
     "exact_commit_required_for_evidence": true
   },
   "configuration_management_ref": "coverage/configuration-management.json",
@@ -25,7 +25,6 @@
   "open_items": [
     "approve the applicable certification basis and assigned software level",
     "decide any future certification use of each tool function and whether qualification is required",
-    "complete the candidate-specific independent Windows native-fault review",
     "approve the controlled external archive, retention, disposition, and broader independence controls",
     "perform target-specific applicability and object-code analysis as required"
   ]

@@ -119,11 +119,10 @@
     }
   ],
   "open_items": [
-    "complete the candidate-specific independent Windows native-fault review",
     "publish to and retrieve from an approved controlled external archive"
   ],
   "non_claims": [
-    "The indexed CM-DO178C-0002 runs remain historical disposable internal evidence; the separately bound CM-DO178C-0004 package is the current review candidate and is not yet independently approved.",
+    "The indexed CM-DO178C-0002 runs remain historical disposable internal evidence; the separately bound CM-DO178C-0004 package has candidate-specific internal native-fault review approval but is not promoted to a release or authority baseline.",
     "Internal package staging and retrieval do not constitute controlled external archiving or release evidence."
   ]
 }

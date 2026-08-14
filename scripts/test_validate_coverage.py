@@ -493,7 +493,11 @@ class CoverageRecordTests(unittest.TestCase):
         invalid["tool_disposition"]["driver_verifier"]["applicability"] = "applicable"
 
         with self.assertRaises(ValidationError):
-            validate_windows_native_fault_assessment(invalid, {"windows::test::records_os_mediated_native_failures", "appverifier_file_fault_is_observed"})
+            validate_windows_native_fault_assessment(
+                invalid,
+                {"windows::test::records_os_mediated_native_failures", "appverifier_file_fault_is_observed"},
+                "independent_review_approved",
+            )
 
     def test_native_fault_assessment_rejects_review_status_drift(self):
         invalid = copy.deepcopy(self.native_faults)
@@ -511,14 +515,22 @@ class CoverageRecordTests(unittest.TestCase):
         invalid["external_references"][0]["source_role"] = "approved_certification_basis"
 
         with self.assertRaises(ValidationError):
-            validate_windows_native_fault_assessment(invalid, {"windows::test::records_os_mediated_native_failures", "appverifier_file_fault_is_observed"})
+            validate_windows_native_fault_assessment(
+                invalid,
+                {"windows::test::records_os_mediated_native_failures", "appverifier_file_fault_is_observed"},
+                "independent_review_approved",
+            )
 
     def test_native_fault_assessment_rejects_external_reference_drift(self):
         invalid = copy.deepcopy(self.native_faults)
         invalid["external_references"][0]["url"] = "https://example.invalid/application-verifier"
 
         with self.assertRaises(ValidationError):
-            validate_windows_native_fault_assessment(invalid, {"windows::test::records_os_mediated_native_failures", "appverifier_file_fault_is_observed"})
+            validate_windows_native_fault_assessment(
+                invalid,
+                {"windows::test::records_os_mediated_native_failures", "appverifier_file_fault_is_observed"},
+                "independent_review_approved",
+            )
 
     def approved_native_fault_review(self) -> dict:
         approved = copy.deepcopy(self.native_fault_review)
@@ -568,10 +580,10 @@ class CoverageRecordTests(unittest.TestCase):
         approved["updated_at"] = "2026-08-14T11:00:00+00:00"
         return approved
 
-    def test_native_fault_review_accepts_current_candidate_pending_state(self):
+    def test_native_fault_review_accepts_current_candidate_approval(self):
         self.assertEqual(
             validate_windows_native_fault_review(self.native_fault_review),
-            "independent_review_pending",
+            "independent_review_approved",
         )
 
     def test_native_fault_review_accepts_bound_candidate_before_reviewer_acceptance(self):

@@ -169,7 +169,7 @@ Commit and push the technical review candidate before performing the review.
 That order gives the reviewer one immutable source commit and lets the
 `windows-native-faults` CI job produce a clean exact-commit manifest.  Bind the
 review record to that commit, tree, manifest reference, and manifest SHA-256
-before changing its status to `in_review`.
+before recording a decision.
 
 The assigned reviewer is `github:arthurianresolve`.  Assignment does not prove
 acceptance or independence.  The local publication identity is also
@@ -179,10 +179,11 @@ independent expected results, common-mode dependencies, and the rationale for
 the shared GitHub identity.  The validator requires that declaration, all ten
 checklist items passing, reciprocal and resolved findings, and a decision bound
 to the exact candidate and native-fault manifest digest.  The approval for
-candidate `15da349` remains immutable in Git history, but the current changes
-affect reviewed requirements, tool assessment, validators, workflow, and
-assurance records.  The review is therefore reopened until the new committed
-candidate and clean Windows manifest are bound and reviewed.
+candidate `15da349` remains immutable in Git history.  The current approval is
+independently bound to candidate `1508aa1` and native-fault manifest SHA-256
+`2c2f6a3af7fefcf210f56fa35d304c282c1289495a2e6f53ea7953970c0d4a04`, with
+all ten objectives passing and no findings.  It satisfies only the registered
+internal Windows native-fault review condition.
 
 If review findings change code, tests, collectors, validators, requirements,
 or assurance records, create and push a new candidate, regenerate clean native
@@ -205,8 +206,8 @@ requirements baseline and detailed tool-function assessment are complete for
 their explicitly non-certification scope.  CM-DO178C-0004 is bound to clean
 candidate `1508aa1`, passing 36-job CI run `31731799593`, and a downloaded,
 zero-discrepancy internal staging package.  The native-fault manifest for that
-candidate is bound and ready, but its independent review decision remains
-pending.  The approved certification basis, assigned
+candidate is bound, and its candidate-specific internal independent review is
+approved.  The approved certification basis, assigned
 software level, any qualification/TQL determination, broader organizational
 independence, controlled external archive, object-code analysis, release
 approval, and authority acceptance remain open.  Passing tests, internal
