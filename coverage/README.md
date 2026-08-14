@@ -40,7 +40,11 @@ The records are deliberately split by concern:
 - `object-analysis.json` and `object-analysis-run.schema.json` define
   exact-commit native ELF, Mach-O, and COFF inventory collection.  Retained
   archives, members, symbols, sections, and disassembly support target review;
-  they do not establish source/object mapping or object-code coverage.
+  `source-object-reconciliation.json` adds a reviewed module-level
+  symbol-to-source inventory and an explicit compiler-generated-code
+  non-credit disposition.  These records do not establish semantic
+  source/object equivalence, semantic source/object traceability, or
+  object-code coverage.
 - `policy.json` defines the internal gates and non-claims.
 - `tool-assessment.json` records per-function intended and prohibited uses,
   I/O and topology, activity effects, failure escape/detection, fallbacks,
@@ -173,6 +177,11 @@ python scripts/collect_object_analysis.py --target x86_64-pc-windows-msvc --outp
 python scripts/validate_object_analysis.py --manifest target/object-analysis/object-analysis-manifest.json --expected-commit <full-commit> --require-pass
 ```
 
+Passing enhanced object runs also retain `source-object-map.json`.  The map is
+derived from the exact defined-symbol inventory and records module-level
+source associations only; it is not a statement, basic-block, semantic, or
+object-code coverage map.
+
 The analogous CI matrix uses `x86_64-unknown-linux-gnu` and
 `aarch64-apple-darwin` on their native hosts.  A dirty local run may be retained
 only as focused implementation evidence and cannot satisfy the clean-candidate
@@ -300,12 +309,16 @@ exact candidate `f24c570bc9c302e4a5cb14cd580b7247f9888916`, tree
 `31774523702`, and the object-inclusive internal package
 `ASSURANCE-f24c570bc9c3-31774523702`.  The package contains the clean
 three-target inventory matrix and was accepted as exact-commit internal DAL B
-engineering evidence.  Target-specific object review remains open; the
-inventory does not establish source/object mapping or object-code coverage.
+engineering evidence.  The target-specific inventory review is approved for
+the registered internal scope.  The derived reconciliation records module-
+level symbol-to-source observations and explicitly treats compiler-generated
+code as non-credit; semantic source/object mapping and object-code coverage
+remain open.
 
 The applicable controlled certification basis and its DAL B binding, any
 qualification/TQL determination, authority-approved independence, controlled
-external archive, source/object mapping, generated-code disposition,
-object-code structural coverage, release approval, and authority acceptance
-remain open.  Passing tests, internal human review, transport mechanics, or
-package integrity cannot infer those decisions.
+external archive, semantic source/object mapping, compiler-generated-code
+reconciliation under an applicable basis, object-code structural coverage,
+release approval, and authority acceptance remain open.  Passing tests,
+internal human review, transport mechanics, or package integrity cannot infer
+those decisions.

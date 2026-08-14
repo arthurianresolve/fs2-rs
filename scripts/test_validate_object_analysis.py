@@ -5,13 +5,16 @@ import unittest
 from pathlib import Path
 
 from validate_object_analysis import (
+    CONTROL_PATH,
     NON_CLAIMS,
     ObjectAnalysisError,
     expected_source_inventory,
     sha256,
+    validate_control,
     validate_manifest,
     validate_static,
 )
+from validate_source_object_reconciliation import build_source_object_map
 
 
 class ObjectAnalysisValidationTests(unittest.TestCase):
@@ -117,11 +120,49 @@ class ObjectAnalysisValidationTests(unittest.TestCase):
     def test_static_controls_are_valid(self):
         validate_static()
 
+    def test_accepts_the_approved_internal_object_review(self):
+        control = json.loads(CONTROL_PATH.read_text(encoding="utf-8"))
+        validate_control(control)
+        self.assertEqual(control["review"]["status"], "reviewed_internal")
+
+    def test_rejects_approved_review_without_evidence(self):
+        control = json.loads(CONTROL_PATH.read_text(encoding="utf-8"))
+        control["review"]["evidence_refs"] = []
+        with self.assertRaises(ObjectAnalysisError):
+            validate_control(control)
+
     def test_accepts_complete_clean_native_manifest(self):
         validated = validate_manifest(
             self.manifest_path, expected_commit="1" * 40, require_pass=True
         )
         self.assertEqual(validated["object_format"], "ELF")
+
+    def test_accepts_enhanced_source_object_manifest(self):
+        symbols = "0 T fs2::stats::FsStats::from_counters::h1234567890abcdef\n"
+        (self.root / "defined-symbols.txt").write_text(symbols, encoding="utf-8")
+        source_map = build_source_object_map(
+            target="x86_64-unknown-linux-gnu",
+            commit=self.manifest["commit"],
+            tree=self.manifest["tree"],
+            inventory=self.manifest["source_inventory"]["records"],
+            defined_symbols_text=symbols,
+        )
+        (self.root / "source-object-map.json").write_text(
+            json.dumps(source_map, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        self.manifest["analysis"].update(
+            {
+                "source_object_mapping_status": "module_symbol_inventory_only",
+                "generated_code_disposition": "reviewed_internal_compiler_generated_not_credited",
+                "fs2_symbol_observed": True,
+            }
+        )
+        self.write_manifest()
+        validated = validate_manifest(
+            self.manifest_path, expected_commit="1" * 40, require_pass=True
+        )
+        self.assertEqual(validated["analysis"]["source_object_mapping_status"], "module_symbol_inventory_only")
 
     def test_rejects_tampered_retained_output(self):
         (self.root / "disassembly.txt").write_text("changed\n", encoding="utf-8")

@@ -51,6 +51,7 @@ PASS_ARTIFACTS = {
     "fs2.rlib",
     "object-structure.txt",
 }
+ENHANCED_PASS_ARTIFACTS = PASS_ARTIFACTS | {"source-object-map.json"}
 NON_CLAIMS = [
     "The inventory does not establish source-to-object traceability or source/object equivalence.",
     "Disassembly and symbol presence do not establish object-code structural coverage or MC/DC.",
@@ -160,6 +161,7 @@ def validate_control(control: dict[str, Any]) -> None:
         "software_level",
         "credit",
         "strategy",
+        "reconciliation_ref",
         "review",
         "open_items",
         "non_claims",
@@ -192,16 +194,23 @@ def validate_control(control: dict[str, Any]) -> None:
     if not isinstance(strategy, dict) or set(strategy) != strategy_fields:
         fail("coverage/object-analysis.json strategy is invalid")
     if (
-        strategy["status"] != "implementation_ready_awaiting_clean_candidate"
+        strategy["status"] != "reviewed_internal_inventory_only"
         or strategy["selection_basis"] != "native_runtime_coverage_matrix"
         or strategy["crate"] != "fs2"
         or strategy["profile"] != "release"
         or strategy["requested_toolchain"] != "1.88"
         or strategy["source_inventory_ref"] != "coverage/surface.json"
         or strategy["retained_outputs"]
-        != ["rlib", "archive_members", "defined_symbols", "sections_and_symbols", "disassembly"]
-        or strategy["source_object_mapping_status"] != "not_established_inventory_only"
-        or strategy["generated_code_disposition"] != "pending_target_review"
+        != [
+            "rlib",
+            "archive_members",
+            "defined_symbols",
+            "sections_and_symbols",
+            "disassembly",
+            "source_object_map",
+        ]
+        or strategy["source_object_mapping_status"] != "module_symbol_inventory_only"
+        or strategy["generated_code_disposition"] != "reviewed_internal_compiler_generated_not_credited"
     ):
         fail("coverage/object-analysis.json strategy overstates or changes the registered scope")
     targets = strategy["targets"]
@@ -224,14 +233,37 @@ def validate_control(control: dict[str, Any]) -> None:
         observed[target] = record
     if list(observed) != list(TARGETS):
         fail("coverage/object-analysis.json target order is not canonical")
+    if control["reconciliation_ref"] != "coverage/source-object-reconciliation.json":
+        fail("coverage/object-analysis.json reconciliation reference is invalid")
+    from validate_source_object_reconciliation import load_json as load_reconciliation_json
+    from validate_source_object_reconciliation import validate_record as validate_reconciliation
+
+    validate_reconciliation(
+        load_reconciliation_json(ROOT / "coverage" / "source-object-reconciliation.json")
+    )
     review = control["review"]
-    if review != {
-        "status": "pending_user_review",
-        "reviewer": None,
-        "reviewed_commit": None,
-        "evidence_refs": [],
+    if not isinstance(review, dict) or set(review) != {
+        "status",
+        "reviewer",
+        "reviewed_commit",
+        "evidence_refs",
     }:
-        fail("coverage/object-analysis.json must remain pending before review")
+        fail("coverage/object-analysis.json review has invalid fields")
+    if review["status"] == "pending_user_review":
+        if review["reviewer"] is not None or review["reviewed_commit"] is not None or review["evidence_refs"] != []:
+            fail("pending object-analysis review must not contain approval data")
+    elif review["status"] == "reviewed_internal":
+        if not isinstance(review["reviewer"], str) or not review["reviewer"].strip():
+            fail("reviewed object-analysis review lacks its reviewer")
+        if not isinstance(review["reviewed_commit"], str) or not COMMIT_RE.fullmatch(review["reviewed_commit"]):
+            fail("reviewed object-analysis review lacks a full reviewed commit")
+        evidence_refs = review["evidence_refs"]
+        if not isinstance(evidence_refs, list) or not evidence_refs or not all(
+            isinstance(reference, str) and reference.strip() for reference in evidence_refs
+        ):
+            fail("reviewed object-analysis review lacks evidence references")
+    else:
+        fail("coverage/object-analysis.json review has an unsupported status")
     for field in ("open_items", "non_claims"):
         values = control[field]
         if not isinstance(values, list) or not values or not all(
@@ -276,7 +308,14 @@ def validate_schema(schema: dict[str, Any]) -> None:
         != {
             "status": ["pass", "fail", "indeterminate", "provenance_error", "focused_only"],
             "profile": ["release"],
-            "source_object_mapping_status": ["not_established_inventory_only"],
+            "source_object_mapping_status": [
+                "not_established_inventory_only",
+                "module_symbol_inventory_only",
+            ],
+            "generated_code_disposition": [
+                "pending_target_review",
+                "reviewed_internal_compiler_generated_not_credited",
+            ],
         }
         or schema.get("promotion_rule")
         != "Only a pass manifest from a clean exact-commit native target run may enter internal review; no run establishes source/object equivalence, object-code coverage, qualification, certification credit, or authority acceptance."
@@ -317,7 +356,13 @@ def validate_artifacts(manifest: dict[str, Any], manifest_path: Path, require_pa
     if observed != actual:
         fail("object-analysis directory inventory differs from the manifest")
     if require_pass or manifest["status"] == "pass":
-        if set(observed) != PASS_ARTIFACTS:
+        expected_artifacts = (
+            ENHANCED_PASS_ARTIFACTS
+            if manifest["analysis"]["source_object_mapping_status"]
+            == "module_symbol_inventory_only"
+            else PASS_ARTIFACTS
+        )
+        if set(observed) != expected_artifacts:
             fail("passing object-analysis run lacks the exact retained output set")
 
 
@@ -441,9 +486,17 @@ def validate_manifest(
         "generated_code_disposition",
     }:
         fail("object-analysis result summary is invalid")
+    mapping_status = analysis["source_object_mapping_status"]
+    generated_code_status = analysis["generated_code_disposition"]
     if (
-        analysis["source_object_mapping_status"] != "not_established_inventory_only"
-        or analysis["generated_code_disposition"] != "pending_target_review"
+        (mapping_status, generated_code_status)
+        not in {
+            ("not_established_inventory_only", "pending_target_review"),
+            (
+                "module_symbol_inventory_only",
+                "reviewed_internal_compiler_generated_not_credited",
+            ),
+        }
         or not all(
             isinstance(analysis[field], int)
             and not isinstance(analysis[field], bool)
@@ -470,6 +523,19 @@ def validate_manifest(
         fail("object-analysis non-claims differ from the registered contract")
     validate_timestamp(manifest["created_utc"], "object-analysis created_utc")
     validate_artifacts(manifest, manifest_path, require_pass)
+    if mapping_status == "module_symbol_inventory_only":
+        map_path = manifest_path.parent / "source-object-map.json"
+        map_record = load_json(map_path)
+        from validate_source_object_reconciliation import validate_source_object_map
+
+        validate_source_object_map(
+            map_record,
+            expected_commit=manifest["commit"],
+            expected_tree=manifest["tree"],
+            defined_symbols_text=(manifest_path.parent / "defined-symbols.txt").read_text(
+                encoding="utf-8"
+            ),
+        )
     return manifest
 
 

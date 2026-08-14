@@ -23,7 +23,7 @@
     "No decision has been accepted as MC/DC evidence.",
     "The registered Boolean source decisions have direct internal pair records; this is a source-level engineering closure only and does not establish a tool-generated MC/DC result.",
     "DEC-API-001, DEC-LOCK-001, and DEC-STAT-002 are recorded as non-Boolean dispatch or sequencing dispositions rather than forced into an MC/DC denominator.",
-    "Object-code decisions and compiler-generated code are not assessed here.",
+    "Object-code decisions remain outside this source-level inventory; compiler-generated code has a reviewed internal non-credit disposition but is not semantically reconciled here.",
     "The inventory requires review against the approved requirements baseline."
   ]
 }

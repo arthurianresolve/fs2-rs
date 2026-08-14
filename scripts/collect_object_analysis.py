@@ -25,6 +25,7 @@ from validate_object_analysis import (
     expected_source_inventory,
     validate_manifest,
 )
+from validate_source_object_reconciliation import build_source_object_map
 
 
 REPOSITORY = "arthurianresolve/fs2-rs"
@@ -410,11 +411,24 @@ def collect(args: argparse.Namespace) -> int:
                     members = (output_dir / "archive-members.txt").read_text(
                         encoding="utf-8"
                     ).splitlines()
-                    symbols = (output_dir / "defined-symbols.txt").read_text(
+                    defined_symbols_text = (output_dir / "defined-symbols.txt").read_text(
                         encoding="utf-8"
-                    ).splitlines()
+                    )
+                    symbols = defined_symbols_text.splitlines()
                     members = [line.strip() for line in members if line.strip()]
                     defined = [line for line in symbols if line.strip()]
+                    source_object_map = build_source_object_map(
+                        target=args.target,
+                        commit=manifest["commit"],
+                        tree=manifest["tree"],
+                        inventory=manifest["source_inventory"]["records"],
+                        defined_symbols_text=defined_symbols_text,
+                    )
+                    (output_dir / "source-object-map.json").write_text(
+                        json.dumps(source_object_map, indent=2, sort_keys=True) + "\n",
+                        encoding="utf-8",
+                        newline="\n",
+                    )
                     manifest["analysis"] = {
                         "archive_member_count": len(members),
                         "object_member_count": sum(
@@ -422,8 +436,8 @@ def collect(args: argparse.Namespace) -> int:
                         ),
                         "defined_symbol_count": len(defined),
                         "fs2_symbol_observed": any("fs2::" in line for line in defined),
-                        "source_object_mapping_status": "not_established_inventory_only",
-                        "generated_code_disposition": "pending_target_review",
+                        "source_object_mapping_status": "module_symbol_inventory_only",
+                        "generated_code_disposition": "reviewed_internal_compiler_generated_not_credited",
                     }
                     status = (
                         "pass"

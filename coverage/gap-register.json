@@ -195,10 +195,10 @@
     },
     {
       "id": "GAP-TARGET-OBJECT-ANALYSIS",
-      "source_refs": ["coverage/object-analysis.json:1", "coverage/object-analysis-run.schema.json:1", "scripts/collect_object_analysis.py:1", "scripts/validate_object_analysis.py:1", ".github/workflows/ci.yml:1"],
+      "source_refs": ["coverage/object-analysis.json:1", "coverage/object-analysis-run.schema.json:1", "coverage/source-object-reconciliation.json:1", "scripts/collect_object_analysis.py:1", "scripts/validate_object_analysis.py:1", "scripts/validate_source_object_reconciliation.py:1", ".github/workflows/ci.yml:1"],
       "classification": "target_object_analysis",
-      "observed_condition": "The three-target collector, fail-closed manifest validator, CI matrix, and archive bindings are implemented. CI run 31774523702 produced clean exact-commit Linux ELF, macOS Mach-O, and Windows COFF inventories with passing native tool exits; the records remain inventory-only and the target-specific review is still pending.",
-      "required_action": "Review compiler output, archive members, symbols, sections, disassembly, generated code, and any source/object or object-code coverage obligations from the applicable basis before assigning source/object or object-code assurance significance.",
+      "observed_condition": "The three-target collector, fail-closed manifest validator, CI matrix, and archive bindings are implemented. CI run 31774523702 produced clean exact-commit Linux ELF, macOS Mach-O, and Windows COFF inventories with passing native tool exits. IR-OBJECT-ANALYSIS-001 approved the target-specific inventory review, and IR-OBJECT-ANALYSIS-001-derived source-object reconciliation records provide a reviewed module-level symbol-to-source inventory plus an explicit compiler-generated-code non-credit disposition. Semantic source/object reconciliation and object-code structural coverage remain unresolved.",
+      "required_action": "Retain and repeat the module-level reconciliation from clean exact-commit output when relevant inputs change; perform semantic source/object reconciliation and object-code structural-coverage follow-on when required by the applicable controlled basis.",
       "status": "open",
       "credit": "none"
     },

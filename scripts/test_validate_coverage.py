@@ -139,6 +139,20 @@ class CoverageRecordTests(unittest.TestCase):
                 self.tool,
             )
 
+    def test_current_assurance_links_reject_stale_object_review(self):
+        invalid = copy.deepcopy(self.object_analysis)
+        invalid["review"]["reviewed_commit"] = "1" * 40
+        with self.assertRaises(ValidationError):
+            validate_assurance_decision_links(
+                self.context,
+                self.software_level,
+                self.independence,
+                invalid,
+                self.external_registry,
+                self.configuration_management,
+                self.tool,
+            )
+
     def test_current_assurance_links_reject_premature_tool_review(self):
         pending = copy.deepcopy(self.independence)
         pending["review_gate"].update(

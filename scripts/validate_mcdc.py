@@ -178,7 +178,14 @@ def validate_record(
     if record["claim_class"] != "internal_engineering_evidence" or record["credit"] != "none":
         fail(f"{label} contains an unsupported assurance claim")
     tool_support = record["tool_support"]
-    if not isinstance(tool_support, dict) or tool_support.get("cargo_llvm_cov_mcdc") != "not_available_on_pinned_nightly":
+    if (
+        not isinstance(tool_support, dict)
+        or tool_support.get("cargo_llvm_cov_mcdc") != "not_available_on_pinned_nightly"
+        or tool_support.get("source_object_mapping")
+        != "module_symbol_inventory_reviewed_semantic_mapping_open"
+        or tool_support.get("source_object_reconciliation_ref")
+        != "coverage/source-object-reconciliation.json"
+    ):
         fail(f"{label}.tool_support must record the pinned-tool limitation")
     llvm_assessment = tool_support.get("llvm_mcdc_design_assessment")
     if not isinstance(llvm_assessment, dict) or set(llvm_assessment) != {

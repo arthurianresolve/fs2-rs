@@ -45,6 +45,7 @@ REQUIRED_RECORDS = (
     "software-level-assignment.json",
     "object-analysis.json",
     "object-analysis-run.schema.json",
+    "source-object-reconciliation.json",
     "verification-inventory.json",
     "mcdc.json",
     "windows-native-faults.json",
@@ -1730,13 +1731,22 @@ def validate_assurance_decision_links(
         if criterion["software_level_ref"] != "coverage/software-level-assignment.json":
             fail(f"{label}: {identifier} does not reference the DAL B assignment")
 
-    if object_analysis["review"] != {
-        "status": "pending_user_review",
-        "reviewer": None,
-        "reviewed_commit": None,
-        "evidence_refs": [],
-    }:
-        fail(f"{label}: object-output review must await clean exact-commit evidence")
+    object_review = object_analysis["review"]
+    if object_review["status"] == "pending_user_review":
+        if object_review != {
+            "status": "pending_user_review",
+            "reviewer": None,
+            "reviewed_commit": None,
+            "evidence_refs": [],
+        }:
+            fail(f"{label}: pending object-output review contains approval data")
+    elif object_review["status"] == "reviewed_internal":
+        if object_review["reviewed_commit"] != candidate["commit"]:
+            fail(f"{label}: object-output review is bound to a different candidate commit")
+        if not object_review["evidence_refs"]:
+            fail(f"{label}: reviewed object-output record lacks evidence references")
+    else:
+        fail(f"{label}: object-output review has an unsupported state")
 
 
 def validate_verification_inventory(inventory: dict[str, Any]) -> set[str]:
@@ -3237,6 +3247,7 @@ def validate_static_records() -> None:
     )
     from validate_object_analysis import validate_control as validate_object_control
     from validate_object_analysis import validate_schema as validate_object_schema
+    from validate_source_object_reconciliation import validate_record as validate_source_object_reconciliation
 
     validate_endpoint_schema(records["external-archive-endpoint.schema.json"])
     validate_registry(records["external-reference-registry.json"])
@@ -3244,6 +3255,7 @@ def validate_static_records() -> None:
     validate_independence_plan(records["independence-plan.json"])
     validate_object_control(records["object-analysis.json"])
     validate_object_schema(records["object-analysis-run.schema.json"])
+    validate_source_object_reconciliation(records["source-object-reconciliation.json"])
     expected_review_status = validate_windows_native_fault_review(
         records["windows-native-fault-review.json"]
     )

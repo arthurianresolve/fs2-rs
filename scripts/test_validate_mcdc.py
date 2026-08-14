@@ -49,6 +49,12 @@ class McdcValidationTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             validate_record(invalid, self.verification_ids)
 
+    def test_rejects_unbound_source_object_reconciliation(self):
+        invalid = copy.deepcopy(self.record)
+        invalid["tool_support"]["source_object_reconciliation_ref"] = "coverage/mcdc.json"
+        with self.assertRaises(ValidationError):
+            validate_record(invalid, self.verification_ids)
+
 
 if __name__ == "__main__":
     unittest.main()

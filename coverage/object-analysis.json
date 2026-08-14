@@ -7,7 +7,7 @@
   "software_level": "DAL_B",
   "credit": "none",
   "strategy": {
-    "status": "implementation_ready_awaiting_clean_candidate",
+    "status": "reviewed_internal_inventory_only",
     "selection_basis": "native_runtime_coverage_matrix",
     "crate": "fs2",
     "profile": "release",
@@ -18,24 +18,33 @@
       {"target": "aarch64-apple-darwin", "runner": "macos-latest", "platform_family": "unix", "object_format": "Mach-O"},
       {"target": "x86_64-pc-windows-msvc", "runner": "windows-latest", "platform_family": "windows", "object_format": "COFF"}
     ],
-    "retained_outputs": ["rlib", "archive_members", "defined_symbols", "sections_and_symbols", "disassembly"],
-    "source_object_mapping_status": "not_established_inventory_only",
-    "generated_code_disposition": "pending_target_review"
+    "retained_outputs": ["rlib", "archive_members", "defined_symbols", "sections_and_symbols", "disassembly", "source_object_map"],
+    "source_object_mapping_status": "module_symbol_inventory_only",
+    "generated_code_disposition": "reviewed_internal_compiler_generated_not_credited"
   },
+  "reconciliation_ref": "coverage/source-object-reconciliation.json",
   "review": {
-    "status": "pending_user_review",
-    "reviewer": null,
-    "reviewed_commit": null,
-    "evidence_refs": []
+    "status": "reviewed_internal",
+    "reviewer": "IR-PERSON-001",
+    "reviewed_commit": "f24c570bc9c302e4a5cb14cd580b7247f9888916",
+    "evidence_refs": [
+      "independent-review:IR-OBJECT-ANALYSIS-001",
+      "github-actions:run-31774523702",
+      "coverage/source-object-reconciliation.json",
+      "package:ASSURANCE-f24c570bc9c3-31774523702/evidence/object-analysis-aarch64-apple-darwin/object-analysis-manifest.json#sha256:9b59467af5ae00b5d343f2ef3abf6df8cb71f38d526442f23bf8cf1251077abe",
+      "package:ASSURANCE-f24c570bc9c3-31774523702/evidence/object-analysis-x86_64-pc-windows-msvc/object-analysis-manifest.json#sha256:9011286229be1f82698482068aa7a00ce448f99a7c11504a74ab3eb718612264",
+      "package:ASSURANCE-f24c570bc9c3-31774523702/evidence/object-analysis-x86_64-unknown-linux-gnu/object-analysis-manifest.json#sha256:1138dace229d4accb4c98ef2c6aaf2008be96bcc5001bf29121cad8a2ef37aae"
+    ]
   },
   "open_items": [
-    "collect clean exact-commit object inventories on all three registered native targets",
-    "review target-specific compiler output, generated code, archive members, symbols, sections, and disassembly",
-    "decide whether source/object traceability or object-code structural coverage is required by the applicable controlled basis"
+    "retain the clean exact-commit object inventories for all three registered native targets under the internal evidence package",
+    "retain the module-level symbol-to-source reconciliation and repeat it from clean exact-commit output when the compiler, target, source inventory, object-analysis tooling, or evidence configuration changes",
+    "perform semantic source/object reconciliation and object-code structural coverage when required by the applicable controlled basis"
   ],
   "non_claims": [
     "The inventory does not establish source-to-object traceability or source/object equivalence.",
     "Disassembly and symbol presence do not establish object-code structural coverage or MC/DC.",
-    "The compiler and LLVM tools are not qualified, and this record grants no certification credit or authority acceptance."
+    "The compiler and LLVM tools are not qualified, and this record grants no certification credit or authority acceptance.",
+    "The reviewed_internal disposition includes only module-level symbol-to-source inventory and generated-code non-credit disposition; it does not close semantic source/object mapping or object-code coverage follow-on items."
   ]
 }

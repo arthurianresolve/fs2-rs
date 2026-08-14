@@ -1,0 +1,109 @@
+{
+  "record_type": "source_object_reconciliation",
+  "schema_version": 1,
+  "status": "reviewed_internal_inventory_only",
+  "owner": "fs2 DO-178C coverage workstream",
+  "assurance_context": "internal_assurance",
+  "software_level": "DAL_B",
+  "credit": "none",
+  "baseline": {
+    "commit": "f24c570bc9c302e4a5cb14cd580b7247f9888916",
+    "tree": "46db086cfdd538c498de4e1993d6af1805af0686",
+    "package_id": "ASSURANCE-f24c570bc9c3-31774523702",
+    "workflow_run_id": "31774523702",
+    "package_manifest_sha256": "1981909ab7ff23cf9cd4790ea59569d1c6e2aa52ad5267989cae9071291bfc0d",
+    "review_ref": "independent-review:IR-OBJECT-ANALYSIS-001"
+  },
+  "source_inventory_ref": "coverage/surface.json",
+  "mapping_method": "demangled_fs2_symbol_module_prefix_v1",
+  "mapping_scope": "defined_fs2_symbols_in_retained_rlib_module_level_only",
+  "targets": [
+    {
+      "target": "x86_64-unknown-linux-gnu",
+      "object_format": "ELF",
+      "run_id": "20260814T055531Z-object-f7191780e5d5",
+      "object_manifest_ref": "package:ASSURANCE-f24c570bc9c3-31774523702/evidence/object-analysis-x86_64-unknown-linux-gnu/object-analysis-manifest.json#sha256:1138dace229d4accb4c98ef2c6aaf2008be96bcc5001bf29121cad8a2ef37aae",
+      "object_manifest_sha256": "1138dace229d4accb4c98ef2c6aaf2008be96bcc5001bf29121cad8a2ef37aae",
+      "defined_symbols_ref": "package:ASSURANCE-f24c570bc9c3-31774523702/evidence/object-analysis-x86_64-unknown-linux-gnu/defined-symbols.txt#sha256:c5bf2ed7aa17f5cefa8d08fd520b58979c8644d3c0b7745b1b1bb57da66388f8",
+      "defined_symbols_sha256": "c5bf2ed7aa17f5cefa8d08fd520b58979c8644d3c0b7745b1b1bb57da66388f8",
+      "archive_member_count": 2,
+      "object_member_count": 1,
+      "defined_symbol_count": 17,
+      "fs2_symbol_count": 12,
+      "source_records": [
+        {"path": "src/allocation.rs", "source_sha256": "34aa31f65b79fde296a5bd56aad9853485e0aa18bed09a7f6444777634f6c563", "direct_symbol_count": 0, "status": "no_direct_symbol_observed_in_retained_rlib"},
+        {"path": "src/lib.rs", "source_sha256": "5a7050926e8375738497d8f092f9b65540ea5615e700615dab7d8b16aae06e20", "direct_symbol_count": 7, "status": "direct_symbol_observed"},
+        {"path": "src/lock.rs", "source_sha256": "e4b7d27499835bb6c7ec4794c2c54d307a8df3c1a9f0db691de9d0c85579685a", "direct_symbol_count": 0, "status": "no_direct_symbol_observed_in_retained_rlib"},
+        {"path": "src/stats.rs", "source_sha256": "ef3808c67d8146d6045fcd73f2bf6423945ae33bcf9f86a9ef80ec70d2eade22", "direct_symbol_count": 3, "status": "direct_symbol_observed"},
+        {"path": "src/unix.rs", "source_sha256": "6891b8ffc466295754489e865725c0f1cf10053eb2505cd2653bfdecf1551483", "direct_symbol_count": 2, "status": "direct_symbol_observed"}
+      ]
+    },
+    {
+      "target": "aarch64-apple-darwin",
+      "object_format": "Mach-O",
+      "run_id": "20260814T055529Z-object-cda3c2be15b9",
+      "object_manifest_ref": "package:ASSURANCE-f24c570bc9c3-31774523702/evidence/object-analysis-aarch64-apple-darwin/object-analysis-manifest.json#sha256:9b59467af5ae00b5d343f2ef3abf6df8cb71f38d526442f23bf8cf1251077abe",
+      "object_manifest_sha256": "9b59467af5ae00b5d343f2ef3abf6df8cb71f38d526442f23bf8cf1251077abe",
+      "defined_symbols_ref": "package:ASSURANCE-f24c570bc9c3-31774523702/evidence/object-analysis-aarch64-apple-darwin/defined-symbols.txt#sha256:5641a0febe084d4d3f84fe70a81cff341f9f2bb4597122b2a5aeaacb7c224ed0",
+      "defined_symbols_sha256": "5641a0febe084d4d3f84fe70a81cff341f9f2bb4597122b2a5aeaacb7c224ed0",
+      "archive_member_count": 2,
+      "object_member_count": 1,
+      "defined_symbol_count": 32,
+      "fs2_symbol_count": 12,
+      "source_records": [
+        {"path": "src/allocation.rs", "source_sha256": "34aa31f65b79fde296a5bd56aad9853485e0aa18bed09a7f6444777634f6c563", "direct_symbol_count": 0, "status": "no_direct_symbol_observed_in_retained_rlib"},
+        {"path": "src/lib.rs", "source_sha256": "5a7050926e8375738497d8f092f9b65540ea5615e700615dab7d8b16aae06e20", "direct_symbol_count": 7, "status": "direct_symbol_observed"},
+        {"path": "src/lock.rs", "source_sha256": "e4b7d27499835bb6c7ec4794c2c54d307a8df3c1a9f0db691de9d0c85579685a", "direct_symbol_count": 0, "status": "no_direct_symbol_observed_in_retained_rlib"},
+        {"path": "src/stats.rs", "source_sha256": "ef3808c67d8146d6045fcd73f2bf6423945ae33bcf9f86a9ef80ec70d2eade22", "direct_symbol_count": 3, "status": "direct_symbol_observed"},
+        {"path": "src/unix.rs", "source_sha256": "6891b8ffc466295754489e865725c0f1cf10053eb2505cd2653bfdecf1551483", "direct_symbol_count": 2, "status": "direct_symbol_observed"}
+      ]
+    },
+    {
+      "target": "x86_64-pc-windows-msvc",
+      "object_format": "COFF",
+      "run_id": "20260814T055542Z-object-6360d9ea744c",
+      "object_manifest_ref": "package:ASSURANCE-f24c570bc9c3-31774523702/evidence/object-analysis-x86_64-pc-windows-msvc/object-analysis-manifest.json#sha256:9011286229be1f82698482068aa7a00ce448f99a7c11504a74ab3eb718612264",
+      "object_manifest_sha256": "9011286229be1f82698482068aa7a00ce448f99a7c11504a74ab3eb718612264",
+      "defined_symbols_ref": "package:ASSURANCE-f24c570bc9c3-31774523702/evidence/object-analysis-x86_64-pc-windows-msvc/defined-symbols.txt#sha256:1e9c239d72229c35b31e719823c1dc4459a4eba8a5adc5966750680a69582b0a",
+      "defined_symbols_sha256": "1e9c239d72229c35b31e719823c1dc4459a4eba8a5adc5966750680a69582b0a",
+      "archive_member_count": 3,
+      "object_member_count": 2,
+      "defined_symbol_count": 95,
+      "fs2_symbol_count": 24,
+      "source_records": [
+        {"path": "src/allocation.rs", "source_sha256": "34aa31f65b79fde296a5bd56aad9853485e0aa18bed09a7f6444777634f6c563", "direct_symbol_count": 0, "status": "no_direct_symbol_observed_in_retained_rlib"},
+        {"path": "src/lib.rs", "source_sha256": "5a7050926e8375738497d8f092f9b65540ea5615e700615dab7d8b16aae06e20", "direct_symbol_count": 7, "status": "direct_symbol_observed"},
+        {"path": "src/lock.rs", "source_sha256": "e4b7d27499835bb6c7ec4794c2c54d307a8df3c1a9f0db691de9d0c85579685a", "direct_symbol_count": 0, "status": "no_direct_symbol_observed_in_retained_rlib"},
+        {"path": "src/stats.rs", "source_sha256": "ef3808c67d8146d6045fcd73f2bf6423945ae33bcf9f86a9ef80ec70d2eade22", "direct_symbol_count": 4, "status": "direct_symbol_observed"},
+        {"path": "src/windows.rs", "source_sha256": "7c04ae250a4c6f28abf195b367f2b461e921519569fe281351596f7d46fd5459", "direct_symbol_count": 13, "status": "direct_symbol_observed"}
+      ]
+    }
+  ],
+  "generation_review": {
+    "status": "reviewed_internal_non_credit",
+    "project_generated_sources": {
+      "status": "not_observed",
+      "build_scripts": [],
+      "proc_macro_sources": [],
+      "included_generated_sources": []
+    },
+    "compiler_generated_code": {
+      "status": "present_not_credited",
+      "reason": "Rust monomorphization, inlining, compiler support, and target runtime code may be present in retained object output without semantic source mapping."
+    }
+  },
+  "object_code_coverage": {
+    "status": "not_collected",
+    "reason": "No target-specific executed object-code structural coverage artifact is retained; source-level MC/DC remains a separate internal record."
+  },
+  "open_items": [
+    "repeat this reconciliation from clean exact-commit enhanced collector output for each subsequent candidate, compiler, target, or source-inventory change",
+    "perform semantic source/object reconciliation and object-code structural coverage when required by the applicable controlled basis",
+    "resolve compiler-generated, monomorphized, inlined, runtime, and foreign-library code disposition under the applicable controlled basis"
+  ],
+  "non_claims": [
+    "The map is module-level symbol inventory evidence; it does not establish source/object equivalence or statement/basic-block mapping.",
+    "Compiler-generated, monomorphized, inlined, runtime, and foreign-library code remains outside the reviewed source mapping.",
+    "The record does not establish object-code structural coverage, MC/DC, tool qualification, certification credit, or authority acceptance."
+  ]
+}

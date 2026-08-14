@@ -29,7 +29,8 @@
   "enums": {
     "status": ["pass", "fail", "indeterminate", "provenance_error", "focused_only"],
     "profile": ["release"],
-    "source_object_mapping_status": ["not_established_inventory_only"]
+    "source_object_mapping_status": ["not_established_inventory_only", "module_symbol_inventory_only"],
+    "generated_code_disposition": ["pending_target_review", "reviewed_internal_compiler_generated_not_credited"]
   },
   "promotion_rule": "Only a pass manifest from a clean exact-commit native target run may enter internal review; no run establishes source/object equivalence, object-code coverage, qualification, certification credit, or authority acceptance."
 }
