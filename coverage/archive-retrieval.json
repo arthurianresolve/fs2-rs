@@ -1,28 +1,29 @@
 {
   "record_type": "assurance_archive_retrieval_record",
   "schema_version": 1,
-  "status": "draft",
+  "status": "not_ready",
   "owner": "fs2 DO-178C coverage workstream",
   "scope": "internal_github_actions_staging",
-  "result": "pass",
-  "package_id": "ASSURANCE-1508aa1b4249-31731799593",
-  "source_commit": "1508aa1b4249d20d27ad3e0239ace72e294e3bf6",
-  "source_tree": "d7e4d97dd0d621227e7892722d40c68a3024c1b2",
-  "workflow_run_id": "31731799593",
+  "result": "pending",
+  "package_id": null,
+  "source_commit": null,
+  "source_tree": null,
+  "workflow_run_id": null,
   "artifact_name": "assurance-evidence-package",
-  "manifest_sha256": "9636643b7c5efce6f304f5bacbe5af851f81526d5e1f8b9a33971ed5e86afc06",
-  "retrieval_result_sha256": "45d139f97fa259a5eae06defefb33c78c907caf1ad2aa05c735a3d7390be8cde",
-  "file_count": 670,
-  "total_bytes": 474754862,
-  "retrieved_at": "2026-08-13T18:54:22Z",
-  "verified_by": "codex:implementation-agent post-download self-contained verification",
+  "manifest_sha256": null,
+  "retrieval_result_sha256": null,
+  "file_count": null,
+  "total_bytes": null,
+  "retrieved_at": null,
+  "verified_by": null,
   "discrepancies": [],
   "external_archive_verified": false,
   "open_items": [
+    "collect and independently verify the new object-inclusive exact-commit internal package",
     "repeat retrieval after an approved controlled external archive exists"
   ],
   "non_claims": [
-    "This pass applies only to internal GitHub Actions staging and does not apply to a future controlled external archive.",
+    "No current package retrieval is accepted before the reviewed implementation is committed and exact-commit CI completes.",
     "This record does not establish controlled external retention, backup, disposition authority, certification credit, or authority acceptance."
   ]
 }

@@ -180,6 +180,38 @@ def validate_record(
     tool_support = record["tool_support"]
     if not isinstance(tool_support, dict) or tool_support.get("cargo_llvm_cov_mcdc") != "not_available_on_pinned_nightly":
         fail(f"{label}.tool_support must record the pinned-tool limitation")
+    llvm_assessment = tool_support.get("llvm_mcdc_design_assessment")
+    if not isinstance(llvm_assessment, dict) or set(llvm_assessment) != {
+        "reference",
+        "title",
+        "publication_context",
+        "classification",
+        "design_mechanism",
+        "historical_limit",
+        "current_clang_context",
+        "rust_applicability",
+        "disposition",
+        "adopted_controls",
+        "deferred_claims",
+    }:
+        fail(f"{label}.tool_support lacks the registered LLVM MC/DC assessment")
+    if (
+        llvm_assessment["reference"]
+        != "https://llvm.org/devmtg/2022-11/slides/TechTalk4-MCDC-EnablingSafetyCriticalCodeCoverage.pdf"
+        or llvm_assessment["classification"]
+        != "advisory_technical_design_input_not_certification_basis"
+        or llvm_assessment["disposition"]
+        != "adopt_semantic_and_validation_requirements_defer_rust_tool_claim"
+        or "pinned Rust nightly probe rejects mcdc"
+        not in llvm_assessment["rust_applicability"]
+    ):
+        fail(f"{label}.tool_support overstates LLVM MC/DC applicability to Rust")
+    for field in ("adopted_controls", "deferred_claims"):
+        values = llvm_assessment[field]
+        if not isinstance(values, list) or len(values) < 3 or not all(
+            isinstance(value, str) and value.strip() for value in values
+        ):
+            fail(f"{label}.tool_support.{field} is incomplete")
     decisions = record["decisions"]
     if not isinstance(decisions, list) or not decisions:
         fail(f"{label}.decisions must be non-empty")

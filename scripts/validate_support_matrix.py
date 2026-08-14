@@ -28,6 +28,7 @@ PROFILE_JOB_NAMES = {
     "branch": "coverage_branch",
     "condition": "coverage_condition",
 }
+OBJECT_ANALYSIS_JOB_NAME = "object_analysis"
 EXPECTED_PROFILE_METRICS = {
     "stable": ("line", "region"),
     "branch": ("branch",),
@@ -78,7 +79,11 @@ class SupportRegistry:
 
     @property
     def matrix_jobs(self) -> frozenset[str]:
-        return self.ci_jobs | {PROFILE_JOB_NAMES[name] for name in self.coverage_profiles}
+        return (
+            self.ci_jobs
+            | {PROFILE_JOB_NAMES[name] for name in self.coverage_profiles}
+            | {OBJECT_ANALYSIS_JOB_NAME}
+        )
 
 
 def is_ci_job_name(value: object) -> bool:
@@ -324,6 +329,29 @@ def validate_workflow(registry: SupportRegistry, workflow: dict) -> None:
         fail(f"workflow matrix consumption drift: missing={missing}")
 
     validate_coverage_workflow(jobs)
+    validate_object_analysis_workflow(jobs)
+    validate_review_scope_history(jobs)
+
+
+def validate_review_scope_history(jobs: dict) -> None:
+    """Ensure every static review-scope validation has its baseline commit."""
+    for job_name in ("support-matrix", "check", "windows-native-faults", "coverage-gate"):
+        job = jobs.get(job_name)
+        steps = job.get("steps") if isinstance(job, dict) else None
+        if not isinstance(steps, list):
+            fail(f"{job_name} must define steps for review-scope validation")
+        checkouts = [
+            step
+            for step in steps
+            if isinstance(step, dict)
+            and isinstance(step.get("uses"), str)
+            and "actions/checkout@" in step["uses"]
+        ]
+        if (
+            len(checkouts) != 1
+            or checkouts[0].get("with", {}).get("fetch-depth") != 0
+        ):
+            fail(f"{job_name} must fetch review-scope baseline history")
 
 
 def validate_coverage_workflow(jobs: dict) -> None:
@@ -476,6 +504,110 @@ def validate_coverage_workflow(jobs: dict) -> None:
         fail("windows-native-faults artifact retention settings are incomplete")
 
 
+def validate_object_analysis_workflow(jobs: dict) -> None:
+    """Require clean native object inventories and package their exact outputs."""
+    job = jobs.get(OBJECT_ANALYSIS_JOB_NAME)
+    if not isinstance(job, dict):
+        fail("object_analysis job is missing")
+    if job.get("needs") != "support-matrix" or job.get("runs-on") != "${{ matrix.os }}":
+        fail("object_analysis job has an invalid dependency or runner contract")
+    if job.get("if") != "github.event_name == 'push' && github.ref == 'refs/heads/DO-178C'":
+        fail("object_analysis evidence must run only for the pushed DO-178C branch head")
+    steps = job.get("steps")
+    if not isinstance(steps, list):
+        fail("object_analysis job must define steps")
+    toolchain_steps = [
+        step
+        for step in steps
+        if isinstance(step, dict)
+        and isinstance(step.get("uses"), str)
+        and "dtolnay/rust-toolchain@" in step["uses"]
+    ]
+    if (
+        len(toolchain_steps) != 1
+        or toolchain_steps[0].get("with", {}).get("components") != "llvm-tools-preview"
+        or toolchain_steps[0].get("with", {}).get("targets") != "${{ matrix.target }}"
+    ):
+        fail("object_analysis must install target-matched llvm-tools-preview")
+    commands = [
+        step.get("run", "")
+        for step in steps
+        if isinstance(step, dict) and isinstance(step.get("run"), str)
+    ]
+    if not any(
+        "python scripts/collect_object_analysis.py" in command
+        and "--target ${{ matrix.target }}" in command
+        and "--expected-commit" in command
+        and "--locked" in command
+        for command in commands
+    ):
+        fail("object_analysis must collect exact-commit target evidence")
+    if not any(
+        "python scripts/validate_object_analysis.py" in command
+        and "--manifest" in command
+        and "--expected-commit" in command
+        and "--require-pass" in command
+        for command in commands
+    ):
+        fail("object_analysis must fail closed on its retained manifest")
+    uploads = [
+        step
+        for step in steps
+        if isinstance(step, dict)
+        and isinstance(step.get("uses"), str)
+        and "actions/upload-artifact@" in step["uses"]
+    ]
+    if len(uploads) != 1:
+        fail("object_analysis must upload exactly one artifact")
+    upload = uploads[0].get("with", {})
+    if (
+        upload.get("name") != "object-analysis-${{ matrix.target }}"
+        or upload.get("path") != "target/object-analysis-${{ matrix.target }}"
+        or upload.get("if-no-files-found") != "error"
+    ):
+        fail("object_analysis artifact retention settings are incomplete")
+
+    package = jobs.get("assurance-package")
+    if not isinstance(package, dict):
+        fail("assurance-package job is missing")
+    needs = package.get("needs")
+    expected_needs = {"support-matrix", "coverage-gate", "windows-native-faults", OBJECT_ANALYSIS_JOB_NAME}
+    if not isinstance(needs, list) or set(needs) != expected_needs:
+        fail("assurance-package must require coverage, native-fault, and object evidence")
+    package_steps = package.get("steps")
+    if not isinstance(package_steps, list):
+        fail("assurance-package must define steps")
+    object_downloads = [
+        step
+        for step in package_steps
+        if isinstance(step, dict)
+        and step.get("with", {}).get("pattern") == "object-analysis-*"
+        and step.get("with", {}).get("path") == "target/assurance-inputs"
+    ]
+    if len(object_downloads) != 1:
+        fail("assurance-package must download the complete object-analysis matrix")
+    package_commands = [
+        step.get("run", "")
+        for step in package_steps
+        if isinstance(step, dict) and isinstance(step.get("run"), str)
+    ]
+    if not any(
+        "python scripts/independent_archive_verify.py" in command
+        and "--expected-commit" in command
+        and "--result target/independent-assurance-retrieval-result.json" in command
+        for command in package_commands
+    ):
+        fail("assurance-package must run the independent archive verifier")
+    result_uploads = [
+        step.get("with", {})
+        for step in package_steps
+        if isinstance(step, dict)
+        and step.get("with", {}).get("name") == "assurance-retrieval-result"
+    ]
+    if len(result_uploads) != 1 or "target/independent-assurance-retrieval-result.json" not in result_uploads[0].get("path", ""):
+        fail("assurance-package must retain the independent verification result")
+
+
 def matrices(registry: SupportRegistry) -> dict[str, dict[str, list[dict[str, str]]]]:
     generated: dict[str, dict[str, list[dict[str, str]]]] = {}
     for target in registry.targets:
@@ -505,6 +637,18 @@ def matrices(registry: SupportRegistry) -> dict[str, dict[str, list[dict[str, st
                 if target.ci is not None and profile_name in target.ci.coverage_profiles
             ]
         }
+    stable = registry.coverage_profiles["stable"]
+    generated[OBJECT_ANALYSIS_JOB_NAME] = {
+        "include": [
+            {
+                "os": target.ci.runner,
+                "target": target.target,
+                "toolchain": stable.requested_toolchain,
+            }
+            for target in registry.targets
+            if target.ci is not None and "stable" in target.ci.coverage_profiles
+        ]
+    }
     return generated
 
 

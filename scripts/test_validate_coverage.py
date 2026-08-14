@@ -19,6 +19,7 @@ from validate_coverage import (
     validate_archive_retrieval,
     validate_archive_retrieval_result,
     validate_assurance_control_links,
+    validate_assurance_decision_links,
     validate_configuration_management,
     validate_decisions,
     validate_evidence_index,
@@ -60,6 +61,12 @@ class CoverageRecordTests(unittest.TestCase):
         self.native_faults = load_json(COVERAGE / "windows-native-faults.json")
         self.native_fault_review = load_json(
             COVERAGE / "windows-native-fault-review.json"
+        )
+        self.software_level = load_json(COVERAGE / "software-level-assignment.json")
+        self.independence = load_json(COVERAGE / "independence-plan.json")
+        self.object_analysis = load_json(COVERAGE / "object-analysis.json")
+        self.external_registry = load_json(
+            COVERAGE / "external-reference-registry.json"
         )
 
     @staticmethod
@@ -117,6 +124,48 @@ class CoverageRecordTests(unittest.TestCase):
 
         with self.assertRaises(ValidationError):
             validate_context(invalid)
+
+    def test_current_assurance_links_reject_mismatched_software_level(self):
+        invalid = copy.deepcopy(self.object_analysis)
+        invalid["software_level"] = "DAL_A"
+        with self.assertRaises(ValidationError):
+            validate_assurance_decision_links(
+                self.context,
+                self.software_level,
+                self.independence,
+                invalid,
+                self.external_registry,
+                self.configuration_management,
+                self.tool,
+            )
+
+    def test_current_assurance_links_reject_premature_tool_review(self):
+        pending = copy.deepcopy(self.independence)
+        pending["review_gate"].update(
+            {
+                "status": "awaiting_implementation_review",
+                "decision": None,
+                "decision_ref": None,
+                "decided_at": None,
+            }
+        )
+        invalid = copy.deepcopy(self.tool)
+        function = next(
+            item for item in invalid["functions"] if item["id"] == "TOOL-F-001"
+        )
+        function["review"].update(
+            {"status": "reviewed_internal", "reviewer": "IR-PERSON-001"}
+        )
+        with self.assertRaises(ValidationError):
+            validate_assurance_decision_links(
+                self.context,
+                self.software_level,
+                pending,
+                self.object_analysis,
+                self.external_registry,
+                self.configuration_management,
+                invalid,
+            )
 
     def test_requirements_reject_unknown_source(self):
         invalid = copy.deepcopy(self.requirements)
@@ -464,6 +513,21 @@ class CoverageRecordTests(unittest.TestCase):
 
         with self.assertRaises(ValidationError):
             validate_evidence_index(invalid)
+
+    def test_evidence_index_requires_review_item_for_affected_native_validator(self):
+        index = load_json(COVERAGE / "evidence-index.json")
+        validate_evidence_index(
+            index, independent_review_approved=True, native_review_affected=True
+        )
+        index["open_items"] = [
+            item for item in index["open_items"] if "native-fault" not in item
+        ]
+        with self.assertRaises(ValidationError):
+            validate_evidence_index(
+                index,
+                independent_review_approved=True,
+                native_review_affected=True,
+            )
 
     def test_gap_register_requires_closed_gap_basis(self):
         invalid = load_json(COVERAGE / "gap-register.json")
@@ -841,6 +905,26 @@ class RunManifestTests(unittest.TestCase):
                     "bytes": (run_root / name).stat().st_size,
                 }
                 for name in ("coverage.json", "stdout.log", "stderr.log")
+            ]
+            path = run_root / "run-manifest.json"
+            path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            with self.assertRaises(ValidationError):
+                validate_manifest(path)
+
+    def test_manifest_rejects_artifact_path_traversal(self):
+        with tempfile.TemporaryDirectory(prefix="fs2-coverage-manifest-") as directory:
+            run_root = Path(directory) / "run"
+            run_root.mkdir()
+            manifest = self.make_manifest(run_root)
+            outside = run_root.parent / "outside.txt"
+            outside.write_text("outside\n", encoding="utf-8")
+            manifest["artifacts"] = [
+                {
+                    "path": "../outside.txt",
+                    "sha256": sha256(outside),
+                    "bytes": outside.stat().st_size,
+                }
             ]
             path = run_root / "run-manifest.json"
             path.write_text(json.dumps(manifest), encoding="utf-8")

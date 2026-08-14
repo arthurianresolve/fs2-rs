@@ -16,6 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
       - run: python -m pip install --disable-pip-version-check --requirement scripts/requirements.txt
       - id: matrix
         run: python scripts/validate_support_matrix.py --github-output "$GITHUB_OUTPUT"
@@ -31,6 +33,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
         with:
           toolchain: ${{ matrix.toolchain }}
@@ -51,6 +55,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
         with:
           toolchain: "1.88"
@@ -62,6 +68,31 @@ jobs:
         with:
           name: windows-native-faults
           path: target/windows-native-faults
+          if-no-files-found: error
+
+  object_analysis:
+    needs: support-matrix
+    if: github.event_name == 'push' && github.ref == 'refs/heads/DO-178C'
+    name: Target object inventory / ${{ matrix.target }} / Rust ${{ matrix.toolchain }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.support-matrix.outputs.matrices).object_analysis }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+        with:
+          toolchain: ${{ matrix.toolchain }}
+          components: llvm-tools-preview
+          targets: ${{ matrix.target }}
+      - name: Collect native target-object inventory
+        run: python scripts/collect_object_analysis.py --target ${{ matrix.target }} --output-dir target/object-analysis-${{ matrix.target }} --expected-commit "${{ github.sha }}" --locked
+      - name: Validate exact-commit object inventory
+        run: python scripts/validate_object_analysis.py --manifest target/object-analysis-${{ matrix.target }}/object-analysis-manifest.json --expected-commit "${{ github.sha }}" --require-pass
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: object-analysis-${{ matrix.target }}
+          path: target/object-analysis-${{ matrix.target }}
           if-no-files-found: error
 
   cross_check:
@@ -175,6 +206,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: target/coverage-artifacts
@@ -184,7 +217,7 @@ jobs:
         run: python scripts/validate_coverage_metrics.py --runs-dir target/coverage-artifacts --require-pass --require-matrix
 
   assurance-package:
-    needs: [support-matrix, coverage-gate, windows-native-faults]
+    needs: [support-matrix, coverage-gate, windows-native-faults, object_analysis]
     if: github.event_name == 'push' && github.ref == 'refs/heads/DO-178C'
     name: Package and retrieve internal assurance staging
     runs-on: ubuntu-latest
@@ -198,10 +231,16 @@ jobs:
         with:
           name: windows-native-faults
           path: target/assurance-inputs/windows-native-faults
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: object-analysis-*
+          path: target/assurance-inputs
       - name: Create immutable internal staging package
         run: python scripts/assurance_archive.py create --input-root target/assurance-inputs --output-dir target/assurance-package --control-record coverage/archive-control.json --expected-commit "$GITHUB_SHA" --workflow-run-id "$GITHUB_RUN_ID"
       - name: Verify retrieval contract before publication
         run: python scripts/assurance_archive.py verify --package-dir target/assurance-package --expected-commit "$GITHUB_SHA" --control-record coverage/archive-control.json --result target/assurance-retrieval-result.json
+      - name: Independently verify package bytes with the host digest utility
+        run: python scripts/independent_archive_verify.py --package-dir target/assurance-package --expected-commit "$GITHUB_SHA" --result target/independent-assurance-retrieval-result.json
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: assurance-evidence-package
@@ -211,7 +250,9 @@ jobs:
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: assurance-retrieval-result
-          path: target/assurance-retrieval-result.json
+          path: |
+            target/assurance-retrieval-result.json
+            target/independent-assurance-retrieval-result.json
           if-no-files-found: error
           retention-days: 90
 

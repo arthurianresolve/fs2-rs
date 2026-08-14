@@ -1,0 +1,35 @@
+{
+  "record_type": "object_analysis_run_schema",
+  "schema_version": 1,
+  "required": [
+    "record_type",
+    "schema_version",
+    "run_id",
+    "repository",
+    "branch",
+    "commit",
+    "tree",
+    "dirty",
+    "cargo_lock_sha256",
+    "host",
+    "target",
+    "object_format",
+    "profile",
+    "source_inventory",
+    "toolchain",
+    "command",
+    "native_exits",
+    "status",
+    "analysis",
+    "artifacts",
+    "created_utc",
+    "limitations",
+    "non_claims"
+  ],
+  "enums": {
+    "status": ["pass", "fail", "indeterminate", "provenance_error", "focused_only"],
+    "profile": ["release"],
+    "source_object_mapping_status": ["not_established_inventory_only"]
+  },
+  "promotion_rule": "Only a pass manifest from a clean exact-commit native target run may enter internal review; no run establishes source/object equivalence, object-code coverage, qualification, certification credit, or authority acceptance."
+}

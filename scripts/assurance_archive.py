@@ -145,7 +145,7 @@ def required_artifacts(control_record: dict[str, Any]) -> dict[str, dict[str, An
         if kind == "coverage":
             if profile not in {"stable", "branch", "condition"}:
                 fail(f"required artifact {name} has an invalid coverage profile")
-        elif kind == "windows_native_fault":
+        elif kind in {"windows_native_fault", "object_analysis"}:
             if profile is not None:
                 fail(f"required artifact {name} must not define a coverage profile")
         else:
@@ -192,11 +192,18 @@ def validate_source_manifest(
     if spec["kind"] == "coverage":
         if manifest.get("profile") != spec["profile"]:
             fail(f"{path} has the wrong coverage profile")
+    elif spec["kind"] == "windows_native_fault":
+        if (
+            manifest.get("record_type") != "windows_native_fault_run"
+            or manifest.get("schema_version") != 1
+        ):
+            fail(f"{path} has the wrong Windows native-fault identity")
     elif (
-        manifest.get("record_type") != "windows_native_fault_run"
+        manifest.get("record_type") != "object_analysis_run"
         or manifest.get("schema_version") != 1
+        or manifest.get("profile") != "release"
     ):
-        fail(f"{path} has the wrong Windows native-fault identity")
+        fail(f"{path} has the wrong object-analysis identity")
     return manifest
 
 
@@ -216,6 +223,31 @@ def regular_files(root: Path) -> list[Path]:
                 fail(f"input contains a non-regular file: {path}")
             files.append(path)
     return sorted(files, key=lambda path: path.relative_to(root).as_posix())
+
+
+def regular_directories(root: Path) -> list[str]:
+    directories: list[str] = []
+    for current, names, _ in os.walk(root, followlinks=False):
+        current_path = Path(current)
+        for name in names:
+            path = current_path / name
+            native = filesystem_path(path)
+            if native.is_symlink() or not native.is_dir():
+                fail(f"input contains a non-regular directory: {path}")
+            directories.append(path.relative_to(root).as_posix())
+    return sorted(directories)
+
+
+def expected_directories(recorded_paths: list[str]) -> list[str]:
+    directories = {
+        parent.as_posix()
+        for value in recorded_paths
+        for parent in PurePosixPath(value).parents
+        if parent.as_posix() != "."
+    }
+    if len({value.casefold() for value in directories}) != len(directories):
+        fail("archive directory inventory collides by case")
+    return sorted(directories)
 
 
 def ensure_disjoint(input_root: Path, output_dir: Path) -> None:
@@ -504,7 +536,7 @@ def verify_archive(
         if record["kind"] == "coverage":
             if record["profile"] not in {"stable", "branch", "condition"}:
                 fail(f"{label}.profile is invalid")
-        elif record["kind"] == "windows_native_fault":
+        elif record["kind"] in {"windows_native_fault", "object_analysis"}:
             if record["profile"] is not None:
                 fail(f"{label}.profile must be null")
         else:
@@ -612,6 +644,12 @@ def verify_archive(
         missing = sorted(set(recorded_paths) - set(actual_paths))
         extra = sorted(set(actual_paths) - set(recorded_paths))
         fail(f"archive file inventory mismatch; missing={missing}, extra={extra}")
+    actual_directories = regular_directories(evidence_root)
+    registered_directories = expected_directories(recorded_paths)
+    if actual_directories != registered_directories:
+        missing = sorted(set(registered_directories) - set(actual_directories))
+        extra = sorted(set(actual_directories) - set(registered_directories))
+        fail(f"archive directory inventory mismatch; missing={missing}, extra={extra}")
 
     source_manifest_by_name = {
         record["name"]: record for record in source_manifests

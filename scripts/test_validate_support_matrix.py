@@ -49,7 +49,10 @@ EXPECTED_MATRICES = (
     '{"os":"windows-latest","target":"x86_64-pc-windows-msvc","toolchain":"nightly-2026-07-23"}]},'
     '"coverage_condition":{"include":[{"os":"ubuntu-latest","target":"x86_64-unknown-linux-gnu","toolchain":"nightly-2026-07-23"},'
     '{"os":"macos-latest","target":"aarch64-apple-darwin","toolchain":"nightly-2026-07-23"},'
-    '{"os":"windows-latest","target":"x86_64-pc-windows-msvc","toolchain":"nightly-2026-07-23"}]}}'
+    '{"os":"windows-latest","target":"x86_64-pc-windows-msvc","toolchain":"nightly-2026-07-23"}]},'
+    '"object_analysis":{"include":[{"os":"ubuntu-latest","target":"x86_64-unknown-linux-gnu","toolchain":"1.88"},'
+    '{"os":"macos-latest","target":"aarch64-apple-darwin","toolchain":"1.88"},'
+    '{"os":"windows-latest","target":"x86_64-pc-windows-msvc","toolchain":"1.88"}]}}'
 )
 
 
@@ -81,6 +84,7 @@ class SupportMatrixTests(unittest.TestCase):
             target.ci is not None and "condition" in target.ci.coverage_profiles
             for target in self.data.targets
         )
+        expected_counts["object_analysis"] = expected_counts["coverage"]
 
         actual_counts = {
             job: len(matrix["include"]) for job, matrix in generated.items()
@@ -99,6 +103,12 @@ class SupportMatrixTests(unittest.TestCase):
         ]
 
         self.assertEqual(matrices(self.data)["coverage"]["include"], expected)
+
+    def test_object_analysis_matrix_matches_stable_native_coverage_targets(self):
+        self.assertEqual(
+            matrices(self.data)["object_analysis"],
+            matrices(self.data)["coverage"],
+        )
 
     def test_generated_matrix_is_byte_stable(self):
         generated = json.dumps(matrices(self.data), separators=(",", ":"))
@@ -228,6 +238,32 @@ class SupportMatrixTests(unittest.TestCase):
     def test_coverage_gate_requires_every_profile_job(self):
         workflow = copy.deepcopy(load_workflow())
         workflow["jobs"]["coverage-gate"]["needs"].remove("coverage_condition")
+
+        with self.assertRaises(SystemExit):
+            validate_workflow(self.data, workflow)
+
+    def test_object_analysis_must_remain_an_exact_commit_gate(self):
+        workflow = copy.deepcopy(load_workflow())
+        collector = next(
+            step
+            for step in workflow["jobs"]["object_analysis"]["steps"]
+            if "collect_object_analysis.py" in step.get("run", "")
+        )
+        collector["run"] = collector["run"].replace("--expected-commit", "")
+
+        with self.assertRaises(SystemExit):
+            validate_workflow(self.data, workflow)
+
+    def test_assurance_package_requires_object_analysis(self):
+        workflow = copy.deepcopy(load_workflow())
+        workflow["jobs"]["assurance-package"]["needs"].remove("object_analysis")
+
+        with self.assertRaises(SystemExit):
+            validate_workflow(self.data, workflow)
+
+    def test_static_validation_jobs_require_review_baseline_history(self):
+        workflow = copy.deepcopy(load_workflow())
+        workflow["jobs"]["coverage-gate"]["steps"][0]["with"]["fetch-depth"] = 1
 
         with self.assertRaises(SystemExit):
             validate_workflow(self.data, workflow)

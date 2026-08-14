@@ -22,6 +22,9 @@
       "coverage-condition-x86_64-unknown-linux-gnu": {"manifest": "run-manifest.json", "kind": "coverage", "profile": "condition", "target": "x86_64-unknown-linux-gnu"},
       "coverage-x86_64-pc-windows-msvc": {"manifest": "run-manifest.json", "kind": "coverage", "profile": "stable", "target": "x86_64-pc-windows-msvc"},
       "coverage-x86_64-unknown-linux-gnu": {"manifest": "run-manifest.json", "kind": "coverage", "profile": "stable", "target": "x86_64-unknown-linux-gnu"},
+      "object-analysis-aarch64-apple-darwin": {"manifest": "object-analysis-manifest.json", "kind": "object_analysis", "profile": null, "target": "aarch64-apple-darwin"},
+      "object-analysis-x86_64-pc-windows-msvc": {"manifest": "object-analysis-manifest.json", "kind": "object_analysis", "profile": null, "target": "x86_64-pc-windows-msvc"},
+      "object-analysis-x86_64-unknown-linux-gnu": {"manifest": "object-analysis-manifest.json", "kind": "object_analysis", "profile": null, "target": "x86_64-unknown-linux-gnu"},
       "windows-native-faults": {"manifest": "windows-native-fault-manifest.json", "kind": "windows_native_fault", "profile": null, "target": "x86_64-pc-windows-msvc"}
     },
     "package_contract": {
@@ -32,7 +35,8 @@
       "control_record_rule": "package_contains_digest_bound_canonical_control_record",
       "source_state": "clean_exact_commit_tracked_tree",
       "create_command": "python scripts/assurance_archive.py create --input-root <downloaded-artifacts> --output-dir <package> --control-record coverage/archive-control.json --expected-commit <full-commit> --workflow-run-id <run-id>",
-      "verify_command": "python scripts/assurance_archive.py verify --package-dir <retrieved-package> --expected-commit <full-commit> --control-record coverage/archive-control.json --result <retrieval-result>"
+      "verify_command": "python scripts/assurance_archive.py verify --package-dir <retrieved-package> --expected-commit <full-commit> --control-record coverage/archive-control.json --result <retrieval-result>",
+      "independent_verify_command": "python scripts/independent_archive_verify.py --package-dir <retrieved-package> --expected-commit <full-commit> --result <independent-result>"
     },
     "access_boundary": "repository GitHub Actions artifact permissions",
     "backup_status": "not_controlled",
@@ -42,13 +46,13 @@
   "retrieval": {
     "procedure": "Download the named workflow artifact without modification, locate assurance-archive-manifest.json and its packaged canonical control record, run the registered verify command against the exact source commit, and retain the canonical generated result under coverage/retrieval-results plus its LF-normalized SHA-256. Historical self-contained verification uses the packaged control; an optional live-control comparison must use the exact control record from the package source commit.",
     "latest_result": {
-      "status": "pass_internal_staging",
-      "workflow_run_id": "31731799593",
-      "source_commit": "1508aa1b4249d20d27ad3e0239ace72e294e3bf6",
-      "manifest_sha256": "9636643b7c5efce6f304f5bacbe5af851f81526d5e1f8b9a33971ed5e86afc06",
-      "result_sha256": "45d139f97fa259a5eae06defefb33c78c907caf1ad2aa05c735a3d7390be8cde",
-      "verified_at": "2026-08-13T18:54:22Z",
-      "result_ref": "coverage/retrieval-results/ASSURANCE-1508aa1b4249-31731799593.json"
+      "status": "pending_first_current_package",
+      "workflow_run_id": null,
+      "source_commit": null,
+      "manifest_sha256": null,
+      "result_sha256": null,
+      "verified_at": null,
+      "result_ref": null
     },
     "failure_disposition": "retain the failed result, prohibit promotion, and regenerate only from a clean exact-commit workflow run after resolving the discrepancy"
   },
@@ -61,16 +65,27 @@
     "retention_period": null,
     "retention_authority": null,
     "disposition_authority": null,
-    "retrieval_acceptance": null
+    "retrieval_acceptance": null,
+    "technical_transport": {
+      "status": "implemented_unconfigured_technical_trial_only",
+      "implementation": "scripts/archive_transport.py",
+      "endpoint_schema": "coverage/external-archive-endpoint.schema.json",
+      "provider_kind": "filesystem_directory_v1",
+      "overwrite_policy": "prohibited",
+      "verification": "primary_and_independent_before_and_after_copy",
+      "external_archive_verified": false
+    }
   },
   "open_items": [
     "name and approve the controlled external archive and archive owner",
     "approve access, backup, retention, and disposition controls",
+    "configure the implemented transport only after a provider and controlled endpoint are designated",
     "execute and accept retrieval from that controlled external archive"
   ],
   "non_claims": [
     "GitHub Actions retention is an internal staging convenience, not an approved lifecycle-data retention period.",
-    "The package and retrieval verifier establish byte integrity only within their registered scope.",
+    "The primary and independent package verifiers establish byte integrity only within their registered scopes.",
+    "The filesystem transport is technical-trial automation and does not designate or approve an external archive.",
     "No internal staging result establishes certification credit, release approval, tool qualification, or authority acceptance."
   ]
 }

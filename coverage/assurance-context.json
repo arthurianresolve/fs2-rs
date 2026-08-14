@@ -1,31 +1,36 @@
 {
   "record_type": "assurance_context",
-  "schema_version": 2,
+  "schema_version": 3,
   "status": "draft",
   "owner": "fs2 DO-178C coverage workstream",
   "repository": "arthurianresolve/fs2-rs",
   "branch": "DO-178C",
   "baseline": {
-    "reference": "48ec3af6b807d9e70bd7d388baa8dbb1a3b69c40",
+    "reference": "1508aa1b4249d20d27ad3e0239ace72e294e3bf6",
     "reference_kind": "current_predecessor_assurance_commit",
-    "working_tree_state": "candidate_bound_to_clean_exact_commit_internal_staging; candidate_specific_independent_review_approved",
+    "working_tree_state": "additive_pre_evidence_candidate_with_review_gate_owned_by_independence_plan; predecessor_internal_baseline_retained",
     "exact_commit_required_for_evidence": true
   },
   "configuration_management_ref": "coverage/configuration-management.json",
   "archive_control_ref": "coverage/archive-control.json",
   "requirements_review_ref": "coverage/requirements-review.json",
   "planning_target_level": "DAL_B",
-  "assigned_software_level": null,
+  "assigned_software_level": "DAL_B",
   "certification_credit": "none",
   "approved_basis_refs": [],
   "requirements_status": "approved_internal",
   "mcdc_status": "not_assessed",
   "tool_credit": "internal_only",
-  "independence_status": "not_assessed",
+  "independence_status": "internal_plan_declared_post_publication_evidence_review_pending",
+  "software_level_assignment_ref": "coverage/software-level-assignment.json",
+  "independence_plan_ref": "coverage/independence-plan.json",
+  "external_reference_registry_ref": "coverage/external-reference-registry.json",
+  "object_analysis_ref": "coverage/object-analysis.json",
   "open_items": [
-    "approve the applicable certification basis and assigned software level",
+    "bind the determined DAL B software level to the applicable controlled certification basis",
     "decide any future certification use of each tool function and whether qualification is required",
-    "approve the controlled external archive, retention, disposition, and broader independence controls",
-    "perform target-specific applicability and object-code analysis as required"
+    "approve the controlled external archive, retention, disposition, and authority-level independence controls",
+    "review the target-object inventories and decide any required source/object or object-code coverage follow-on",
+    "review the hardened native-fault and Application Verifier artifact-path validation against clean exact-commit evidence"
   ]
 }

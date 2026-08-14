@@ -16,7 +16,7 @@ import re
 import subprocess
 import sys
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 
@@ -38,7 +38,13 @@ REQUIRED_RECORDS = (
     "configuration-management.json",
     "archive-control.json",
     "archive-retrieval.json",
+    "external-archive-endpoint.schema.json",
+    "external-reference-registry.json",
     "gap-register.json",
+    "independence-plan.json",
+    "software-level-assignment.json",
+    "object-analysis.json",
+    "object-analysis-run.schema.json",
     "verification-inventory.json",
     "mcdc.json",
     "windows-native-faults.json",
@@ -120,6 +126,23 @@ def source_path(reference: str, label: str) -> Path:
     return path
 
 
+def manifest_artifact_path(run_root: Path, value: Any, label: str) -> Path:
+    if not isinstance(value, str) or not value or "\\" in value or "//" in value:
+        fail(f"{label} must be a canonical top-level artifact path")
+    relative = PurePosixPath(value)
+    if (
+        relative.is_absolute()
+        or relative.as_posix() != value
+        or len(relative.parts) != 1
+        or relative.parts[0] in {"", ".", ".."}
+    ):
+        fail(f"{label} must be a canonical top-level artifact path")
+    path = run_root / relative.as_posix()
+    if path.is_symlink() or not path.is_file():
+        fail(f"{label} is missing or unsafe")
+    return path
+
+
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as source:
@@ -185,18 +208,22 @@ def validate_context(context: dict[str, Any]) -> None:
             "configuration_management_ref",
             "archive_control_ref",
             "requirements_review_ref",
+            "software_level_assignment_ref",
+            "independence_plan_ref",
+            "external_reference_registry_ref",
+            "object_analysis_ref",
         },
         label,
     )
     check_status(context, label)
-    if context["record_type"] != "assurance_context" or context["schema_version"] != 2:
+    if context["record_type"] != "assurance_context" or context["schema_version"] != 3:
         fail(f"{label} has the wrong record type or schema version")
     if context["repository"] != "arthurianresolve/fs2-rs" or context["branch"] != "DO-178C":
         fail(f"{label} is bound to the wrong repository or branch")
     if context["planning_target_level"] != "DAL_B":
         fail(f"{label} must retain the approved planning target DAL_B")
-    if context["assigned_software_level"] is not None:
-        fail(f"{label} must not imply an assigned software level")
+    if context["assigned_software_level"] != "DAL_B":
+        fail(f"{label} must retain the determined DAL B software level")
     if context["certification_credit"] != "none":
         fail(f"{label} must declare no certification credit")
     if context["approved_basis_refs"] != []:
@@ -204,7 +231,8 @@ def validate_context(context: dict[str, Any]) -> None:
     if (
         context["mcdc_status"] != "not_assessed"
         or context["tool_credit"] != "internal_only"
-        or context["independence_status"] != "not_assessed"
+        or context["independence_status"]
+        != "internal_plan_declared_post_publication_evidence_review_pending"
     ):
         fail(f"{label} contains an unsupported assurance claim")
     if context["requirements_status"] != "approved_internal":
@@ -215,6 +243,12 @@ def validate_context(context: dict[str, Any]) -> None:
         or context["archive_control_ref"] != "coverage/archive-control.json"
         or context["requirements_review_ref"]
         != "coverage/requirements-review.json"
+        or context["software_level_assignment_ref"]
+        != "coverage/software-level-assignment.json"
+        or context["independence_plan_ref"] != "coverage/independence-plan.json"
+        or context["external_reference_registry_ref"]
+        != "coverage/external-reference-registry.json"
+        or context["object_analysis_ref"] != "coverage/object-analysis.json"
     ):
         fail(f"{label} has invalid internal control references")
     baseline = context["baseline"]
@@ -854,9 +888,9 @@ def validate_tool_assessment(tool: dict[str, Any]) -> None:
                 fail(f"{item_label}.fallback.{field} must be non-empty")
         criterion = function["qualification_criterion"]
         if criterion != {
-            "state": "assessment_open_basis_missing",
+            "state": "assessment_open_basis_missing_level_assigned",
             "controlled_basis_ref": None,
-            "software_level_ref": None,
+            "software_level_ref": "coverage/software-level-assignment.json",
         }:
             fail(f"{item_label}.qualification_criterion overstates the basis")
         if (
@@ -869,13 +903,17 @@ def validate_tool_assessment(tool: dict[str, Any]) -> None:
         if (
             not isinstance(review, dict)
             or set(review) != {"status", "reviewer", "evidence_refs"}
-            or review["status"] != "reviewed_internal"
-            or not isinstance(review["reviewer"], str)
-            or not review["reviewer"].strip()
+            or review["status"] not in {"reviewed_internal", "pending_user_review"}
             or not isinstance(review["evidence_refs"], list)
             or not review["evidence_refs"]
         ):
             fail(f"{item_label}.review is incomplete")
+        if review["status"] == "reviewed_internal" and (
+            not isinstance(review["reviewer"], str) or not review["reviewer"].strip()
+        ):
+            fail(f"{item_label}.review lacks its reviewer")
+        if review["status"] == "pending_user_review" and review["reviewer"] is not None:
+            fail(f"{item_label}.review cannot name a reviewer before the decision")
         for reference in review["evidence_refs"]:
             source_path(reference, f"{item_label}.review.evidence_refs")
         known_problem_refs.update(function["known_problem_ids"])
@@ -947,7 +985,8 @@ def validate_tool_assessment(tool: dict[str, Any]) -> None:
 
 
 def validate_evidence_index(
-    index: dict[str, Any], independent_review_approved: bool = False
+    index: dict[str, Any], independent_review_approved: bool = False,
+    native_review_affected: bool = False,
 ) -> None:
     label = "coverage/evidence-index.json"
     required_fields(index, {"record_type", "schema_version", "status", "owner", "technical_baseline_id", "archive_status", "external_archive_uri", "assurance_package", "runs", "open_items", "non_claims"}, label)
@@ -955,7 +994,7 @@ def validate_evidence_index(
     if index["record_type"] != "evidence_index" or index["schema_version"] != 2:
         fail(f"{label} has the wrong record type or schema version")
     if (
-        index["technical_baseline_id"] != "CM-DO178C-0002"
+        index["technical_baseline_id"] != "CM-DO178C-0004"
         or index["archive_status"]
         not in {"internal_staging_pending", "internal_staging_verified"}
         or index["external_archive_uri"] is not None
@@ -1042,7 +1081,9 @@ def validate_evidence_index(
         "native-fault" in item.lower() and "review" in item.lower()
         for item in open_items
     )
-    if independent_review_approved == has_native_review_item:
+    if has_native_review_item != (
+        native_review_affected or not independent_review_approved
+    ):
         fail(f"{label}.open_items is inconsistent with the native-fault review state")
 
 
@@ -1174,7 +1215,7 @@ def validate_configuration_management(record: dict[str, Any]) -> None:
         or change["verification_code_changed"] is not True
         or change["assurance_tool_changed"] is not True
         or change["native_fault_review_affected"] is not True
-        or change["state"] not in {"implementation_in_progress", "evidence_bound_review_pending"}
+        or change["state"] not in {"implementation_pre_evidence", "evidence_bound_review_pending"}
     ):
         fail(f"{label}.pending_change is invalid")
     for field in ("categories", "required_reverification"):
@@ -1296,6 +1337,9 @@ def validate_archive_control(record: dict[str, Any]) -> None:
         "coverage-condition-x86_64-unknown-linux-gnu": {"manifest": "run-manifest.json", "kind": "coverage", "profile": "condition", "target": "x86_64-unknown-linux-gnu"},
         "coverage-x86_64-pc-windows-msvc": {"manifest": "run-manifest.json", "kind": "coverage", "profile": "stable", "target": "x86_64-pc-windows-msvc"},
         "coverage-x86_64-unknown-linux-gnu": {"manifest": "run-manifest.json", "kind": "coverage", "profile": "stable", "target": "x86_64-unknown-linux-gnu"},
+        "object-analysis-aarch64-apple-darwin": {"manifest": "object-analysis-manifest.json", "kind": "object_analysis", "profile": None, "target": "aarch64-apple-darwin"},
+        "object-analysis-x86_64-pc-windows-msvc": {"manifest": "object-analysis-manifest.json", "kind": "object_analysis", "profile": None, "target": "x86_64-pc-windows-msvc"},
+        "object-analysis-x86_64-unknown-linux-gnu": {"manifest": "object-analysis-manifest.json", "kind": "object_analysis", "profile": None, "target": "x86_64-unknown-linux-gnu"},
         "windows-native-faults": {"manifest": "windows-native-fault-manifest.json", "kind": "windows_native_fault", "profile": None, "target": "x86_64-pc-windows-msvc"},
     }
     artifacts = staging["required_artifacts"]
@@ -1324,6 +1368,7 @@ def validate_archive_control(record: dict[str, Any]) -> None:
             "source_state",
             "create_command",
             "verify_command",
+            "independent_verify_command",
         }
         or contract["manifest_name"] != "assurance-archive-manifest.json"
         or contract["hash_algorithm"] != "sha256"
@@ -1386,6 +1431,15 @@ def validate_archive_control(record: dict[str, Any]) -> None:
         "retention_authority": None,
         "disposition_authority": None,
         "retrieval_acceptance": None,
+        "technical_transport": {
+            "status": "implemented_unconfigured_technical_trial_only",
+            "implementation": "scripts/archive_transport.py",
+            "endpoint_schema": "coverage/external-archive-endpoint.schema.json",
+            "provider_kind": "filesystem_directory_v1",
+            "overwrite_policy": "prohibited",
+            "verification": "primary_and_independent_before_and_after_copy",
+            "external_archive_verified": False,
+        },
     }:
         fail(f"{label}.external_archive must remain unresolved")
     for field in ("open_items", "non_claims"):
@@ -1548,6 +1602,8 @@ def validate_assurance_control_links(
         fail(f"{label}: assurance context does not name the current CM baseline")
     if evidence_index["technical_baseline_id"] not in baselines:
         fail(f"{label}: evidence index references an unknown technical baseline")
+    if evidence_index["technical_baseline_id"] != current["id"]:
+        fail(f"{label}: evidence index does not name the current predecessor baseline")
     staging = archive_control["internal_staging"]
     package = evidence_index["assurance_package"]
     if (
@@ -1561,7 +1617,7 @@ def validate_assurance_control_links(
     latest = archive_control["retrieval"]["latest_result"]
     pending_states = (
         candidate["state"] == "awaiting_clean_exact_commit",
-        configuration["pending_change"]["state"] == "implementation_in_progress",
+        configuration["pending_change"]["state"] == "implementation_pre_evidence",
         configuration["release_control"]["current_state"] == "internal_candidate",
         latest["status"] == "pending_first_current_package",
         retrieval["result"] == "pending",
@@ -1616,6 +1672,71 @@ def validate_assurance_control_links(
     validate_archive_retrieval_result(
         load_json(result_path), retrieval, result_ref
     )
+
+
+def validate_assurance_decision_links(
+    context: dict[str, Any],
+    software_level: dict[str, Any],
+    independence: dict[str, Any],
+    object_analysis: dict[str, Any],
+    external_registry: dict[str, Any],
+    configuration: dict[str, Any],
+    tool_assessment: dict[str, Any],
+) -> None:
+    label = "current DAL B, independence, object, and tool-assessment links"
+    if {
+        context["assigned_software_level"],
+        software_level["assigned_software_level"],
+        independence["software_level"],
+        object_analysis["software_level"],
+    } != {"DAL_B"}:
+        fail(f"{label}: software-level records disagree")
+    if (
+        software_level["applicable_certification_basis_ref"] is not None
+        or software_level["authority_acceptance_ref"] is not None
+        or context["approved_basis_refs"] != []
+    ):
+        fail(f"{label}: an external basis or acceptance is claimed without resolution")
+    registered_types = {
+        entry["record_type"] for entry in external_registry["records"]
+    }
+    if "applicable_certification_basis" in registered_types:
+        fail(f"{label}: a registered applicable basis is not linked into the context")
+
+    gate = independence["review_gate"]
+    candidate = configuration["candidate"]
+    if gate["preparation_parent_commit"] != candidate["preparation_parent_commit"]:
+        fail(f"{label}: implementation review and CM candidate use different parents")
+    expected_markers = {
+        marker.split("#", 1)[1] for marker in gate["mechanical_review_markers"]
+    }
+    functions = {function["id"]: function for function in tool_assessment["functions"]}
+    if not expected_markers.issubset(functions):
+        fail(f"{label}: implementation review names an unknown tool function")
+    if gate["status"] == "awaiting_implementation_review":
+        expected_review = {"status": "pending_user_review", "reviewer": None}
+    elif gate["status"] == "approved_for_atomic_publication":
+        expected_review = {
+            "status": "reviewed_internal",
+            "reviewer": "IR-PERSON-001",
+        }
+    else:
+        fail(f"{label}: implementation review gate has an unsupported state")
+    for identifier in expected_markers:
+        review = functions[identifier]["review"]
+        if any(review[field] != value for field, value in expected_review.items()):
+            fail(f"{label}: {identifier} review marker disagrees with the review gate")
+        criterion = functions[identifier]["qualification_criterion"]
+        if criterion["software_level_ref"] != "coverage/software-level-assignment.json":
+            fail(f"{label}: {identifier} does not reference the DAL B assignment")
+
+    if object_analysis["review"] != {
+        "status": "pending_user_review",
+        "reviewer": None,
+        "reviewed_commit": None,
+        "evidence_refs": [],
+    }:
+        fail(f"{label}: object-output review must await clean exact-commit evidence")
 
 
 def validate_verification_inventory(inventory: dict[str, Any]) -> set[str]:
@@ -1849,6 +1970,22 @@ def validate_gap_register(
         or "independent" not in native_gap["required_action"].lower()
     ):
         fail(f"{label} must retain the Windows native-error gap until independent review")
+    object_gap = next(
+        (record for record in records if record["id"] == "GAP-TARGET-OBJECT-ANALYSIS"),
+        None,
+    )
+    if object_gap is None or object_gap["status"] != "open":
+        fail(f"{label} must retain target-object analysis as open before clean review evidence")
+    native_validator_gap = next(
+        (
+            record
+            for record in records
+            if record["id"] == "GAP-WINDOWS-NATIVE-VALIDATOR-REVALIDATION"
+        ),
+        None,
+    )
+    if native_validator_gap is None or native_validator_gap["status"] != "open":
+        fail(f"{label} must retain affected native-validator revalidation as open")
 
 
 NATIVE_FAULT_SCENARIOS = {
@@ -2658,6 +2795,8 @@ def validate_native_fault_payload(payload: dict[str, Any], label: str, require_p
 def validate_windows_native_fault_manifest(
     path: Path, expected_commit: str | None = None
 ) -> None:
+    if path.is_symlink() or not path.is_file():
+        fail("Windows native-fault manifest is missing or unsafe")
     manifest = load_json(path)
     label = str(path.relative_to(ROOT)) if path.is_relative_to(ROOT) else str(path)
     required_fields(manifest, NATIVE_FAULT_MANIFEST_FIELDS, label)
@@ -2731,13 +2870,9 @@ def validate_windows_native_fault_manifest(
             fail(f"{label} contains an invalid or duplicate artifact path")
         if not isinstance(artifact["bytes"], int) or isinstance(artifact["bytes"], bool) or artifact["bytes"] < 0:
             fail(f"{label} contains an invalid artifact size")
-        artifact_path = (run_root / artifact["path"]).resolve()
-        try:
-            artifact_path.relative_to(run_root)
-        except ValueError:
-            fail(f"{label} contains an artifact outside its run directory")
-        if not artifact_path.is_file():
-            fail(f"{label} references missing artifact: {artifact['path']}")
+        artifact_path = manifest_artifact_path(
+            run_root, artifact["path"], f"{label} artifact path"
+        )
         if not isinstance(artifact["sha256"], str) or not SHA256_RE.fullmatch(artifact["sha256"]):
             fail(f"{label} contains an invalid artifact digest")
         if artifact["sha256"] != sha256(artifact_path) or artifact["bytes"] != artifact_path.stat().st_size:
@@ -2752,6 +2887,8 @@ def validate_windows_native_fault_manifest(
 def validate_windows_appverifier_manifest(
     path: Path, expected_commit: str | None = None
 ) -> None:
+    if path.is_symlink() or not path.is_file():
+        fail("Windows Application Verifier manifest is missing or unsafe")
     manifest = load_json(path)
     label = str(path.relative_to(ROOT)) if path.is_relative_to(ROOT) else str(path)
     required_fields(manifest, APPVERIFIER_MANIFEST_FIELDS, label)
@@ -3006,13 +3143,13 @@ def validate_windows_appverifier_manifest(
             fail(f"{label} contains an invalid or duplicate artifact path")
         if not isinstance(artifact["bytes"], int) or isinstance(artifact["bytes"], bool) or artifact["bytes"] < 0:
             fail(f"{label} contains an invalid artifact size")
-        artifact_path = (run_root / artifact["path"]).resolve()
-        try:
-            artifact_path.relative_to(run_root)
-        except ValueError:
-            fail(f"{label} contains an artifact outside its run directory")
-        if not artifact_path.is_file():
-            fail(f"{label} references missing artifact: {artifact['path']}")
+        artifact_path = manifest_artifact_path(
+            run_root, artifact["path"], f"{label} artifact path"
+        )
+        if not isinstance(artifact["sha256"], str) or not SHA256_RE.fullmatch(
+            artifact["sha256"]
+        ):
+            fail(f"{label} contains an invalid artifact digest")
         if artifact["sha256"] != sha256(artifact_path) or artifact["bytes"] != artifact_path.stat().st_size:
             fail(f"{label} contains a stale artifact digest or size")
         artifact_paths.add(artifact["path"])
@@ -3092,12 +3229,31 @@ def validate_static_records() -> None:
     validate_configuration_management(records["configuration-management.json"])
     validate_archive_control(records["archive-control.json"])
     validate_archive_retrieval(records["archive-retrieval.json"])
+    from archive_transport import validate_endpoint_schema
+    from external_reference_resolver import validate_registry
+    from validate_assurance_decisions import (
+        validate_independence_plan,
+        validate_software_level,
+    )
+    from validate_object_analysis import validate_control as validate_object_control
+    from validate_object_analysis import validate_schema as validate_object_schema
+
+    validate_endpoint_schema(records["external-archive-endpoint.schema.json"])
+    validate_registry(records["external-reference-registry.json"])
+    validate_software_level(records["software-level-assignment.json"])
+    validate_independence_plan(records["independence-plan.json"])
+    validate_object_control(records["object-analysis.json"])
+    validate_object_schema(records["object-analysis-run.schema.json"])
     expected_review_status = validate_windows_native_fault_review(
         records["windows-native-fault-review.json"]
     )
     independent_review_approved = expected_review_status == "independent_review_approved"
     validate_evidence_index(
-        records["evidence-index.json"], independent_review_approved
+        records["evidence-index.json"],
+        independent_review_approved,
+        records["configuration-management.json"]["pending_change"][
+            "native_fault_review_affected"
+        ],
     )
     validate_assurance_control_links(
         context,
@@ -3106,6 +3262,24 @@ def validate_static_records() -> None:
         records["archive-retrieval.json"],
         records["evidence-index.json"],
     )
+    validate_assurance_decision_links(
+        context,
+        records["software-level-assignment.json"],
+        records["independence-plan.json"],
+        records["object-analysis.json"],
+        records["external-reference-registry.json"],
+        records["configuration-management.json"],
+        records["tool-assessment.json"],
+    )
+    from implementation_review_digest import (
+        ImplementationReviewDigestError,
+        validate_review_scope_binding,
+    )
+
+    try:
+        validate_review_scope_binding(records["independence-plan.json"])
+    except ImplementationReviewDigestError as error:
+        fail(f"implementation review scope is invalid: {error}")
     validate_gap_register(records["gap-register.json"], independent_review_approved)
     validate_windows_native_fault_assessment(
         records["windows-native-faults.json"],
@@ -3170,6 +3344,8 @@ def validate_static_records() -> None:
 
 
 def validate_manifest(path: Path, expected_commit: str | None = None) -> None:
+    if path.is_symlink() or not path.is_file():
+        fail("coverage run manifest is missing or unsafe")
     manifest = load_json(path)
     label = str(path.relative_to(ROOT)) if path.is_relative_to(ROOT) else str(path)
     required_fields(
@@ -3266,17 +3442,17 @@ def validate_manifest(path: Path, expected_commit: str | None = None) -> None:
     run_root = path.parent.resolve()
     artifact_paths = set()
     for artifact in artifacts:
-        if not isinstance(artifact, dict) or not all(key in artifact for key in ("path", "sha256", "bytes")):
+        if not isinstance(artifact, dict) or set(artifact) != {"path", "sha256", "bytes"}:
             fail(f"{label} contains an incomplete artifact")
-        artifact_path = (run_root / artifact["path"]).resolve()
-        try:
-            artifact_path.relative_to(run_root)
-        except ValueError:
-            fail(f"{label} contains an artifact outside its run directory")
-        if not artifact_path.is_file():
-            fail(f"{label} references missing artifact: {artifact['path']}")
+        artifact_path = manifest_artifact_path(
+            run_root, artifact["path"], f"{label} artifact path"
+        )
+        if artifact["path"] in artifact_paths:
+            fail(f"{label} contains a duplicate artifact path")
         if not isinstance(artifact["sha256"], str) or not SHA256_RE.fullmatch(artifact["sha256"]):
             fail(f"{label} contains an invalid artifact digest")
+        if not isinstance(artifact["bytes"], int) or isinstance(artifact["bytes"], bool) or artifact["bytes"] < 0:
+            fail(f"{label} contains an invalid artifact size")
         if artifact["sha256"] != sha256(artifact_path) or artifact["bytes"] != artifact_path.stat().st_size:
             fail(f"{label} contains a stale artifact digest or size")
         artifact_paths.add(artifact["path"])
@@ -3335,16 +3511,16 @@ def main() -> int:
             count = validate_runs(args.runs_dir.resolve(), expected_commit, args.require_pass)
             print(f"coverage records and {count} run manifest(s) are valid")
         elif args.manifest:
-            validate_manifest(args.manifest.resolve(), expected_commit)
+            validate_manifest(args.manifest.absolute(), expected_commit)
             print("coverage records and run manifest are valid")
         elif args.windows_native_fault_manifest:
-            path = args.windows_native_fault_manifest.resolve()
+            path = args.windows_native_fault_manifest.absolute()
             validate_windows_native_fault_manifest(path, expected_commit)
             if args.require_pass and load_json(path)["status"] != "pass":
                 fail(f"{path} is not promotable: status must be pass")
             print("coverage records and Windows native-fault manifest are valid")
         elif args.windows_appverifier_manifest:
-            path = args.windows_appverifier_manifest.resolve()
+            path = args.windows_appverifier_manifest.absolute()
             validate_windows_appverifier_manifest(path, expected_commit)
             if args.require_pass and load_json(path)["status"] != "pass":
                 fail(f"{path} is not promotable: status must be pass")

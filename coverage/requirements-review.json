@@ -84,12 +84,12 @@
     "approved_at": "2026-08-13T16:51:33Z"
   },
   "open_items": [
-    "approve the applicable certification basis and assigned software level",
+    "bind the later internal DAL B determination to an approved applicable certification basis",
     "obtain any certification-program review or authority acceptance required for these requirements"
   ],
   "non_claims": [
     "This is an internal technical review and is not an independent verification review.",
-    "Internal acceptance does not establish a certification basis, assigned software level, derived-requirement authority acceptance, or certification credit.",
+    "Internal acceptance does not establish an applicable certification basis, authority acceptance of the later DAL B determination, derived-requirement authority acceptance, or certification credit.",
     "The review does not establish MC/DC, object-code coverage, or tool qualification."
   ]
 }

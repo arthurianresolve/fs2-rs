@@ -1,0 +1,41 @@
+{
+  "record_type": "target_object_analysis_control",
+  "schema_version": 1,
+  "status": "assessment_open",
+  "owner": "fs2 DO-178C coverage workstream",
+  "assurance_context": "internal_assurance",
+  "software_level": "DAL_B",
+  "credit": "none",
+  "strategy": {
+    "status": "implementation_ready_awaiting_clean_candidate",
+    "selection_basis": "native_runtime_coverage_matrix",
+    "crate": "fs2",
+    "profile": "release",
+    "requested_toolchain": "1.88",
+    "source_inventory_ref": "coverage/surface.json",
+    "targets": [
+      {"target": "x86_64-unknown-linux-gnu", "runner": "ubuntu-latest", "platform_family": "unix", "object_format": "ELF"},
+      {"target": "aarch64-apple-darwin", "runner": "macos-latest", "platform_family": "unix", "object_format": "Mach-O"},
+      {"target": "x86_64-pc-windows-msvc", "runner": "windows-latest", "platform_family": "windows", "object_format": "COFF"}
+    ],
+    "retained_outputs": ["rlib", "archive_members", "defined_symbols", "sections_and_symbols", "disassembly"],
+    "source_object_mapping_status": "not_established_inventory_only",
+    "generated_code_disposition": "pending_target_review"
+  },
+  "review": {
+    "status": "pending_user_review",
+    "reviewer": null,
+    "reviewed_commit": null,
+    "evidence_refs": []
+  },
+  "open_items": [
+    "collect clean exact-commit object inventories on all three registered native targets",
+    "review target-specific compiler output, generated code, archive members, symbols, sections, and disassembly",
+    "decide whether source/object traceability or object-code structural coverage is required by the applicable controlled basis"
+  ],
+  "non_claims": [
+    "The inventory does not establish source-to-object traceability or source/object equivalence.",
+    "Disassembly and symbol presence do not establish object-code structural coverage or MC/DC.",
+    "The compiler and LLVM tools are not qualified, and this record grants no certification credit or authority acceptance."
+  ]
+}

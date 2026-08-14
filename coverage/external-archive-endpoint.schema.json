@@ -1,0 +1,24 @@
+{
+  "record_type": "assurance_archive_filesystem_endpoint_schema",
+  "schema_version": 1,
+  "required": [
+    "record_type",
+    "schema_version",
+    "endpoint_id",
+    "status",
+    "provider_kind",
+    "destination_root",
+    "archive_owner",
+    "access_control_approval",
+    "backup_policy",
+    "retention_period",
+    "retention_authority",
+    "disposition_authority",
+    "non_claims"
+  ],
+  "enums": {
+    "status": ["technical_trial_only"],
+    "provider_kind": ["filesystem_directory_v1"]
+  },
+  "authority_rule": "This adapter cannot designate or approve an external archive. Authority-owned fields remain null for technical trials; a controlled provider and archive-authority record are required before external archival acceptance."
+}

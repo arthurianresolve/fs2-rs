@@ -8,13 +8,34 @@
   "tool_support": {
     "cargo_llvm_cov_mcdc": "not_available_on_pinned_nightly",
     "diagnostic_condition_profile": "available_but_not_mcdc_acceptance",
-    "source_object_mapping": "not_assessed",
+    "source_object_mapping": "target_object_inventory_implemented_mapping_not_established",
     "latest_probe": {
       "toolchain": "nightly-2026-08-13",
       "rustc": "rustc 1.99.0-nightly (c98d0cb27 2026-08-12)",
       "command": "rustc +nightly-2026-08-13 -Z coverage-options=mcdc -C instrument-coverage - --crate-type=lib --emit=metadata",
       "native_exit": 1,
       "diagnostic": "incorrect value mcdc for unstable option coverage-options - block | branch | condition was expected"
+    },
+    "llvm_mcdc_design_assessment": {
+      "reference": "https://llvm.org/devmtg/2022-11/slides/TechTalk4-MCDC-EnablingSafetyCriticalCodeCoverage.pdf",
+      "title": "MC/DC: Enabling easy-to-use safety-critical code coverage analysis with LLVM",
+      "publication_context": "2022 LLVM Developers' Meeting technical talk",
+      "classification": "advisory_technical_design_input_not_certification_basis",
+      "design_mechanism": "frontend decision and branch source mappings plus per-decision bitmap test vectors and llvm-cov independence-pair analysis",
+      "historical_limit": "the 2022 prototype presentation limited measured expressions to six conditions",
+      "current_clang_context": "current Clang documentation exposes -fcoverage-mcdc and configurable condition/test-vector limits for Clang source-based coverage",
+      "rust_applicability": "conceptually relevant but not directly enabled by the LLVM backend alone because Rust requires rustc frontend decision mappings and instrumentation; the pinned Rust nightly probe rejects mcdc",
+      "disposition": "adopt_semantic_and_validation_requirements_defer_rust_tool_claim",
+      "adopted_controls": [
+        "retain explicit condition occurrences, decision outcomes, masking states, and independence pairs",
+        "require frontend-to-source decision mapping and executed test-vector evidence from any future Rust MC/DC producer",
+        "require explicit limits, exclusions, generated-code disposition, target applicability, and negative validation before internal reliance"
+      ],
+      "deferred_claims": [
+        "no claim that current Rust or cargo-llvm-cov emits LLVM MC/DC records",
+        "no conversion of branch or condition diagnostics into MC/DC",
+        "no tool qualification, source/object equivalence, object-code coverage, certification credit, or authority acceptance"
+      ]
     }
   },
   "decisions": [
@@ -358,14 +379,15 @@
     }
   ],
   "out_of_scope": [
-    {"id": "MCDC-OOS-OBJECT", "scope": "object_code", "reason": "No object-code mapping or object-code analysis is present in this repository."},
+    {"id": "MCDC-OOS-OBJECT", "scope": "object_code", "reason": "Target object inventories are implemented but clean cross-host evidence, source/object mapping, object-code structural coverage, and generated-code review remain open."},
     {"id": "MCDC-OOS-CFG", "scope": "cfg_and_compiler_generated", "reason": "Compile-time target selection and compiler-generated paths require target-specific authority review."},
     {"id": "MCDC-OOS-NATIVE", "scope": "native_api_fault_injection", "reason": "The records use deterministic pure decision seams; native fault-injection and independence are not claimed."}
   ],
   "open_dispositions": [
-    "An approved requirements and software-level basis is not present.",
+    "The internally approved requirements and determined DAL B assignment are not yet bound to an approved applicable certification basis.",
     "The latest available cargo-llvm-cov release and nightly compiler probe do not produce an MC/DC report.",
     "The internal source-pair records are manually reviewed engineering evidence, not tool-generated MC/DC acceptance evidence.",
-    "Tool qualification, independence, object-code analysis, archive control, and authority acceptance remain open."
+    "The LLVM 2022 design is adopted only as a technical semantic input; Rust frontend support, qualification, and acceptable tool evidence remain open.",
+    "Tool qualification, source/object mapping, object-code structural coverage, controlled external archive, and authority acceptance remain open."
   ]
 }

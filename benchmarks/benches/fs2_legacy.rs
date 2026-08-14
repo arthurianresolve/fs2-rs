@@ -96,7 +96,7 @@ fn bench_lock_unlock(c: &mut Criterion) {
     c.bench_function("lock_unlock", |b| {
         b.iter(|| {
             file.lock_exclusive().unwrap();
-            file.unlock().unwrap();
+            FileExt::unlock(&file).unwrap();
         });
     });
 }

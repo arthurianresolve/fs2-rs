@@ -1,0 +1,33 @@
+{
+  "record_type": "internal_software_level_assignment",
+  "schema_version": 1,
+  "status": "draft",
+  "id": "SLA-DO178C-001",
+  "owner": "fs2 DO-178C coverage workstream",
+  "repository": "arthurianresolve/fs2-rs",
+  "branch": "DO-178C",
+  "assigned_software_level": "DAL_B",
+  "determination": {
+    "status": "determined_internal",
+    "decision_maker": "project owner",
+    "decision_basis": "explicit user determination",
+    "decision_ref": "conversation-confirmation:SLA-DO178C-001:2026-08-14T04:52:18Z",
+    "determined_at": "2026-08-14T04:52:18Z"
+  },
+  "applicable_certification_basis_ref": null,
+  "authority_acceptance_ref": null,
+  "application": {
+    "planning_and_internal_assurance": "DAL_B objectives govern the internal workstream",
+    "structural_coverage": "decision coverage and applicable data/control coupling objectives remain in scope; MC/DC applicability remains governed by the controlled certification basis",
+    "independence": "required internal review activities use the registered human reviewer role",
+    "tool_assurance": "no activity elimination or certification credit is claimed"
+  },
+  "open_items": [
+    "bind the DAL B determination to the applicable controlled certification basis",
+    "obtain any required authority acceptance for the software-level assignment"
+  ],
+  "non_claims": [
+    "The internal DAL B determination is not itself an approved certification basis or authority acceptance.",
+    "The assignment does not qualify tools, grant certification credit, or accept lifecycle data."
+  ]
+}

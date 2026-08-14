@@ -2,14 +2,25 @@
 
 This directory is the local canonical owner for the `DO-178C` branch's
 requirements-based test-coverage records.  It is an internal engineering
-control package.  It does not establish certification credit, independence,
-MC/DC acceptance, object-code coverage, tool qualification, or authority
-acceptance.
+control package.  The project owner has assigned DAL B and has declared an
+internal human-review role independent from the implementation agent.  Those
+internal decisions do not establish an approved certification basis,
+authority-approved independence, MC/DC acceptance, source/object equivalence,
+object-code coverage, tool qualification, certification credit, release
+approval, or authority acceptance.
 
 The records are deliberately split by concern:
 
-- `assurance-context.json` records the planning assumptions and open basis
-  decisions.
+- `assurance-context.json` records the internal assurance context, assigned
+  DAL B level, linked controls, and open controlled-basis decisions.
+- `software-level-assignment.json` records the project owner's explicit DAL B
+  determination separately from the still-missing applicable certification
+  basis and authority acceptance.
+- `independence-plan.json` separates the Codex implementation role, the human
+  organizational reviewer `IR-PERSON-001`, and the GitHub publication service
+  account.  The service account has no decision authority.  Its review gate is
+  bound to a canonical pre-commit change-set digest, avoiding an impossible
+  self-reference to the commit that will contain the decision.
 - `requirements.json` maps derived internal requirements to verification
   procedures and expected results.  Its internal baseline is reviewed in
   `requirements-review.json`, which binds every requirement, source, and
@@ -26,6 +37,10 @@ The records are deliberately split by concern:
   independence pairs.  Its reported closure is internal engineering evidence
   for the registered source-pair scope only; it is not tool-generated MC/DC,
   object-code coverage, qualified-tool output, or certification credit.
+- `object-analysis.json` and `object-analysis-run.schema.json` define
+  exact-commit native ELF, Mach-O, and COFF inventory collection.  Retained
+  archives, members, symbols, sections, and disassembly support target review;
+  they do not establish source/object mapping or object-code coverage.
 - `policy.json` defines the internal gates and non-claims.
 - `tool-assessment.json` records per-function intended and prohibited uses,
   I/O and topology, activity effects, failure escape/detection, fallbacks,
@@ -35,9 +50,10 @@ The records are deliberately split by concern:
 - `configuration-management.json` assigns immutable internal baseline IDs,
   supersession links, change-impact and revalidation controls, and guarded
   promotion states.
-- `archive-control.json` defines the exact ten-artifact internal staging
+- `archive-control.json` defines the exact thirteen-artifact internal staging
   package, SHA-256 and safe-path contract, 90-day GitHub Actions retention,
-  retrieval procedure, and unresolved external-archive authorities.
+  primary and independently implemented verification procedures, and
+  unresolved external-archive authorities.
 - `archive-retrieval.json` binds the latest executed internal retrieval drill
   after the package has been downloaded and verified.
 - `retrieval-results/` retains the canonical generated result for that drill;
@@ -62,6 +78,14 @@ The records are deliberately split by concern:
 - `evidence-index.json` distinguishes historical clean exact-commit CI
   snapshots from the current immutable internal staging package.  Neither is
   promoted until the external archive and release controls are satisfied.
+- `external-reference-registry.json` and
+  `scripts/external_reference_resolver.py` provide a fail-closed typed,
+  revision/configuration/digest-bound resolver for future authority-owned
+  records.  The empty registry deliberately reports the missing records.
+- `external-archive-endpoint.schema.json` and
+  `scripts/archive_transport.py` provide immutable filesystem publish/retrieve
+  mechanics for technical trials.  They cannot designate an archive or fill
+  owner, access, backup, retention, disposition, or acceptance decisions.
 
 Windows manifests also retain `windows-provider.json`.  The
 `records_provider_availability` test records whether `kernel32.dll` and
@@ -81,6 +105,11 @@ Run the record validator from the repository root:
 ```text
 python scripts/validate_coverage.py
 ```
+
+The top-level validator includes the software-level, independence,
+target-object, external-reference, endpoint-schema, archive, MC/DC, support
+matrix, and cross-record controls.  Its negative tests must also pass; a static
+validation pass alone does not prove that every fail-closed path was exercised.
 
 Collect the deterministic Windows native-fault matrix from a clean exact-commit
 checkout, then validate its manifest:
@@ -128,27 +157,50 @@ The latest available probe on `nightly-2026-08-13` also rejects
 `block|branch|condition`.  Until an approved basis and a capable, assessed
 toolchain exist, the source-pair records remain internal, non-credit evidence.
 
+The LLVM 2022 presentation is retained as an advisory design input.  Its
+frontend source mappings, per-decision bitmap test vectors, and
+independence-pair analysis are useful semantic requirements for evaluating a
+future Rust producer.  Current Clang implements MC/DC coverage, but LLVM
+backend availability does not make rustc emit the required frontend mappings.
+Accordingly, this work package adopts the paper's evidence and validation
+concepts and defers any Rust MC/DC tool or credit claim.
+
+Collect a native target-object inventory only from a clean checkout whose host
+compiler target equals the requested target:
+
+```text
+python scripts/collect_object_analysis.py --target x86_64-pc-windows-msvc --output-dir target/object-analysis --expected-commit <full-commit>
+python scripts/validate_object_analysis.py --manifest target/object-analysis/object-analysis-manifest.json --expected-commit <full-commit> --require-pass
+```
+
+The analogous CI matrix uses `x86_64-unknown-linux-gnu` and
+`aarch64-apple-darwin` on their native hosts.  A dirty local run may be retained
+only as focused implementation evidence and cannot satisfy the clean-candidate
+gate.
+
 The CI staging gate adds `--require-pass`; focused, failed, indeterminate, or
 provenance-error manifests may be retained for analysis but cannot satisfy it.
 
 ## Internal archive staging and retrieval
 
 On a push to `DO-178C`, the `assurance-package` CI job waits for the complete
-nine-profile coverage matrix and the deterministic Windows native-fault job.
-It downloads exactly those ten artifacts, rejects missing or extra artifact
-directories, copies only regular files under canonical relative paths, and
-writes an immutable manifest with an exact commit, tree, workflow run ID,
-per-file byte count, and SHA-256 digest.  It also embeds the exact canonical
-archive-control record used to construct the package, so later retrieval does
-not depend on reconstructing changed policy bytes from the live branch.  The
-job verifies that package before uploading `assurance-evidence-package` for 90
-days.
+nine-profile coverage matrix, three native target-object inventories, and the
+deterministic Windows native-fault job.  It downloads exactly those thirteen
+artifacts, rejects missing or extra artifact directories, copies only regular
+files under canonical relative paths, and writes an immutable manifest with an
+exact commit, tree, workflow run ID, per-file byte count, and SHA-256 digest.
+It also embeds the exact canonical archive-control record used to construct
+the package, so later retrieval does not depend on reconstructing changed
+policy bytes from the live branch.  The job runs both the primary verifier and
+the independently implemented verifier before uploading
+`assurance-evidence-package` for 90 days.
 
 After downloading the package without modification, repeat the retrieval
 verification using its embedded control record and retain the generated result:
 
 ```text
 python scripts/assurance_archive.py verify --package-dir <retrieved-package> --expected-commit <full-commit> --result target/assurance-retrieval-result.json
+python scripts/independent_archive_verify.py --package-dir <retrieved-package> --expected-commit <full-commit> --result target/assurance-independent-result.json
 ```
 
 To compare against a live checkout as an additional control, pass
@@ -163,32 +215,67 @@ GitHub Actions is not designated as the controlled external archive, and the
 repository does not invent an archive owner, backup policy, retention
 authority, or disposition authority.
 
+Future authority-owned records can be resolved without weakening that
+boundary:
+
+```text
+python scripts/external_reference_resolver.py --result target/external-reference-resolution.json
+python scripts/external_reference_resolver.py --require-resolved
+```
+
+The first command records an honest pending result while the checked-in
+registry is incomplete; the second fails until all required controlled records
+are present and digest-bound.  After an archive provider and endpoint have
+actually been designated by the appropriate authority, the technical adapter
+can publish and retrieve without overwrite:
+
+```text
+python scripts/archive_transport.py publish --package-dir <verified-package> --endpoint <technical-trial-endpoint.json> --expected-commit <full-commit> --result <publish-result.json>
+python scripts/archive_transport.py retrieve --package-id <package-id> --output-dir <new-output-dir> --endpoint <technical-trial-endpoint.json> --expected-commit <full-commit> --result <retrieve-result.json>
+```
+
+Even a successful transport receipt keeps `external_archive_verified` false;
+the technical adapter cannot make the missing organizational decisions.
+
 ## Independent review sequence
 
-Commit and push the technical review candidate before performing the review.
-That order gives the reviewer one immutable source commit and lets the
-`windows-native-faults` CI job produce a clean exact-commit manifest.  Bind the
-review record to that commit, tree, manifest reference, and manifest SHA-256
-before recording a decision.
+The current implementation is reviewed before publication.  The human
+reviewer receives the complete change set, local test evidence, residual
+limitations, and post-push verification plan.  The canonical review-scope
+digest binds every tracked modification and untracked candidate file relative
+to preparation parent `d1054422079406ba9e4d59805016d9c97a6b01ed`; only the
+mechanical insertion of the review decision and the corresponding review
+markers for tool functions F-001, F-003, F-004, and F-005 is normalized out.
+An approval permits one atomic commit and push.  It does not pre-accept the clean
+exact-commit cross-host results that can exist only after publication.
 
-The assigned reviewer is `github:arthurianresolve`.  Assignment does not prove
-acceptance or independence.  The local publication identity is also
-`arthurianresolve`, so the reviewer must explicitly assess implementation
-authorship, organizational or process separation, technical independence,
-independent expected results, common-mode dependencies, and the rationale for
-the shared GitHub identity.  The validator requires that declaration, all ten
-checklist items passing, reciprocal and resolved findings, and a decision bound
-to the exact candidate and native-fault manifest digest.  The approval for
-candidate `15da349` remains immutable in Git history.  The current approval is
-independently bound to candidate `1508aa1` and native-fault manifest SHA-256
+The assigned organizational reviewer is the person `IR-PERSON-001`.  GitHub
+login `arthurianresolve` is separately modeled as a publication service
+account with no decision authority.  The reviewer has declared that the human
+review and implementation agent are independent in their respective roles and
+that sharing the publication identity creates no internal conflict under that
+separation.  This is a self-attested internal independence arrangement, not an
+authority-approved independence plan or external identity proof.
+
+The historical approval for candidate `15da349` remains immutable in Git
+history.  The Windows native-fault approval is independently bound to candidate
+`1508aa1` and native-fault manifest SHA-256
 `2c2f6a3af7fefcf210f56fa35d304c282c1289495a2e6f53ea7953970c0d4a04`, with
 all ten objectives passing and no findings.  It satisfies only the registered
 internal Windows native-fault review condition.
 
+The current candidate hardens artifact-path handling in the native-fault and
+Application Verifier validators.  That does not invalidate the historical
+scenario/expected-error decision, but the affected validator behavior and a
+new clean exact-commit Windows run still require the human reviewer's
+post-publication disposition.
+
 If review findings change code, tests, collectors, validators, requirements,
-or assurance records, create and push a new candidate, regenerate clean native
-evidence, rebind the review record, and repeat affected checks.  Record the
-completed review decision only after the final candidate is unchanged.
+or assurance records, recompute the candidate digest and repeat the
+implementation review.  After approval and publication, regenerate and review
+all affected clean exact-commit evidence.  A finding in that evidence requires
+a successor change; it must not be hidden by rebinding the approved pre-commit
+review.
 
 Each run must retain the full commit, tree, lockfile hash, compiler host target,
 requested target, host, toolchain, tool version, command, native exit status,
@@ -203,12 +290,20 @@ this provenance is not eligible for the internal gate.
 
 The overall coverage package remains `draft`.  The internal
 requirements baseline and detailed tool-function assessment are complete for
-their explicitly non-certification scope.  CM-DO178C-0004 is bound to clean
+their explicitly non-certification scope, and DAL B is assigned internally.
+CM-DO178C-0004 is the approved predecessor bound to clean
 candidate `1508aa1`, passing 36-job CI run `31731799593`, and a downloaded,
 zero-discrepancy internal staging package.  The native-fault manifest for that
 candidate is bound, and its candidate-specific internal independent review is
-approved.  The approved certification basis, assigned
-software level, any qualification/TQL determination, broader organizational
-independence, controlled external archive, object-code analysis, release
-approval, and authority acceptance remain open.  Passing tests, internal
-review, or package integrity cannot infer those decisions.
+approved.  CM-DO178C-0005 is the registered pre-evidence candidate; its atomic
+publication is controlled by the human decision in `IND-DO178C-001`, while its
+exact commit/tree and clean CI bindings can only be recorded after publication.
+Its local Windows target-object trial is focused-only; the clean native
+three-host matrix and thirteen-artifact package remain post-push evidence.
+
+The applicable controlled certification basis and its DAL B binding, any
+qualification/TQL determination, authority-approved independence, controlled
+external archive, source/object mapping, generated-code disposition,
+object-code structural coverage, release approval, and authority acceptance
+remain open.  Passing tests, internal human review, transport mechanics, or
+package integrity cannot infer those decisions.

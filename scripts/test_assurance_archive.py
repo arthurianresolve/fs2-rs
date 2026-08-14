@@ -48,6 +48,12 @@ class AssuranceArchiveTests(unittest.TestCase):
                             "profile": None,
                             "target": "x86_64-pc-windows-msvc",
                         },
+                        "object-analysis-linux": {
+                            "manifest": "object-analysis-manifest.json",
+                            "kind": "object_analysis",
+                            "profile": None,
+                            "target": "x86_64-unknown-linux-gnu",
+                        },
                     }
                 },
             },
@@ -86,6 +92,24 @@ class AssuranceArchiveTests(unittest.TestCase):
                 "status": "pass",
             },
         )
+        objects = self.input_root / "object-analysis-linux"
+        objects.mkdir(parents=True)
+        write_json(
+            objects / "object-analysis-manifest.json",
+            {
+                "record_type": "object_analysis_run",
+                "schema_version": 1,
+                "run_id": "object-analysis-run-1",
+                "repository": "arthurianresolve/fs2-rs",
+                "branch": "DO-178C",
+                "commit": self.commit,
+                "tree": self.tree,
+                "dirty": False,
+                "target": "x86_64-unknown-linux-gnu",
+                "profile": "release",
+                "status": "pass",
+            },
+        )
 
     def create(self) -> Path:
         return create_archive(
@@ -113,7 +137,7 @@ class AssuranceArchiveTests(unittest.TestCase):
         )
 
         self.assertEqual(result["status"], "pass")
-        self.assertEqual(result["file_count"], 3)
+        self.assertEqual(result["file_count"], 4)
         self.assertEqual(read_json(result_path), result)
         self.assertTrue(manifest_path.is_file())
 
@@ -137,6 +161,13 @@ class AssuranceArchiveTests(unittest.TestCase):
         self.create()
         artifact = self.output_dir / "evidence" / "coverage-linux" / "extra.txt"
         artifact.write_text("extra\n", encoding="utf-8")
+
+        with self.assertRaises(ArchiveError):
+            verify_archive(package_dir=self.output_dir, expected_commit=self.commit)
+
+    def test_rejects_unindexed_empty_directory(self):
+        self.create()
+        (self.output_dir / "evidence" / "coverage-linux" / "empty").mkdir()
 
         with self.assertRaises(ArchiveError):
             verify_archive(package_dir=self.output_dir, expected_commit=self.commit)

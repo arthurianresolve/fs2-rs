@@ -68,9 +68,12 @@ contracts. Run `python scripts/validate_coverage.py` to validate those records.
 
 CI collects separate stable line/region and pinned-nightly branch reports in
 provenance-bound staging bundles. Branch coverage is diagnostic and is not an
-MC/DC claim. The current records are draft/internal-only: they do not establish
-certification credit, qualified-tool status, independence, object-code
-coverage, external archive acceptance, or authority acceptance.
+MC/DC claim. The project owner has assigned DAL B for this internal workstream,
+and a separate human reviewer role is recorded. The current records remain
+draft/internal-only: they do not establish an approved certification basis,
+authority-approved independence, certification credit, qualified-tool status,
+source/object equivalence, object-code coverage, controlled external-archive
+acceptance, release approval, or authority acceptance.
 
 ## Benchmarking
 

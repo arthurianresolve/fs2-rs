@@ -1,0 +1,27 @@
+{
+  "record_type": "external_assurance_reference_registry",
+  "schema_version": 1,
+  "status": "not_ready",
+  "owner": "fs2 DO-178C coverage workstream",
+  "repository": "arthurianresolve/fs2-rs",
+  "branch": "DO-178C",
+  "scope": "controlled_external_records_for_future_assurance_decisions",
+  "required_types": [
+    "applicable_certification_basis",
+    "tool_qualification_decision",
+    "archive_authority_decision",
+    "independence_plan",
+    "authority_acceptance"
+  ],
+  "path_policy": "canonical_digest_bound_json_below_coverage/external-records",
+  "records": [],
+  "open_items": [
+    "register immutable controlled records with exact type, status, revision, configuration, path, and SHA-256 bindings",
+    "bind the determined DAL B software level to the applicable controlled certification basis when that basis is supplied",
+    "run the resolver with --require-resolved before any release-candidate or authority-candidate transition"
+  ],
+  "non_claims": [
+    "Resolution verifies registered identity, applicability, revision, configuration, status, and bytes; it does not validate the decision's technical or legal sufficiency.",
+    "A resolved record does not by itself establish certification credit, tool qualification, organizational independence, release approval, or authority acceptance."
+  ]
+}

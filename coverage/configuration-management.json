@@ -30,32 +30,48 @@
       "role": "approved_internal_assurance_transition_baseline",
       "commit": "48ec3af6b807d9e70bd7d388baa8dbb1a3b69c40",
       "tree": "fb2eb62048fc8e73a04b290ef1c4696bf5de1f11",
-      "state": "current_predecessor",
+      "state": "superseded_by_internal_assurance_baseline",
       "supersedes": "CM-DO178C-0002",
       "evidence_ref": "github-actions:run-31708241247"
+    },
+    {
+      "id": "CM-DO178C-0004",
+      "role": "approved_internal_assurance_evidence_baseline",
+      "commit": "1508aa1b4249d20d27ad3e0239ace72e294e3bf6",
+      "tree": "d7e4d97dd0d621227e7892722d40c68a3024c1b2",
+      "state": "current_predecessor",
+      "supersedes": "CM-DO178C-0003",
+      "evidence_ref": "github-actions:run-31731799593; independent-review:IR-WINDOWS-NATIVE-FAULTS-001"
     }
   ],
-  "current_internal_baseline_id": "CM-DO178C-0003",
+  "current_internal_baseline_id": "CM-DO178C-0004",
   "candidate": {
-    "id": "CM-DO178C-0004",
-    "state": "clean_exact_commit_internal_staging_verified",
-    "preparation_parent_commit": "48ec3af6b807d9e70bd7d388baa8dbb1a3b69c40",
-    "commit": "1508aa1b4249d20d27ad3e0239ace72e294e3bf6",
-    "tree": "d7e4d97dd0d621227e7892722d40c68a3024c1b2",
-    "ci_run_id": "31731799593",
-    "assurance_package_manifest_sha256": "9636643b7c5efce6f304f5bacbe5af851f81526d5e1f8b9a33971ed5e86afc06",
-    "retrieval_result_sha256": "45d139f97fa259a5eae06defefb33c78c907caf1ad2aa05c735a3d7390be8cde"
+    "id": "CM-DO178C-0005",
+    "state": "awaiting_clean_exact_commit",
+    "preparation_parent_commit": "d1054422079406ba9e4d59805016d9c97a6b01ed",
+    "commit": null,
+    "tree": null,
+    "ci_run_id": null,
+    "assurance_package_manifest_sha256": null,
+    "retrieval_result_sha256": null
   },
   "pending_change": {
-    "id": "CM-CHANGE-DO178C-0004",
+    "id": "CM-CHANGE-DO178C-0005",
     "categories": [
+      "target_object_inventory",
+      "independent_archive_integrity_verification",
+      "external_reference_resolution",
+      "external_archive_transport_automation",
+      "software_level_assignment",
+      "independence_role_separation",
       "assurance_archive_tooling",
       "configuration_management_controls",
-      "requirements_baseline_review",
       "tool_function_assessment",
-      "coverage_validator",
+      "assurance_validator",
       "continuous_integration",
-      "assurance_records"
+      "assurance_records",
+      "behavior_neutral_benchmark_warning_cleanup",
+      "native_manifest_path_hardening"
     ],
     "product_code_changed": false,
     "verification_code_changed": true,
@@ -64,11 +80,13 @@
     "required_reverification": [
       "full Python validator and negative-test suite",
       "supported Rust and coverage CI matrix",
-      "new exact-commit Windows native-fault run",
-      "new exact-commit assurance package and internal retrieval drill",
-      "fresh independent Windows native-fault review"
+      "new exact-commit Windows native-fault run and affected path-validation review",
+      "clean native Linux, macOS, and Windows target-object inventory matrix",
+      "new exact-commit object-inclusive assurance package and internal retrieval drill",
+      "independent archive-integrity verification with a host-native digest utility",
+      "human implementation review under IND-DO178C-001"
     ],
-    "state": "evidence_bound_review_pending"
+    "state": "implementation_pre_evidence"
   },
   "change_control": {
     "immutable_identity": "full Git commit plus tree plus digest-bound evidence manifest",
@@ -82,7 +100,7 @@
     "promotion_rule": "Only a clean exact-commit candidate with passing required CI, a verified internal package, resolved applicable review conditions, and no open blocker may progress beyond internal_candidate."
   },
   "release_control": {
-    "current_state": "internal_staging_verified",
+    "current_state": "internal_candidate",
     "release_tag": null,
     "controlled_external_archive_required": true,
     "authority_acceptance_required": true,
@@ -96,6 +114,8 @@
     ]
   },
   "open_items": [
+    "bind CM-DO178C-0005 to clean exact-commit cross-host evidence and independently verified package bytes",
+    "complete the affected native-manifest path-validation review against clean current Windows evidence",
     "approve a controlled external archive and retention/disposition authority",
     "approve any release-candidate or authority transition under the applicable certification basis"
   ],

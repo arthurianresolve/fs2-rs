@@ -1,0 +1,74 @@
+{
+  "record_type": "internal_assurance_independence_plan",
+  "schema_version": 1,
+  "status": "draft",
+  "id": "IND-DO178C-001",
+  "owner": "fs2 DO-178C coverage workstream",
+  "assurance_context": "internal_assurance",
+  "software_level": "DAL_B",
+  "scope": "review of the additive target-object, archive-integrity, external-reference, assurance-record, native-evidence path-hardening, and behavior-neutral benchmark warning-cleanup implementation candidate",
+  "roles": {
+    "implementation_agent": {
+      "identity": "OpenAI Codex implementation agent",
+      "responsibility": "prepare the implementation and verification evidence without approving or accepting it",
+      "decision_authority": false
+    },
+    "human_reviewer": {
+      "person_id": "IR-PERSON-001",
+      "identity_basis": "self-attested person",
+      "responsibility": "perform the implementation review and decide internal approval or rejection",
+      "organizational_independence": "declared_internal",
+      "assignment_status": "accepted",
+      "declaration_ref": "conversation-confirmation:IND-DO178C-001:2026-08-14T04:52:18Z",
+      "declared_at": "2026-08-14T04:52:18Z"
+    },
+    "publication_service_account": {
+      "identity_provider": "github",
+      "login": "arthurianresolve",
+      "account_id": 268402532,
+      "node_id": "U_kgDOD_9_ZA",
+      "responsibility": "mechanically publish the approved atomic commit to the DO-178C branch",
+      "decision_authority": false
+    }
+  },
+  "separation_controls": [
+    "The implementation agent cannot approve or accept its own candidate.",
+    "The human reviewer receives the complete diff, test evidence, limitations, and post-push evidence plan before deciding.",
+    "The publication service account is an execution identity and is not treated as the human reviewer or decision maker.",
+    "No commit or push occurs until the human reviewer explicitly approves the reviewed implementation candidate.",
+    "Clean exact-commit cross-host evidence is evaluated separately after publication and cannot be pre-accepted from dirty local evidence."
+  ],
+  "conflict_assessment": {
+    "shared_service_account_disclosed": true,
+    "disposition": "no_internal_conflict_under_role_separation",
+    "rationale": "The implementation agent and human reviewer act independently in developer and reviewer/approver roles. The shared GitHub service account performs publication only and has no decision authority.",
+    "conflicts_of_interest": [],
+    "assessed_by": "IR-PERSON-001",
+    "assessment_ref": "conversation-confirmation:IND-DO178C-001-conflict:2026-08-14T04:58:08Z",
+    "assessed_at": "2026-08-14T04:58:08Z"
+  },
+  "review_gate": {
+    "status": "approved_for_atomic_publication",
+    "preparation_parent_commit": "d1054422079406ba9e4d59805016d9c97a6b01ed",
+    "digest_algorithm": "sha256-canonical-review-scope-v1",
+    "candidate_change_digest": "7227e394d04d8ebdce4e18d901962c4e466f942b2b926c9288a2191d9be1964c",
+    "mechanical_review_markers": [
+      "coverage/tool-assessment.json#TOOL-F-001",
+      "coverage/tool-assessment.json#TOOL-F-003",
+      "coverage/tool-assessment.json#TOOL-F-004",
+      "coverage/tool-assessment.json#TOOL-F-005"
+    ],
+    "decision": "approve",
+    "decision_ref": "conversation-confirmation:IND-DO178C-001-implementation-review:2026-08-14T05:31:55Z",
+    "decided_at": "2026-08-14T05:31:55Z"
+  },
+  "limitations": [
+    "The human identity and organizational role are self-attested and not externally identity-proofed.",
+    "This plan establishes internal role separation only; it is not an authority-approved independence plan.",
+    "The human implementation review does not independently reproduce the compiler, LLVM, or archive tools."
+  ],
+  "non_claims": [
+    "The GitHub service account is not the reviewer and has no approval authority in this plan.",
+    "Internal organizational independence does not establish certification authority acceptance or broader program independence."
+  ]
+}
