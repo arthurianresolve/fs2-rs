@@ -40,13 +40,13 @@ jobs:
           toolchain: ${{ matrix.toolchain }}
           components: rustfmt, clippy
           targets: ${{ matrix.target }}
-      - run: cargo fmt --all -- --check
-      - run: cargo clippy --package fs2 --all-targets --target ${{ matrix.target }} --locked -- -D warnings
-      - run: cargo test --package fs2 --target ${{ matrix.target }} --locked
+      - run: cargo +${{ matrix.toolchain }} fmt --all -- --check
+      - run: cargo +${{ matrix.toolchain }} clippy --package fs2 --all-targets --target ${{ matrix.target }} --locked -- -D warnings
+      - run: cargo +${{ matrix.toolchain }} test --package fs2 --target ${{ matrix.target }} --locked
       - run: python scripts/validate_coverage.py --verify-test-inventory
       - if: matrix.toolchain == needs.support-matrix.outputs.rust_version
         run: python scripts/validate_compatibility.py
-      - run: cargo bench --manifest-path benchmarks/Cargo.toml --bench fs2 --no-run --locked --target ${{ matrix.target }}
+      - run: cargo +${{ matrix.toolchain }} bench --manifest-path benchmarks/Cargo.toml --bench fs2 --no-run --locked --target ${{ matrix.target }}
 
   windows-native-faults:
     needs: support-matrix
@@ -118,7 +118,7 @@ jobs:
         with:
           toolchain: ${{ matrix.toolchain }}
           targets: ${{ matrix.target }}
-      - run: cargo check --package fs2 --tests --target ${{ matrix.target }} --locked
+      - run: cargo +${{ matrix.toolchain }} check --package fs2 --tests --target ${{ matrix.target }} --locked
 
   mingw:
     needs: support-matrix
@@ -138,7 +138,7 @@ jobs:
         with:
           toolchain: ${{ matrix.toolchain }}
           targets: ${{ matrix.target }}
-      - run: cargo build --package fs2 --lib --target ${{ matrix.target }} --locked
+      - run: cargo +${{ matrix.toolchain }} build --package fs2 --lib --target ${{ matrix.target }} --locked
 
   uclibc:
     needs: support-matrix
@@ -153,7 +153,7 @@ jobs:
         with:
           toolchain: ${{ matrix.toolchain }}
           components: rust-src
-      - run: cargo check -Z build-std=std,panic_abort --package fs2 --target ${{ matrix.target }} --lib --locked
+      - run: cargo +${{ matrix.toolchain }} check -Z build-std=std,panic_abort --package fs2 --target ${{ matrix.target }} --lib --locked
 
   coverage:
     needs: support-matrix

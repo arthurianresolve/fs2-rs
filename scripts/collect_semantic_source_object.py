@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -25,6 +27,7 @@ from validate_object_analysis import (
 )
 from validate_semantic_source_object import (
     NON_CLAIMS,
+    SECTION_COMPARISON,
     SemanticSourceObjectError,
     build_semantic_source_object_map,
     validate_manifest,
@@ -41,13 +44,232 @@ class CollectionError(Exception):
 
 
 def sha256(path: Path) -> str:
-    import hashlib
-
     digest = hashlib.sha256()
     with path.open("rb") as source:
         for chunk in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def sha256_bytes(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
+def readobj_int(value: Any) -> int:
+    if isinstance(value, bool):
+        raise CollectionError("LLVM object metadata contained a boolean integer")
+    if isinstance(value, int):
+        return value
+    text = str(value).strip()
+    return int(text, 0)
+
+
+def readobj_field(block: list[str], field: str) -> str | None:
+    prefix = f"{field}:"
+    for line in block:
+        stripped = line.strip()
+        if stripped.startswith(prefix):
+            return stripped[len(prefix) :].strip()
+    return None
+
+
+def readobj_blocks(text: str) -> list[list[str]]:
+    blocks: list[list[str]] = []
+    current: list[str] | None = None
+    depth = 0
+    for line in text.splitlines():
+        if current is None:
+            if line.startswith("  Section {"):
+                current = [line]
+                depth = 1
+            continue
+        current.append(line)
+        depth += line.count("{") - line.count("}")
+        if depth == 0:
+            blocks.append(current)
+            current = None
+    if current is not None:
+        raise CollectionError("LLVM object section output ended inside a section")
+    return blocks
+
+
+def payload_record(
+    *,
+    index: int,
+    type_name: str,
+    segment: str,
+    flags: int,
+    size: int,
+    payload: bytes,
+) -> dict[str, Any]:
+    return {
+        "index": index,
+        "type": type_name,
+        "segment": segment,
+        "flags": flags,
+        "size": size,
+        "sha256": sha256_bytes(payload),
+    }
+
+
+def elf_payload_summary(path: Path, tool: Path) -> dict[str, Any]:
+    result = subprocess.run(
+        [str(tool), "--sections", "--elf-output-style=JSON", str(path)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip()
+        raise CollectionError(f"llvm-readobj ELF section inspection failed: {detail}")
+    try:
+        files = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise CollectionError(f"llvm-readobj ELF JSON was invalid: {error}") from error
+    if not isinstance(files, list) or len(files) != 1:
+        raise CollectionError("llvm-readobj ELF JSON did not contain one object")
+    sections = files[0].get("Sections")
+    if not isinstance(sections, list):
+        raise CollectionError("llvm-readobj ELF JSON did not contain sections")
+    excluded = {
+        "SHT_NULL",
+        "SHT_STRTAB",
+        "SHT_SYMTAB",
+        "SHT_DYNSYM",
+        "SHT_RELA",
+        "SHT_REL",
+        "SHT_GROUP",
+        "SHT_SYMTAB_SHNDX",
+    }
+    source = path.read_bytes()
+    records: list[dict[str, Any]] = []
+    for item in sections:
+        section = item.get("Section") if isinstance(item, dict) else None
+        if not isinstance(section, dict):
+            raise CollectionError("llvm-readobj ELF section shape was invalid")
+        type_value = section.get("Type")
+        type_name = type_value.get("Name") if isinstance(type_value, dict) else None
+        if not isinstance(type_name, str):
+            raise CollectionError("llvm-readobj ELF section type was invalid")
+        if type_name in excluded:
+            continue
+        flags_value = section.get("Flags")
+        flags = flags_value.get("Value") if isinstance(flags_value, dict) else None
+        size = readobj_int(section.get("Size", 0))
+        offset = readobj_int(section.get("Offset", 0))
+        if size < 0 or offset < 0:
+            raise CollectionError("llvm-readobj ELF section size or offset was negative")
+        if type_name == "SHT_NOBITS":
+            payload = b""
+        else:
+            end = offset + size
+            if end > len(source):
+                raise CollectionError("llvm-readobj ELF section exceeds object bounds")
+            payload = source[offset:end]
+        records.append(
+            payload_record(
+                index=len(records),
+                type_name=type_name,
+                segment="",
+                flags=readobj_int(flags or 0),
+                size=size,
+                payload=payload,
+            )
+        )
+    return section_payload_summary(records)
+
+
+def text_payload_summary(path: Path, tool: Path) -> dict[str, Any]:
+    result = subprocess.run(
+        [str(tool), "--file-headers", "--sections", str(path)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip()
+        raise CollectionError(f"llvm-readobj section inspection failed: {detail}")
+    format_match = re.search(r"^Format: (.+)$", result.stdout, re.MULTILINE)
+    if format_match is None:
+        raise CollectionError("llvm-readobj section output did not report an object format")
+    source = path.read_bytes()
+    records: list[dict[str, Any]] = []
+    for block in readobj_blocks(result.stdout):
+        name_value = readobj_field(block, "Name") or ""
+        name = name_value.split(" (", 1)[0]
+        lowered = name.lower()
+        if lowered.startswith((".debug", ".zdebug", ".symtab", ".strtab", ".shstrtab", ".rel", ".rela", "__debug", "__reloc")):
+            continue
+        size_value = readobj_field(block, "Size")
+        raw_size_value = readobj_field(block, "RawDataSize")
+        size = readobj_int(size_value if size_value is not None else raw_size_value or 0)
+        offset_value = readobj_field(block, "Offset")
+        raw_offset_value = readobj_field(block, "PointerToRawData")
+        offset = readobj_int(offset_value if offset_value is not None else raw_offset_value or 0)
+        if size < 0 or offset < 0:
+            raise CollectionError("llvm-readobj section size or offset was negative")
+        if size == 0:
+            payload = b""
+        else:
+            end = offset + size
+            if offset == 0 or end > len(source):
+                raise CollectionError("llvm-readobj section exceeds object bounds")
+            payload = source[offset:end]
+        type_value = readobj_field(block, "Type") or "COFF_SECTION"
+        type_name = type_value.split(" (", 1)[0]
+        segment_value = readobj_field(block, "Segment") or ""
+        segment = segment_value.split(" (", 1)[0]
+        flags_value = None
+        for line in block:
+            match = re.match(r"\s+(?:Attributes|Characteristics) \[ \(0x([0-9A-Fa-f]+)\)", line)
+            if match:
+                flags_value = int(match.group(1), 16)
+                break
+        records.append(
+            payload_record(
+                index=len(records),
+                type_name=type_name,
+                segment=segment,
+                flags=flags_value or 0,
+                size=size,
+                payload=payload,
+            )
+        )
+    return section_payload_summary(records)
+
+
+def section_payload_summary(records: list[dict[str, Any]]) -> dict[str, Any]:
+    if not records:
+        raise CollectionError("LLVM object payload comparison found no comparable sections")
+    encoded = json.dumps(records, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return {
+        "fingerprint": sha256_bytes(encoded),
+        "section_count": len(records),
+        "sections": records,
+    }
+
+
+def compare_object_payloads(
+    production_path: Path,
+    semantic_path: Path,
+    tool: Path,
+    object_format: str,
+) -> dict[str, Any]:
+    if object_format == "ELF":
+        production = elf_payload_summary(production_path, tool)
+        semantic = elf_payload_summary(semantic_path, tool)
+    else:
+        production = text_payload_summary(production_path, tool)
+        semantic = text_payload_summary(semantic_path, tool)
+    return {
+        "method": SECTION_COMPARISON,
+        "format": object_format,
+        "status": "equal" if production == semantic else "differ",
+        "production": production,
+        "semantic": semantic,
+    }
 
 
 def git(*arguments: str) -> str:
@@ -247,7 +469,7 @@ def run_objcopy(
 ) -> int:
     shutil.copyfile(input_path, output_path)
     result = subprocess.run(
-        [str(tool), "--strip-debug", str(output_path)],
+        [str(tool), "--strip-all", str(output_path)],
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -255,7 +477,7 @@ def run_objcopy(
     )
     if result.stdout or result.stderr:
         with shared_stderr.open("a", encoding="utf-8", newline="\n") as sink:
-            sink.write(f"\n--- {tool.name} --strip-debug stderr ---\n")
+            sink.write(f"\n--- {tool.name} --strip-all stderr ---\n")
             if result.stdout:
                 sink.write(result.stdout)
             if result.stderr:
@@ -271,25 +493,23 @@ def artifact_record(path: Path) -> dict[str, Any]:
 
 def production_byte_equivalence(
     production_object: Path,
-    companion_object: Path,
-    production_non_debug_object: Path,
-    companion_non_debug_object: Path,
+    semantic_object: Path,
+    production_stripped_object: Path,
+    semantic_stripped_object: Path,
+    payload_comparison: dict[str, Any],
 ) -> dict[str, Any]:
-    production_digest = sha256(production_non_debug_object)
-    companion_digest = sha256(companion_non_debug_object)
     return {
         "status": (
-            "non_debug_object_bytes_equal"
-            if production_digest == companion_digest
-            and production_non_debug_object.stat().st_size
-            == companion_non_debug_object.stat().st_size
-            else "non_debug_object_bytes_differ"
+            "non_debug_object_payload_equal"
+            if payload_comparison["status"] == "equal"
+            else "non_debug_object_payload_differ"
         ),
-        "comparison": "same-target-release-object-files-equal-after-llvm-objcopy-strip-debug",
+        "comparison": "same-target-release-object-section-payloads-equal-after-llvm-objcopy-strip-all",
         "production_object": artifact_record(production_object),
-        "companion_object": artifact_record(companion_object),
-        "production_non_debug_object": artifact_record(production_non_debug_object),
-        "companion_non_debug_object": artifact_record(companion_non_debug_object),
+        "semantic_object": artifact_record(semantic_object),
+        "production_stripped_object": artifact_record(production_stripped_object),
+        "semantic_stripped_object": artifact_record(semantic_stripped_object),
+        "payload_comparison": payload_comparison,
     }
 
 
@@ -349,6 +569,7 @@ def initial_manifest(
             "cargo": None,
             "llvm_objcopy_production": None,
             "llvm_objcopy_companion": None,
+            "llvm_payload_compare": None,
             "llvm_readobj": None,
             "llvm_objdump": None,
         },
@@ -367,11 +588,12 @@ def initial_manifest(
         },
         "production_byte_equivalence": {
             "status": "not_established",
-            "comparison": "same-target-release-object-files-equal-after-llvm-objcopy-strip-debug",
+            "comparison": "same-target-release-object-section-payloads-equal-after-llvm-objcopy-strip-all",
             "production_object": None,
-            "companion_object": None,
-            "production_non_debug_object": None,
-            "companion_non_debug_object": None,
+            "semantic_object": None,
+            "production_stripped_object": None,
+            "semantic_stripped_object": None,
+            "payload_comparison": None,
         },
         "artifacts": [],
         "created_utc": datetime.now(timezone.utc)
@@ -379,7 +601,8 @@ def initial_manifest(
         .isoformat()
         .replace("+00:00", "Z"),
         "limitations": [
-            "The byte comparison is limited to the direct release object files after llvm-objcopy --strip-debug; it does not establish full rlib/archive identity or source/object equivalence.",
+            "The byte comparison is limited to direct release object section payloads after llvm-objcopy --strip-all; symbols, relocations, and format metadata are excluded, so it does not establish full object, rlib/archive, symbol/relocation identity, or source/object equivalence.",
+            "The debuginfo companion is a separate diagnostic build; debug-info settings may alter object code. The byte binding uses a separate debuginfo=0 semantic build with the same release inputs.",
             "MIR and LLVM debug locations are compiler diagnostics; no complete source-to-production-object semantic comparison is performed.",
             "Compiler-generated, monomorphized, inlined, runtime, and foreign-library code require target-specific human disposition.",
             "No executed object-code structural coverage or MC/DC result is collected.",
@@ -427,8 +650,8 @@ def collect(args: argparse.Namespace) -> int:
     placeholder_object_command = build_command(
         args.target,
         target_root / "semantic-source-object-object-build",
-        emit="link,obj",
-        debuginfo=2,
+        emit="link,mir,llvm-ir,obj",
+        debuginfo=0,
     )
     manifest = initial_manifest(
         run_id=run_id,
@@ -494,8 +717,8 @@ def collect(args: argparse.Namespace) -> int:
             object_command = build_command(
                 args.target,
                 object_build_root,
-                emit="link,obj",
-                debuginfo=2,
+                emit="link,mir,llvm-ir,obj",
+                debuginfo=0,
             )
             manifest["command"] = command
             manifest["production_command"] = production_command
@@ -549,7 +772,7 @@ def collect(args: argparse.Namespace) -> int:
                     companion_artifacts = find_compiler_artifacts(
                         stdout_path,
                         companion_build_root,
-                        required_kinds=("mir", "llvm_ir"),
+                        required_kinds=("mir", "llvm_ir", "object"),
                     )
                     object_artifacts = find_compiler_artifacts(
                         object_stdout,
@@ -562,12 +785,14 @@ def collect(args: argparse.Namespace) -> int:
                         "mir": output_dir / "fs2.semantic.mir",
                         "llvm_ir": output_dir / "fs2.semantic.ll",
                         "object": output_dir / "fs2.semantic.o",
-                        "companion_non_debug_object": output_dir / "fs2.semantic.nondebug.o",
+                        "debug_object": output_dir / "fs2.semantic.debug.o",
+                        "semantic_stripped_object": output_dir / "fs2.semantic.nondebug.o",
                     }
                     shutil.copyfile(production_artifact["object"], retained["production_object"])
                     for kind in ("mir", "llvm_ir"):
                         shutil.copyfile(companion_artifacts[kind], retained[kind])
                     shutil.copyfile(object_artifacts["object"], retained["object"])
+                    shutil.copyfile(companion_artifacts["object"], retained["debug_object"])
                     manifest["native_exits"]["llvm_objcopy_production"] = run_objcopy(
                         llvm_tools["llvm_objcopy"],
                         retained["production_object"],
@@ -577,9 +802,16 @@ def collect(args: argparse.Namespace) -> int:
                     manifest["native_exits"]["llvm_objcopy_companion"] = run_objcopy(
                         llvm_tools["llvm_objcopy"],
                         retained["object"],
-                        retained["companion_non_debug_object"],
+                        retained["semantic_stripped_object"],
                         stderr_path,
                     )
+                    payload_comparison = compare_object_payloads(
+                        retained["production_non_debug_object"],
+                        retained["semantic_stripped_object"],
+                        llvm_tools["llvm_readobj"],
+                        TARGETS[args.target]["object_format"],
+                    )
+                    manifest["native_exits"]["llvm_payload_compare"] = 0
                     object_structure = output_dir / "object-structure.txt"
                     disassembly = output_dir / "disassembly.txt"
                     manifest["native_exits"]["llvm_readobj"] = run_tool(
@@ -588,7 +820,7 @@ def collect(args: argparse.Namespace) -> int:
                             "--file-headers",
                             "--sections",
                             "--symbols",
-                            str(retained["object"]),
+                            str(retained["debug_object"]),
                         ],
                         object_structure,
                         stderr_path,
@@ -598,7 +830,7 @@ def collect(args: argparse.Namespace) -> int:
                             str(llvm_tools["llvm_objdump"]),
                             "--disassemble",
                             "--demangle",
-                            str(retained["object"]),
+                            str(retained["debug_object"]),
                         ],
                         disassembly,
                         stderr_path,
@@ -607,7 +839,8 @@ def collect(args: argparse.Namespace) -> int:
                         retained["production_object"],
                         retained["object"],
                         retained["production_non_debug_object"],
-                        retained["companion_non_debug_object"],
+                        retained["semantic_stripped_object"],
+                        payload_comparison,
                     )
                     source_map = build_semantic_source_object_map(
                         target=args.target,
@@ -616,7 +849,7 @@ def collect(args: argparse.Namespace) -> int:
                         inventory=manifest["source_inventory"]["records"],
                         mir_path=retained["mir"],
                         llvm_path=retained["llvm_ir"],
-                        object_path=retained["object"],
+                        object_path=retained["debug_object"],
                         object_structure_path=object_structure,
                         disassembly_path=disassembly,
                     )
@@ -634,9 +867,9 @@ def collect(args: argparse.Namespace) -> int:
                         "object_debug_section_count": source_map["object"]["debug_section_count"],
                         "source_object_mapping_status": "debug_location_bridge_retained_not_equivalence",
                         "production_object_binding_status": (
-                            "production_non_debug_object_bytes_equal"
+                            "production_non_debug_object_payload_equal"
                             if manifest["production_byte_equivalence"]["status"]
-                            == "non_debug_object_bytes_equal"
+                            == "non_debug_object_payload_equal"
                             else manifest["production_byte_equivalence"]["status"]
                         ),
                         "generated_code_disposition": "reviewed_internal_compiler_generated_not_credited",
@@ -646,7 +879,7 @@ def collect(args: argparse.Namespace) -> int:
                         "pass"
                         if all(value == 0 for value in manifest["native_exits"].values())
                         and manifest["production_byte_equivalence"]["status"]
-                        == "non_debug_object_bytes_equal"
+                        == "non_debug_object_payload_equal"
                         and all(
                             manifest["analysis"][field] > 0
                             for field in (

@@ -45,9 +45,11 @@ The records are deliberately split by concern:
   non-credit disposition.  `semantic-source-object.json` defines a separate
   native companion run that retains MIR, LLVM IR/debug locations, and a
   debug-info object for reproducible semantic inspection.  It also compares
-  direct production and debug-companion object bytes after LLVM debug sections
-  are removed.  That bounded comparison does not establish full rlib/archive
-  identity, complete source/object equivalence, or object-code coverage.
+  production and a separate debuginfo=0 semantic build using LLVM section
+  payload fingerprints after symbols, relocations, and format metadata are
+  excluded.  That bounded comparison does not establish full object or
+  rlib/archive identity, complete source/object equivalence, or object-code
+  coverage.
 - `policy.json` defines the internal gates and non-claims.
 - `tool-assessment.json` records per-function intended and prohibited uses,
   I/O and topology, activity effects, failure escape/detection, fallbacks,
@@ -199,10 +201,15 @@ python scripts/validate_semantic_source_object.py --manifest target/semantic-sou
 
 The map reconciles retained MIR functions, LLVM debug locations, and
 diagnostic conditional sites to the current production source inventory.  The
-collector additionally requires equal direct production/debug-companion object
-bytes after `llvm-objcopy --strip-debug`.  The counts and byte comparison are
-still diagnostic: they are not complete source/object equivalence, executed
-object-code structural coverage, or an MC/DC result.
+collector retains the debuginfo companion for that source-location bridge and
+uses a separate debuginfo=0 semantic build for the production-byte binding.  It
+requires equal production/semantic section payload fingerprints after
+`llvm-objcopy --strip-all`, which removes symbols and relocations; object-format
+metadata is excluded from the fingerprint.  Debug-info settings can alter
+object code, so the debuginfo companion itself is not asserted byte-equivalent
+to production.  The counts and bounded payload comparison are still
+diagnostic: they are not complete object/archive identity, source/object
+equivalence, executed object-code structural coverage, or an MC/DC result.
 
 The analogous CI matrix uses `x86_64-unknown-linux-gnu` and
 `aarch64-apple-darwin` on their native hosts.  A dirty local run may be retained
@@ -336,7 +343,7 @@ engineering evidence.  The target-specific inventory review is approved for
 the registered internal scope.  The derived reconciliation records module-
   level symbol-to-source observations and explicitly treats compiler-generated
   code as non-credit; the semantic companion now retains bounded production
-  non-debug object-byte equality evidence and remains open for target-specific
+  non-debug section-payload equality evidence and remains open for target-specific
   review and any required complete source/object or object-code follow-on.
 
 The applicable controlled certification basis and its DAL B binding, any

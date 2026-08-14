@@ -14,14 +14,14 @@
     "requested_toolchain": "1.97.1",
     "source_inventory_ref": "coverage/surface.json",
     "mapping_method": "rustc_mir_llvm_debug_location_source_inventory_bridge_v1",
-    "mapping_scope": "companion_release_debuginfo_mir_llvm_object_with_production_non_debug_object_equivalence",
+    "mapping_scope": "debuginfo_source_bridge_with_separate_non_debug_production_object_equivalence",
     "targets": [
       {"target": "x86_64-unknown-linux-gnu", "runner": "ubuntu-latest", "platform_family": "unix", "object_format": "ELF"},
       {"target": "aarch64-apple-darwin", "runner": "macos-latest", "platform_family": "unix", "object_format": "Mach-O"},
       {"target": "x86_64-pc-windows-msvc", "runner": "windows-latest", "platform_family": "windows", "object_format": "COFF"}
     ],
-    "retained_outputs": ["production_object", "production_non_debug_object", "mir", "llvm_ir", "debug_info_object", "companion_non_debug_object", "object_structure", "disassembly", "semantic_source_object_map", "production_byte_equivalence"],
-    "production_object_binding": "production_non_debug_object_bytes_equal",
+    "retained_outputs": ["production_object", "production_non_debug_object", "mir", "llvm_ir", "debug_info_object", "semantic_non_debug_object", "object_structure", "disassembly", "semantic_source_object_map", "production_byte_equivalence"],
+    "production_object_binding": "production_non_debug_object_payload_equal",
     "generated_code_disposition": "reviewed_internal_compiler_generated_not_credited"
   },
   "review": {
@@ -33,11 +33,12 @@
   "open_items": [
     "execute and retain the clean exact-commit native companion for all three registered targets",
     "review target-specific MIR, LLVM debug-location, object, generated-code, and cfg applicability observations",
-    "decide under the applicable controlled basis whether bounded non-debug object-byte equality is sufficient or whether complete source/object mapping or executed object-code structural coverage is required",
+    "decide under the applicable controlled basis whether bounded non-debug section-payload equality is sufficient or whether complete source/object mapping or executed object-code structural coverage is required",
     "obtain any required independent review before using the companion for an assurance decision"
   ],
   "non_claims": [
-    "The byte comparison is limited to the direct release object files after llvm-objcopy --strip-debug; it does not establish full rlib/archive identity or source/object equivalence.",
+    "The byte comparison is limited to direct release object section payloads after llvm-objcopy --strip-all; symbols, relocations, and format metadata are excluded, so it does not establish full object, rlib/archive, symbol/relocation identity, or source/object equivalence.",
+    "The debuginfo companion is a separate diagnostic build; debug-info settings may alter object code. The byte binding uses a separate debuginfo=0 semantic build with the same release inputs.",
     "MIR, LLVM debug locations, and disassembly are diagnostic evidence; they do not establish complete source/object equivalence or statement/basic-block correspondence.",
     "The companion does not provide executed object-code structural coverage or MC/DC, and it grants no tool qualification, certification credit, or authority acceptance."
   ]

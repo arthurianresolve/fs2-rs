@@ -342,7 +342,7 @@ class SupportMatrixTests(unittest.TestCase):
                 command = step.get("run") if isinstance(step, dict) else None
                 if not isinstance(command, str) or not command.lstrip().startswith("cargo "):
                     continue
-                if command.lstrip().startswith("cargo fmt "):
+                if " fmt --all " in (" " + command.lstrip() + " "):
                     continue
                 self.assertIn("--locked", command, msg=f"{job_name}: {command}")
 

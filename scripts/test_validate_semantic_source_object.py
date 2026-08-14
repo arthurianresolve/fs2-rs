@@ -65,6 +65,7 @@ class SemanticSourceObjectValidationTests(unittest.TestCase):
             "\n".join(llvm_lines + metadata) + "\n", encoding="utf-8"
         )
         (self.root / "fs2.semantic.o").write_bytes(b"semantic object\n")
+        (self.root / "fs2.semantic.debug.o").write_bytes(b"debug semantic object\n")
         (self.root / "fs2.production.o").write_bytes(b"production object\n")
         (self.root / "fs2.production.nondebug.o").write_bytes(b"normalized object\n")
         (self.root / "fs2.semantic.nondebug.o").write_bytes(b"normalized object\n")
@@ -85,7 +86,7 @@ class SemanticSourceObjectValidationTests(unittest.TestCase):
             inventory=self.inventory,
             mir_path=self.root / "fs2.semantic.mir",
             llvm_path=self.root / "fs2.semantic.ll",
-            object_path=self.root / "fs2.semantic.o",
+            object_path=self.root / "fs2.semantic.debug.o",
             object_structure_path=self.root / "object-structure.txt",
             disassembly_path=self.root / "disassembly.txt",
         )
@@ -165,9 +166,9 @@ class SemanticSourceObjectValidationTests(unittest.TestCase):
                 "--target",
                 self.target,
                 "--locked",
-                "--emit=link,obj",
+                "--emit=link,mir,llvm-ir,obj",
                 "-C",
-                "debuginfo=2",
+                "debuginfo=0",
             ],
             "native_exits": {
                 "production_cargo": 0,
@@ -175,6 +176,7 @@ class SemanticSourceObjectValidationTests(unittest.TestCase):
                 "cargo": 0,
                 "llvm_objcopy_production": 0,
                 "llvm_objcopy_companion": 0,
+                "llvm_payload_compare": 0,
                 "llvm_readobj": 0,
                 "llvm_objdump": 0,
             },
@@ -187,17 +189,24 @@ class SemanticSourceObjectValidationTests(unittest.TestCase):
                 "llvm_conditional_site_count": self.map["llvm"]["conditional_site_count"],
                 "object_debug_section_count": self.map["object"]["debug_section_count"],
                 "source_object_mapping_status": "debug_location_bridge_retained_not_equivalence",
-                "production_object_binding_status": "production_non_debug_object_bytes_equal",
+                "production_object_binding_status": "production_non_debug_object_payload_equal",
                 "generated_code_disposition": "reviewed_internal_compiler_generated_not_credited",
                 "object_code_coverage_status": "not_collected",
             },
             "production_byte_equivalence": {
-                "status": "non_debug_object_bytes_equal",
-                "comparison": "same-target-release-object-files-equal-after-llvm-objcopy-strip-debug",
+                "status": "non_debug_object_payload_equal",
+                "comparison": "same-target-release-object-section-payloads-equal-after-llvm-objcopy-strip-all",
                 "production_object": {"path": "fs2.production.o", "sha256": sha256(self.root / "fs2.production.o"), "bytes": (self.root / "fs2.production.o").stat().st_size},
-                "companion_object": {"path": "fs2.semantic.o", "sha256": sha256(self.root / "fs2.semantic.o"), "bytes": (self.root / "fs2.semantic.o").stat().st_size},
-                "production_non_debug_object": {"path": "fs2.production.nondebug.o", "sha256": sha256(self.root / "fs2.production.nondebug.o"), "bytes": (self.root / "fs2.production.nondebug.o").stat().st_size},
-                "companion_non_debug_object": {"path": "fs2.semantic.nondebug.o", "sha256": sha256(self.root / "fs2.semantic.nondebug.o"), "bytes": (self.root / "fs2.semantic.nondebug.o").stat().st_size},
+                "semantic_object": {"path": "fs2.semantic.o", "sha256": sha256(self.root / "fs2.semantic.o"), "bytes": (self.root / "fs2.semantic.o").stat().st_size},
+                "production_stripped_object": {"path": "fs2.production.nondebug.o", "sha256": sha256(self.root / "fs2.production.nondebug.o"), "bytes": (self.root / "fs2.production.nondebug.o").stat().st_size},
+                "semantic_stripped_object": {"path": "fs2.semantic.nondebug.o", "sha256": sha256(self.root / "fs2.semantic.nondebug.o"), "bytes": (self.root / "fs2.semantic.nondebug.o").stat().st_size},
+                "payload_comparison": {
+                    "method": "llvm-readobj-section-payload-fingerprint-after-llvm-objcopy-strip-all",
+                    "format": "ELF",
+                    "status": "equal",
+                    "production": {"fingerprint": "a" * 64, "section_count": 1, "sections": [{"index": 0, "type": "SHT_PROGBITS", "segment": "", "flags": 6, "size": 1, "sha256": "b" * 64}]},
+                    "semantic": {"fingerprint": "a" * 64, "section_count": 1, "sections": [{"index": 0, "type": "SHT_PROGBITS", "segment": "", "flags": 6, "size": 1, "sha256": "b" * 64}]},
+                },
             },
             "artifacts": [],
             "created_utc": "2026-08-14T09:00:00Z",
@@ -220,7 +229,7 @@ class SemanticSourceObjectValidationTests(unittest.TestCase):
     def test_accepts_reproducible_companion_manifest(self):
         validated = validate_manifest(self.manifest_path, expected_commit=self.commit, require_pass=True)
         self.assertEqual(validated["analysis"]["source_object_mapping_status"], "debug_location_bridge_retained_not_equivalence")
-        self.assertEqual(validated["analysis"]["production_object_binding_status"], "production_non_debug_object_bytes_equal")
+        self.assertEqual(validated["analysis"]["production_object_binding_status"], "production_non_debug_object_payload_equal")
         self.assertEqual(set(item["path"] for item in validated["artifacts"]), PASS_ARTIFACTS)
 
     def test_rejects_tampered_llvm_input(self):

@@ -3,11 +3,12 @@
 
 The companion is intentionally separate from the production rlib inventory.
 It retains a release-profile rustc build with MIR, LLVM IR, debug locations, and
-the generated object so that a reviewer can inspect the compiler's intermediate
-representation and its source-location bridge.  It also compares direct
-production and debuginfo object bytes after removing debug sections.  That
-bounded comparison does not establish full archive identity, source/object
-equivalence, object-code coverage, MC/DC, qualification, or certification credit.
+the generated debug-info object so that a reviewer can inspect the compiler's
+intermediate representation and its source-location bridge.  A separate
+debuginfo=0 semantic build is compared with the production object after
+llvm-objcopy removes symbols and relocations.  That bounded comparison does not
+establish full archive identity, source/object equivalence, object-code
+coverage, MC/DC, qualification, or certification credit.
 """
 
 from __future__ import annotations
@@ -37,9 +38,10 @@ TOOLCHAIN = "1.97.1"
 LLVM_VERSION = "22.1.6"
 RUN_STATUSES = {"pass", "fail", "indeterminate", "provenance_error", "focused_only"}
 MAPPING_METHOD = "rustc_mir_llvm_debug_location_source_inventory_bridge_v1"
-MAPPING_SCOPE = "companion_release_debuginfo_mir_llvm_object_with_production_non_debug_object_equivalence"
-PRODUCTION_BINDING_STATUS = "production_non_debug_object_bytes_equal"
-PRODUCTION_COMPARISON = "same-target-release-object-files-equal-after-llvm-objcopy-strip-debug"
+MAPPING_SCOPE = "debuginfo_source_bridge_with_separate_non_debug_production_object_equivalence"
+PRODUCTION_BINDING_STATUS = "production_non_debug_object_payload_equal"
+PRODUCTION_COMPARISON = "same-target-release-object-section-payloads-equal-after-llvm-objcopy-strip-all"
+SECTION_COMPARISON = "llvm-readobj-section-payload-fingerprint-after-llvm-objcopy-strip-all"
 SOURCE_RECORD_STATUS = {
     "observed": "companion_source_locations_observed",
     "absent": "no_companion_source_locations_observed",
@@ -58,7 +60,8 @@ GENERATION_REVIEW = {
     },
 }
 NON_CLAIMS = [
-    "The byte comparison is limited to the direct release object files after llvm-objcopy --strip-debug; it does not establish full rlib/archive identity or source/object equivalence.",
+    "The byte comparison is limited to direct release object section payloads after llvm-objcopy --strip-all; symbols, relocations, and format metadata are excluded, so it does not establish full object, rlib/archive, symbol/relocation identity, or source/object equivalence.",
+    "The debuginfo companion is a separate diagnostic build; debug-info settings may alter object code. The byte binding uses a separate debuginfo=0 semantic build with the same release inputs.",
     "MIR, LLVM debug locations, and disassembly are diagnostic evidence; they do not establish complete source/object equivalence or statement/basic-block correspondence.",
     "The companion does not provide executed object-code structural coverage or MC/DC, and it grants no tool qualification, certification credit, or authority acceptance.",
 ]
@@ -70,7 +73,7 @@ PRODUCTION_BINDING = {
     "status": PRODUCTION_BINDING_STATUS,
     "production_inventory_ref": "object-analysis-manifest.json",
     "comparison": PRODUCTION_COMPARISON,
-    "reason": "The production and debuginfo companion builds use the same target, release profile, source tree, lockfile, and Rust/LLVM toolchain; their direct object bytes are equal after removing debug sections. This is bounded object-byte evidence, not full archive identity or source/object equivalence.",
+    "reason": "The production and separate debuginfo=0 semantic builds use the same target, release profile, source tree, lockfile, and Rust/LLVM toolchain; their non-debug section payloads are equal after llvm-objcopy --strip-all removes symbols and relocations and the comparison excludes format metadata. The debuginfo=2 source-location companion remains diagnostic. This is bounded object-byte evidence, not full object/archive identity or source/object equivalence.",
 }
 
 
@@ -430,7 +433,7 @@ def validate_map(
     if not isinstance(evidence, list) or [item.get("path") for item in evidence] != [
         "fs2.semantic.mir",
         "fs2.semantic.ll",
-        "fs2.semantic.o",
+        "fs2.semantic.debug.o",
         "object-structure.txt",
         "disassembly.txt",
     ]:
@@ -514,8 +517,8 @@ def validate_map(
 
 PRODUCTION_BYTE_STATUSES = {
     "not_established",
-    "non_debug_object_bytes_equal",
-    "non_debug_object_bytes_differ",
+    "non_debug_object_payload_equal",
+    "non_debug_object_payload_differ",
 }
 ANALYSIS_BINDING_STATUSES = PRODUCTION_BYTE_STATUSES | {PRODUCTION_BINDING_STATUS}
 
@@ -549,9 +552,10 @@ def validate_byte_equivalence(
         "status",
         "comparison",
         "production_object",
-        "companion_object",
-        "production_non_debug_object",
-        "companion_non_debug_object",
+        "semantic_object",
+        "production_stripped_object",
+        "semantic_stripped_object",
+        "payload_comparison",
     }
     if not isinstance(record, dict) or set(record) != required:
         fail("semantic source/object production-byte comparison has invalid fields")
@@ -562,13 +566,15 @@ def validate_byte_equivalence(
         fail("semantic source/object production-byte comparison method is invalid")
     file_fields = (
         "production_object",
-        "companion_object",
-        "production_non_debug_object",
-        "companion_non_debug_object",
+        "semantic_object",
+        "production_stripped_object",
+        "semantic_stripped_object",
     )
     if status == "not_established":
         if any(record[field] is not None for field in file_fields):
             fail("unestablished production-byte comparison must not contain artifacts")
+        if record["payload_comparison"] is not None:
+            fail("unestablished production-byte comparison must not contain payload evidence")
         if require_equal:
             fail("passing semantic source/object evidence lacks production-byte comparison")
         return
@@ -577,13 +583,51 @@ def validate_byte_equivalence(
         observed[field] = validate_byte_file(
             record[field], label=f"production-byte comparison {field}", root=root
         )
-    if status == "non_debug_object_bytes_equal":
-        if observed["production_non_debug_object"][1:] != observed["companion_non_debug_object"][1:]:
-            fail("production-byte comparison claims equality but normalized objects differ")
-    elif observed["production_non_debug_object"][1:] == observed["companion_non_debug_object"][1:]:
-        fail("production-byte comparison claims a difference but normalized objects match")
-    if require_equal and status != "non_debug_object_bytes_equal":
-        fail("passing semantic source/object evidence lacks equal production non-debug object bytes")
+    payload = record["payload_comparison"]
+    if not isinstance(payload, dict) or set(payload) != {
+        "method", "format", "status", "production", "semantic"
+    }:
+        fail("production-byte payload comparison has invalid fields")
+    if payload["method"] != SECTION_COMPARISON or payload["format"] not in {"ELF", "Mach-O", "COFF"}:
+        fail("production-byte payload comparison method or format is invalid")
+    if payload["status"] not in {"equal", "differ"}:
+        fail("production-byte payload comparison status is invalid")
+    canonical_sections: dict[str, list[dict[str, Any]]] = {}
+    for side in ("production", "semantic"):
+        summary = payload[side]
+        if not isinstance(summary, dict) or set(summary) != {"fingerprint", "section_count", "sections"}:
+            fail(f"production-byte payload comparison {side} summary is invalid")
+        if not SHA256_RE.fullmatch(str(summary["fingerprint"])):
+            fail(f"production-byte payload comparison {side} fingerprint is invalid")
+        if not isinstance(summary["section_count"], int) or isinstance(summary["section_count"], bool) or summary["section_count"] < 1:
+            fail(f"production-byte payload comparison {side} section count is invalid")
+        sections = summary["sections"]
+        if not isinstance(sections, list) or len(sections) != summary["section_count"]:
+            fail(f"production-byte payload comparison {side} sections are invalid")
+        canonical_sections[side] = []
+        for index, section in enumerate(sections):
+            if not isinstance(section, dict) or set(section) != {"index", "type", "segment", "flags", "size", "sha256"}:
+                fail(f"production-byte payload comparison {side} section fields are invalid")
+            if section["index"] != index or not isinstance(section["type"], str) or not isinstance(section["segment"], str):
+                fail(f"production-byte payload comparison {side} section identity is invalid")
+            if not isinstance(section["flags"], int) or isinstance(section["flags"], bool) or section["flags"] < 0:
+                fail(f"production-byte payload comparison {side} section flags are invalid")
+            if not isinstance(section["size"], int) or isinstance(section["size"], bool) or section["size"] < 0:
+                fail(f"production-byte payload comparison {side} section size is invalid")
+            if not SHA256_RE.fullmatch(str(section["sha256"])):
+                fail(f"production-byte payload comparison {side} section digest is invalid")
+            canonical_sections[side].append(section)
+    equal_sections = canonical_sections["production"] == canonical_sections["semantic"]
+    equal_fingerprints = payload["production"]["fingerprint"] == payload["semantic"]["fingerprint"]
+    if payload["status"] == "equal" and (not equal_sections or not equal_fingerprints):
+        fail("production-byte payload comparison claims equality but section payloads differ")
+    if payload["status"] == "differ" and equal_sections and equal_fingerprints:
+        fail("production-byte payload comparison claims a difference but section payloads match")
+    expected_equal = status == "non_debug_object_payload_equal"
+    if expected_equal != (payload["status"] == "equal"):
+        fail("production-byte comparison status disagrees with payload comparison")
+    if require_equal and status != "non_debug_object_payload_equal":
+        fail("passing semantic source/object evidence lacks equal production non-debug section payloads")
 
 
 def validate_control(control: dict[str, Any]) -> None:
@@ -643,7 +687,7 @@ def validate_control(control: dict[str, Any]) -> None:
             "mir",
             "llvm_ir",
             "debug_info_object",
-            "companion_non_debug_object",
+            "semantic_non_debug_object",
             "object_structure",
             "disassembly",
             "semantic_source_object_map",
@@ -722,12 +766,12 @@ def validate_schema(schema: dict[str, Any]) -> None:
             "status": ["pass", "fail", "indeterminate", "provenance_error", "focused_only"],
             "profile": ["release"],
             "source_object_mapping_status": ["debug_location_bridge_retained_not_equivalence"],
-        "production_object_binding_status": ["production_non_debug_object_bytes_equal", "non_debug_object_bytes_differ", "not_established"],
+            "production_object_binding_status": ["production_non_debug_object_payload_equal", "non_debug_object_payload_differ", "not_established"],
             "generated_code_disposition": ["reviewed_internal_compiler_generated_not_credited"],
             "object_code_coverage_status": ["not_collected"],
         }
         or schema.get("promotion_rule")
-        != "Only a pass manifest from a clean exact-commit native target run may enter internal review; bounded non-debug object-byte equality is diagnostic traceability evidence and does not establish complete source/object equivalence, object-code coverage, MC/DC, qualification, certification credit, or authority acceptance."
+        != "Only a pass manifest from a clean exact-commit native target run may enter internal review; bounded symbol/relocation-stripped non-debug object section-payload equality is diagnostic traceability evidence and does not establish complete source/object equivalence, object-code coverage, MC/DC, qualification, certification credit, or authority acceptance."
     ):
         fail("coverage/semantic-source-object-run.schema.json is invalid")
 
@@ -740,6 +784,7 @@ PASS_ARTIFACTS = {
     "fs2.production.o",
     "fs2.semantic.ll",
     "fs2.semantic.mir",
+    "fs2.semantic.debug.o",
     "fs2.semantic.nondebug.o",
     "fs2.semantic.o",
     "object-structure.txt",
@@ -859,11 +904,11 @@ def validate_manifest(
     if not isinstance(object_command, list) or not all(isinstance(value, str) and value for value in object_command):
         fail("semantic source/object companion object command is invalid")
     object_command_text = " ".join(object_command)
-    for required in ("cargo", f"+{TOOLCHAIN}", "rustc", "--package", "fs2", "--lib", "--release", "--target", target, "--locked", "--emit=link,obj", "-C", "debuginfo=2"):
+    for required in ("cargo", f"+{TOOLCHAIN}", "rustc", "--package", "fs2", "--lib", "--release", "--target", target, "--locked", "--emit=link,mir,llvm-ir,obj", "-C", "debuginfo=0"):
         if required not in object_command_text:
-            fail("semantic source/object companion object command is incomplete")
+            fail("semantic source/object non-debug semantic command is incomplete")
     exits = manifest["native_exits"]
-    if not isinstance(exits, dict) or set(exits) != {"production_cargo", "object_cargo", "cargo", "llvm_objcopy_production", "llvm_objcopy_companion", "llvm_readobj", "llvm_objdump"} or not all(value is None or (isinstance(value, int) and not isinstance(value, bool)) for value in exits.values()):
+    if not isinstance(exits, dict) or set(exits) != {"production_cargo", "object_cargo", "cargo", "llvm_objcopy_production", "llvm_objcopy_companion", "llvm_payload_compare", "llvm_readobj", "llvm_objdump"} or not all(value is None or (isinstance(value, int) and not isinstance(value, bool)) for value in exits.values()):
         fail("semantic source/object native exits are invalid")
     if manifest["status"] in {"pass", "focused_only"} and any(value != 0 for value in exits.values()):
         fail("passing semantic source/object evidence has a nonzero native exit")

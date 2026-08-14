@@ -33,9 +33,9 @@
     "status": ["pass", "fail", "indeterminate", "provenance_error", "focused_only"],
     "profile": ["release"],
     "source_object_mapping_status": ["debug_location_bridge_retained_not_equivalence"],
-    "production_object_binding_status": ["production_non_debug_object_bytes_equal", "non_debug_object_bytes_differ", "not_established"],
+    "production_object_binding_status": ["production_non_debug_object_payload_equal", "non_debug_object_payload_differ", "not_established"],
     "generated_code_disposition": ["reviewed_internal_compiler_generated_not_credited"],
     "object_code_coverage_status": ["not_collected"]
   },
-  "promotion_rule": "Only a pass manifest from a clean exact-commit native target run may enter internal review; bounded non-debug object-byte equality is diagnostic traceability evidence and does not establish complete source/object equivalence, object-code coverage, MC/DC, qualification, certification credit, or authority acceptance."
+  "promotion_rule": "Only a pass manifest from a clean exact-commit native target run may enter internal review; bounded symbol/relocation-stripped non-debug object section-payload equality is diagnostic traceability evidence and does not establish complete source/object equivalence, object-code coverage, MC/DC, qualification, certification credit, or authority acceptance."
 }

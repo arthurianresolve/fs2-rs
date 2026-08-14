@@ -40,12 +40,12 @@
   "open_items": [
     "retain the clean exact-commit object inventories for all three registered native targets under the internal evidence package",
     "retain the module-level symbol-to-source reconciliation and repeat it from clean exact-commit output when the compiler, target, source inventory, object-analysis tooling, or evidence configuration changes",
-    "retain the semantic source-object companion and its bounded production non-debug object-byte equality from a clean exact-commit native matrix, then review target-specific observations; it remains diagnostic until the applicable controlled basis decides whether complete production-byte mapping or executed object-code structural coverage is required"
+    "retain the semantic source-object companion and its bounded production non-debug section-payload equality from a clean exact-commit native matrix, then review target-specific observations; it remains diagnostic until the applicable controlled basis decides whether complete production-byte mapping or executed object-code structural coverage is required"
   ],
   "non_claims": [
     "The inventory does not establish source-to-object traceability or source/object equivalence.",
     "Disassembly and symbol presence do not establish object-code structural coverage or MC/DC.",
     "The compiler and LLVM tools are not qualified, and this record grants no certification credit or authority acceptance.",
-    "The reviewed_internal disposition covers the historical module-level inventory only; the separate semantic companion adds bounded non-debug object-byte equality but remains diagnostic, not complete production-byte source/object equivalence or object-code coverage."
+    "The reviewed_internal disposition covers the historical module-level inventory only; the separate semantic companion adds bounded non-debug section-payload equality but remains diagnostic, not complete production-byte source/object equivalence or object-code coverage."
   ]
 }
