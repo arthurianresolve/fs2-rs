@@ -281,6 +281,13 @@ class SupportMatrixTests(unittest.TestCase):
             compatibility_step["if"],
             "matrix.toolchain == needs.support-matrix.outputs.rust_version",
         )
+        self.assertEqual(
+            compatibility_step["env"],
+            {
+                "RUSTUP_TOOLCHAIN": "${{ matrix.toolchain }}",
+                "CARGO_TARGET_DIR": "target/compatibility-${{ matrix.toolchain }}",
+            },
+        )
 
     def test_github_output_includes_canonical_rust_version(self):
         with tempfile.TemporaryDirectory(prefix="fs2-support-matrix-test-") as temporary:

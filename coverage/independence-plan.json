@@ -51,7 +51,7 @@
     "status": "awaiting_implementation_review",
     "preparation_parent_commit": "d1054422079406ba9e4d59805016d9c97a6b01ed",
     "digest_algorithm": "sha256-canonical-review-scope-v1",
-    "candidate_change_digest": "915a78ffe42912e25b125867cc120c3fe4fbc5cfa87d2985e758b94ed8ee2d9a",
+    "candidate_change_digest": "9b365d115487a6a4b34ae682802bc0927202fb074279e02571c96db15e658e81",
     "mechanical_review_markers": [
       "coverage/tool-assessment.json#TOOL-F-001",
       "coverage/tool-assessment.json#TOOL-F-003",

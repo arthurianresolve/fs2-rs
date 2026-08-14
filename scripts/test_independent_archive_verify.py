@@ -33,6 +33,12 @@ class IndependentArchiveVerificationTests(unittest.TestCase):
                             "kind": "object_analysis",
                             "profile": None,
                             "target": "x86_64-unknown-linux-gnu",
+                        },
+                        "semantic-source-object-macos": {
+                            "manifest": "semantic-source-object-manifest.json",
+                            "kind": "semantic_source_object",
+                            "profile": None,
+                            "target": "aarch64-apple-darwin",
                         }
                     }
                 },
@@ -57,6 +63,27 @@ class IndependentArchiveVerificationTests(unittest.TestCase):
             },
         )
         (artifact / "object.txt").write_text("retained object\n", encoding="utf-8")
+        semantic_artifact = self.inputs / "semantic-source-object-macos"
+        semantic_artifact.mkdir(parents=True)
+        write_json(
+            semantic_artifact / "semantic-source-object-manifest.json",
+            {
+                "record_type": "semantic_source_object_run",
+                "schema_version": 1,
+                "run_id": "semantic-run-1",
+                "repository": "arthurianresolve/fs2-rs",
+                "branch": "DO-178C",
+                "commit": self.commit,
+                "tree": self.tree,
+                "dirty": False,
+                "target": "aarch64-apple-darwin",
+                "profile": "release",
+                "status": "pass",
+            },
+        )
+        (semantic_artifact / "semantic.txt").write_text(
+            "retained semantic evidence\n", encoding="utf-8"
+        )
         create_archive(
             input_root=self.inputs,
             output_dir=self.package,
@@ -78,7 +105,7 @@ class IndependentArchiveVerificationTests(unittest.TestCase):
             verified_utc="2026-08-14T05:01:00Z",
         )
         self.assertEqual(result["status"], "pass")
-        self.assertEqual(result["file_count"], 2)
+        self.assertEqual(result["file_count"], 4)
         self.assertIn(result["digest_utility"]["name"], {"certutil", "sha256sum", "shasum", "openssl"})
         self.assertTrue(result_path.is_file())
 

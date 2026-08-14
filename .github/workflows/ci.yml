@@ -45,6 +45,9 @@ jobs:
       - run: cargo +${{ matrix.toolchain }} test --package fs2 --target ${{ matrix.target }} --locked
       - run: python scripts/validate_coverage.py --verify-test-inventory
       - if: matrix.toolchain == needs.support-matrix.outputs.rust_version
+        env:
+          RUSTUP_TOOLCHAIN: ${{ matrix.toolchain }}
+          CARGO_TARGET_DIR: target/compatibility-${{ matrix.toolchain }}
         run: python scripts/validate_compatibility.py
       - run: cargo +${{ matrix.toolchain }} bench --manifest-path benchmarks/Cargo.toml --bench fs2 --no-run --locked --target ${{ matrix.target }}
 

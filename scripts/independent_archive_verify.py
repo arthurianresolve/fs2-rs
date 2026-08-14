@@ -215,7 +215,7 @@ def required_artifacts(control: dict[str, Any]) -> dict[str, dict[str, Any]]:
         if kind == "coverage":
             if profile not in {"stable", "branch", "condition"}:
                 fail(f"required artifact {name} has an invalid coverage profile")
-        elif kind in {"windows_native_fault", "object_analysis"}:
+        elif kind in {"windows_native_fault", "object_analysis", "semantic_source_object"}:
             if profile is not None:
                 fail(f"required artifact {name} must have a null profile")
         else:
@@ -258,6 +258,12 @@ def validate_source_manifest(
         or manifest.get("profile") != "release"
     ):
         fail(f"{label} has the wrong object-analysis identity")
+    if spec["kind"] == "semantic_source_object" and (
+        manifest.get("record_type") != "semantic_source_object_run"
+        or manifest.get("schema_version") != 1
+        or manifest.get("profile") != "release"
+    ):
+        fail(f"{label} has the wrong semantic source/object identity")
     run_id = manifest.get("run_id")
     if not isinstance(run_id, str) or not run_id:
         fail(f"{label} has an invalid run ID")
