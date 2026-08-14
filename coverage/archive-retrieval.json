@@ -1,29 +1,28 @@
 {
   "record_type": "assurance_archive_retrieval_record",
   "schema_version": 1,
-  "status": "not_ready",
+  "status": "draft",
   "owner": "fs2 DO-178C coverage workstream",
   "scope": "internal_github_actions_staging",
-  "result": "pending",
-  "package_id": null,
-  "source_commit": null,
-  "source_tree": null,
-  "workflow_run_id": null,
+  "result": "pass",
+  "package_id": "ASSURANCE-f24c570bc9c3-31774523702",
+  "source_commit": "f24c570bc9c302e4a5cb14cd580b7247f9888916",
+  "source_tree": "46db086cfdd538c498de4e1993d6af1805af0686",
+  "workflow_run_id": "31774523702",
   "artifact_name": "assurance-evidence-package",
-  "manifest_sha256": null,
-  "retrieval_result_sha256": null,
-  "file_count": null,
-  "total_bytes": null,
-  "retrieved_at": null,
-  "verified_by": null,
+  "manifest_sha256": "1981909ab7ff23cf9cd4790ea59569d1c6e2aa52ad5267989cae9071291bfc0d",
+  "retrieval_result_sha256": "b22f2c89d3c173ecb1810293ace1a2c6f477ca32c22afdd2ec271fd3578493b1",
+  "file_count": 694,
+  "total_bytes": 475544926,
+  "retrieved_at": "2026-08-14T06:54:15Z",
+  "verified_by": "primary verifier, CI independent verifier, and supplemental WSL sha256sum verifier",
   "discrepancies": [],
   "external_archive_verified": false,
   "open_items": [
-    "collect and independently verify the new object-inclusive exact-commit internal package",
     "repeat retrieval after an approved controlled external archive exists"
   ],
   "non_claims": [
-    "No current package retrieval is accepted before the reviewed implementation is committed and exact-commit CI completes.",
+    "This acceptance is limited to the exact internal staging package identified by this record and does not promote CM-DO178C-0005 to release or authority status.",
     "This record does not establish controlled external retention, backup, disposition authority, certification credit, or authority acceptance."
   ]
 }

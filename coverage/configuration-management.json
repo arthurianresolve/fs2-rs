@@ -47,13 +47,13 @@
   "current_internal_baseline_id": "CM-DO178C-0004",
   "candidate": {
     "id": "CM-DO178C-0005",
-    "state": "awaiting_clean_exact_commit",
+    "state": "clean_exact_commit_internal_staging_verified",
     "preparation_parent_commit": "d1054422079406ba9e4d59805016d9c97a6b01ed",
-    "commit": null,
-    "tree": null,
-    "ci_run_id": null,
-    "assurance_package_manifest_sha256": null,
-    "retrieval_result_sha256": null
+    "commit": "f24c570bc9c302e4a5cb14cd580b7247f9888916",
+    "tree": "46db086cfdd538c498de4e1993d6af1805af0686",
+    "ci_run_id": "31774523702",
+    "assurance_package_manifest_sha256": "1981909ab7ff23cf9cd4790ea59569d1c6e2aa52ad5267989cae9071291bfc0d",
+    "retrieval_result_sha256": "b22f2c89d3c173ecb1810293ace1a2c6f477ca32c22afdd2ec271fd3578493b1"
   },
   "pending_change": {
     "id": "CM-CHANGE-DO178C-0005",
@@ -86,7 +86,7 @@
       "independent archive-integrity verification with a host-native digest utility",
       "human implementation review under IND-DO178C-001"
     ],
-    "state": "implementation_pre_evidence"
+    "state": "evidence_bound_review_pending"
   },
   "change_control": {
     "immutable_identity": "full Git commit plus tree plus digest-bound evidence manifest",
@@ -100,7 +100,7 @@
     "promotion_rule": "Only a clean exact-commit candidate with passing required CI, a verified internal package, resolved applicable review conditions, and no open blocker may progress beyond internal_candidate."
   },
   "release_control": {
-    "current_state": "internal_candidate",
+    "current_state": "internal_staging_verified",
     "release_tag": null,
     "controlled_external_archive_required": true,
     "authority_acceptance_required": true,
@@ -114,8 +114,6 @@
     ]
   },
   "open_items": [
-    "bind CM-DO178C-0005 to clean exact-commit cross-host evidence and independently verified package bytes",
-    "complete the affected native-manifest path-validation review against clean current Windows evidence",
     "approve a controlled external archive and retention/disposition authority",
     "approve any release-candidate or authority transition under the applicable certification basis"
   ],

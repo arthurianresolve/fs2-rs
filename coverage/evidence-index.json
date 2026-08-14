@@ -4,17 +4,17 @@
   "status": "draft",
   "owner": "fs2 DO-178C coverage workstream",
   "technical_baseline_id": "CM-DO178C-0004",
-  "archive_status": "internal_staging_pending",
+  "archive_status": "internal_staging_verified",
   "external_archive_uri": null,
   "assurance_package": {
-    "status": "pending_current_ci",
+    "status": "verified_internal_staging",
     "artifact_name": "assurance-evidence-package",
     "retention_days": 90,
-    "workflow_run_id": null,
-    "commit": null,
-    "tree": null,
-    "manifest_sha256": null,
-    "retrieval_result_sha256": null,
+    "workflow_run_id": "31774523702",
+    "commit": "f24c570bc9c302e4a5cb14cd580b7247f9888916",
+    "tree": "46db086cfdd538c498de4e1993d6af1805af0686",
+    "manifest_sha256": "1981909ab7ff23cf9cd4790ea59569d1c6e2aa52ad5267989cae9071291bfc0d",
+    "retrieval_result_sha256": "b22f2c89d3c173ecb1810293ace1a2c6f477ca32c22afdd2ec271fd3578493b1",
     "retrieval_record_ref": "coverage/archive-retrieval.json"
   },
   "runs": [
@@ -119,14 +119,14 @@
     }
   ],
   "open_items": [
-    "collect the exact-commit three-target object-analysis matrix and object-inclusive assurance package",
-    "retain matching primary and independent internal package-verification results",
-    "complete the affected native-fault validator review against clean current Windows evidence",
+    "review target-specific compiler output, archive members, symbols, sections, disassembly, generated code, and any applicable source/object or object-code coverage obligations",
+    "retain the candidate-specific native-fault review and repeat it when affected behavior, validators, or evidence change",
+    "retain the exact internal package and its primary plus independent verification results under the applicable lifecycle-data controls",
     "publish to and retrieve from an approved controlled external archive"
   ],
   "non_claims": [
     "The indexed CM-DO178C-0002 runs remain historical disposable internal evidence; CM-DO178C-0004 is the approved internal predecessor baseline and is not a release or authority baseline.",
-    "CM-DO178C-0005 has no current exact-commit evidence until the reviewed implementation is committed, pushed, and completed by the required CI matrix.",
+    "CM-DO178C-0005 now has exact-commit internal staging evidence from CI run 31774523702; it is not a release or authority baseline.",
     "Internal package staging and retrieval do not constitute controlled external archiving or release evidence."
   ]
 }

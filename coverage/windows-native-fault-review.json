@@ -29,17 +29,17 @@
     "common_mode_independence": "confirmed",
     "conflicts_of_interest": [],
     "same_identity_rationale": "The reviewer confirmed sufficient implementation, technical, expected-result, process or organizational, and common-mode independence for this candidate-specific internal review despite the shared arthurianresolve GitHub identity, and confirmed that no unresolved conflicts exist. This determination does not establish broader organizational independence or authority acceptance.",
-    "declaration_ref": "conversation-confirmation:IR-WINDOWS-NATIVE-FAULTS-001:2026-08-14T04:19:54Z",
-    "declared_at": "2026-08-14T04:19:54Z"
+    "declaration_ref": "conversation-confirmation:IR-WINDOWS-NATIVE-FAULTS-001:exact-commit-acceptance:2026-08-14T07:23:02Z",
+    "declared_at": "2026-08-14T07:23:02Z"
   },
   "candidate_baseline": {
     "repository": "arthurianresolve/fs2-rs",
     "branch": "DO-178C",
-    "preparation_parent_commit": "48ec3af6b807d9e70bd7d388baa8dbb1a3b69c40",
-    "reviewed_commit": "1508aa1b4249d20d27ad3e0239ace72e294e3bf6",
-    "reviewed_tree": "d7e4d97dd0d621227e7892722d40c68a3024c1b2",
-    "clean_native_fault_manifest_ref": "github-actions:run-31731799593/artifact-9193551574/windows-native-faults/windows-native-fault-manifest.json",
-    "clean_native_fault_manifest_sha256": "2c2f6a3af7fefcf210f56fa35d304c282c1289495a2e6f53ea7953970c0d4a04",
+    "preparation_parent_commit": "d1054422079406ba9e4d59805016d9c97a6b01ed",
+    "reviewed_commit": "f24c570bc9c302e4a5cb14cd580b7247f9888916",
+    "reviewed_tree": "46db086cfdd538c498de4e1993d6af1805af0686",
+    "clean_native_fault_manifest_ref": "github-actions:run-31774523702/artifact-9209372696/windows-native-faults/windows-native-fault-manifest.json",
+    "clean_native_fault_manifest_sha256": "d20ac47d3636d543a9ccbc8fea0b0af0fbbe5799908c43c28d42e12f1c6f5299",
     "application_verifier_manifest_ref": null,
     "application_verifier_required_for_approval": false,
     "state": "clean_candidate_bound"
@@ -87,11 +87,11 @@
     "status": "recorded",
     "outcome": "approve",
     "reviewer_login": "arthurianresolve",
-    "reviewed_commit": "1508aa1b4249d20d27ad3e0239ace72e294e3bf6",
-    "native_fault_manifest_sha256": "2c2f6a3af7fefcf210f56fa35d304c282c1289495a2e6f53ea7953970c0d4a04",
-    "attestation": "I independently reviewed candidate 1508aa1b4249d20d27ad3e0239ace72e294e3bf6 and native-fault manifest 2c2f6a3af7fefcf210f56fa35d304c282c1289495a2e6f53ea7953970c0d4a04. I confirm sufficient implementation, technical, expected-result, process or organizational, and common-mode independence for this internal review despite the shared GitHub identity; no unresolved conflicts exist; all ten review objectives pass. I approve the registered internal Windows native-fault condition only.",
-    "decision_ref": "conversation-confirmation:IR-WINDOWS-NATIVE-FAULTS-001:2026-08-14T04:19:54Z",
-    "decided_at": "2026-08-14T04:19:54Z"
+    "reviewed_commit": "f24c570bc9c302e4a5cb14cd580b7247f9888916",
+    "native_fault_manifest_sha256": "d20ac47d3636d543a9ccbc8fea0b0af0fbbe5799908c43c28d42e12f1c6f5299",
+    "attestation": "I independently reviewed exact candidate f24c570bc9c302e4a5cb14cd580b7247f9888916 from CI run 31774523702 and native-fault manifest d20ac47d3636d543a9ccbc8fea0b0af0fbbe5799908c43c28d42e12f1c6f5299. I confirm sufficient implementation, technical, expected-result, process or organizational, and common-mode independence for this internal review despite the shared GitHub identity; no unresolved conflicts exist; all ten review objectives pass. I approve the registered internal Windows native-fault condition only as exact-commit internal DAL B engineering evidence.",
+    "decision_ref": "conversation-confirmation:IR-WINDOWS-NATIVE-FAULTS-001:exact-commit-acceptance:2026-08-14T07:23:02Z",
+    "decided_at": "2026-08-14T07:23:02Z"
   },
   "closure_effect": {
     "gap_id": "GAP-WINDOWS-NATIVE-ERRORS",
@@ -101,7 +101,7 @@
     "remaining_conditions": []
   },
   "created_at": "2026-08-13T09:50:29Z",
-  "updated_at": "2026-08-14T04:19:54Z",
+  "updated_at": "2026-08-14T07:23:02Z",
   "non_claims": [
     "Reviewer assignment is not reviewer acceptance, an independence determination, or review approval.",
     "The shared GitHub identity was explicitly assessed for this candidate-specific internal review and does not establish broader organizational independence or authority acceptance.",

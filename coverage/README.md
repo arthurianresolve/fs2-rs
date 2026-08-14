@@ -265,10 +265,11 @@ all ten objectives passing and no findings.  It satisfies only the registered
 internal Windows native-fault review condition.
 
 The current candidate hardens artifact-path handling in the native-fault and
-Application Verifier validators.  That does not invalidate the historical
-scenario/expected-error decision, but the affected validator behavior and a
-new clean exact-commit Windows run still require the human reviewer's
-post-publication disposition.
+Application Verifier validators.  CI run `31774523702` provides the clean
+exact-commit Windows native-fault run, and the affected candidate-specific
+review disposition is recorded in `IR-WINDOWS-NATIVE-FAULTS-001`.  The
+validator gap remains open for future change-impact review and does not imply
+qualification or authority acceptance.
 
 If review findings change code, tests, collectors, validators, requirements,
 or assurance records, recompute the candidate digest and repeat the
@@ -291,15 +292,16 @@ this provenance is not eligible for the internal gate.
 The overall coverage package remains `draft`.  The internal
 requirements baseline and detailed tool-function assessment are complete for
 their explicitly non-certification scope, and DAL B is assigned internally.
-CM-DO178C-0004 is the approved predecessor bound to clean
-candidate `1508aa1`, passing 36-job CI run `31731799593`, and a downloaded,
-zero-discrepancy internal staging package.  The native-fault manifest for that
-candidate is bound, and its candidate-specific internal independent review is
-approved.  CM-DO178C-0005 is the registered pre-evidence candidate; its atomic
-publication is controlled by the human decision in `IND-DO178C-001`, while its
-exact commit/tree and clean CI bindings can only be recorded after publication.
-Its local Windows target-object trial is focused-only; the clean native
-three-host matrix and thirteen-artifact package remain post-push evidence.
+CM-DO178C-0004 remains the approved predecessor bound to clean candidate
+`1508aa1`, passing 36-job CI run `31731799593`, and its downloaded,
+zero-discrepancy internal staging package.  CM-DO178C-0005 is now bound to
+exact candidate `f24c570bc9c302e4a5cb14cd580b7247f9888916`, tree
+`46db086cfdd538c498de4e1993d6af1805af0686`, passing 39-job CI run
+`31774523702`, and the object-inclusive internal package
+`ASSURANCE-f24c570bc9c3-31774523702`.  The package contains the clean
+three-target inventory matrix and was accepted as exact-commit internal DAL B
+engineering evidence.  Target-specific object review remains open; the
+inventory does not establish source/object mapping or object-code coverage.
 
 The applicable controlled certification basis and its DAL B binding, any
 qualification/TQL determination, authority-approved independence, controlled

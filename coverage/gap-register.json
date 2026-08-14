@@ -128,11 +128,11 @@
       "id": "GAP-WINDOWS-NATIVE-ERRORS",
       "source_refs": ["src/windows.rs:68-95", "src/windows.rs:97-119", "src/windows.rs:123-142", "src/windows.rs:144-168", "src/windows.rs:223-237", "src/windows.rs:405-442", "src/windows/tests.rs:200-410", "tests/windows_appverifier.rs:1-89", "scripts/collect_windows_native_faults.py:1", "scripts/collect_windows_appverifier.py:1", "coverage/windows-native-faults.json:1", "coverage/windows-native-fault-review.json:1"],
       "classification": "native_failure_injection",
-      "observed_condition": "The technical harness covers deterministic result-adapter failures plus real Windows-returned access-denied, lock-contention, unavailable-volume, and invalid-handle outcomes across DuplicateHandle, allocation query/write, lock, and unlock boundaries. CI run 31731799593 passed on clean candidate 1508aa1b4249d20d27ad3e0239ace72e294e3bf6, and its Windows native-fault manifest is bound by SHA-256 in IR-WINDOWS-NATIVE-FAULTS-001. Application Verifier remains optional user-mode robustness depth. Driver Verifier remains inapplicable because this repository contains no kernel-mode driver. IR-WINDOWS-NATIVE-FAULTS-001 approved the candidate-specific internal review condition with all ten objectives passing and no findings.",
+      "observed_condition": "The technical harness covers deterministic result-adapter failures plus real Windows-returned access-denied, lock-contention, unavailable-volume, and invalid-handle outcomes across DuplicateHandle, allocation query/write, lock, and unlock boundaries. CI run 31774523702 passed on exact candidate f24c570bc9c302e4a5cb14cd580b7247f9888916, and its Windows native-fault manifest is bound by SHA-256 in IR-WINDOWS-NATIVE-FAULTS-001. Application Verifier remains optional user-mode robustness depth. Driver Verifier remains inapplicable because this repository contains no kernel-mode driver. IR-WINDOWS-NATIVE-FAULTS-001 approved the current candidate-specific internal review condition with all ten objectives passing and no findings.",
       "required_action": "Retain the approved review record and bound native-fault evidence. Repeat the candidate-specific review when a change affects Windows production code, native-fault tests or requirements, collector behavior, native-manifest validation, scenario or expected-error records, or the bound review evidence; otherwise retain an explicit impact determination and rerun the exact-commit native matrix.",
       "status": "closed",
       "credit": "none",
-      "closure_basis": "IR-WINDOWS-NATIVE-FAULTS-001 approved exact candidate 1508aa1b4249d20d27ad3e0239ace72e294e3bf6 against native-fault manifest SHA-256 2c2f6a3af7fefcf210f56fa35d304c282c1289495a2e6f53ea7953970c0d4a04 with all ten checks passing, no findings, and an accepted independence declaration for this internal review condition."
+      "closure_basis": "IR-WINDOWS-NATIVE-FAULTS-001 approved exact candidate f24c570bc9c302e4a5cb14cd580b7247f9888916 against native-fault manifest SHA-256 d20ac47d3636d543a9ccbc8fea0b0af0fbbe5799908c43c28d42e12f1c6f5299 with all ten checks passing, no findings, and an accepted independence declaration for this internal review condition."
     },
     {
       "id": "GAP-WINDOWS-NATIVE-ADAPTERS",
@@ -148,8 +148,8 @@
       "id": "GAP-WINDOWS-NATIVE-VALIDATOR-REVALIDATION",
       "source_refs": ["scripts/validate_coverage.py:1", "coverage/configuration-management.json:1", "coverage/independence-plan.json:1", ".github/workflows/ci.yml:1"],
       "classification": "native_evidence_validator_change",
-      "observed_condition": "The historical Windows scenario and expected-error review remains approved for candidate 1508aa1, but the current candidate hardens native-fault and Application Verifier manifest/artifact path handling. The changed validator has local negative-test evidence but no clean exact-commit Windows run or human disposition for the affected validation behavior.",
-      "required_action": "After publication, inspect the clean exact-commit Windows native-fault manifest and the hardened path-validation behavior. Record the human reviewer disposition before accepting the current candidate's native evidence; repeat broader scenario review only if results or registered behavior differ.",
+      "observed_condition": "The current candidate hardens native-fault and Application Verifier manifest/artifact path handling. CI run 31774523702 provides clean exact-commit Windows evidence, and IR-WINDOWS-NATIVE-FAULTS-001 records the candidate-specific human disposition. This gap remains open for the next broader change-impact review because the current record does not establish validator qualification or authority acceptance.",
+      "required_action": "Retain the exact-commit disposition and, on any subsequent change to native-fault or Application Verifier validators, collector behavior, registered scenarios, or review evidence, repeat the affected negative tests, clean exact-commit run, and candidate-specific review before rebinding evidence.",
       "status": "open",
       "credit": "none"
     },
@@ -197,8 +197,8 @@
       "id": "GAP-TARGET-OBJECT-ANALYSIS",
       "source_refs": ["coverage/object-analysis.json:1", "coverage/object-analysis-run.schema.json:1", "scripts/collect_object_analysis.py:1", "scripts/validate_object_analysis.py:1", ".github/workflows/ci.yml:1"],
       "classification": "target_object_analysis",
-      "observed_condition": "The three-target collector, fail-closed manifest validator, CI matrix, and archive bindings are implemented. A dirty local Windows COFF trial passed every native tool invocation, but no clean exact-commit Linux ELF, macOS Mach-O, and Windows COFF candidate set exists yet.",
-      "required_action": "After implementation approval and publication, collect all three clean native inventories and review compiler output, archive members, symbols, sections, disassembly, generated code, and any source/object or object-code coverage obligations from the applicable basis.",
+      "observed_condition": "The three-target collector, fail-closed manifest validator, CI matrix, and archive bindings are implemented. CI run 31774523702 produced clean exact-commit Linux ELF, macOS Mach-O, and Windows COFF inventories with passing native tool exits; the records remain inventory-only and the target-specific review is still pending.",
+      "required_action": "Review compiler output, archive members, symbols, sections, disassembly, generated code, and any source/object or object-code coverage obligations from the applicable basis before assigning source/object or object-code assurance significance.",
       "status": "open",
       "credit": "none"
     },
@@ -206,8 +206,8 @@
       "id": "GAP-CONFIGURATION-MANAGEMENT",
       "source_refs": ["coverage/configuration-management.json:1", ".github/workflows/ci.yml:1"],
       "classification": "configuration_management",
-      "observed_condition": "CM-DO178C-0004 is the immutable approved internal predecessor. CM-DO178C-0005 registers the additive object, archive, reference, DAL B assignment, and independence changes as a pre-evidence candidate. Its implementation-approval state is controlled exclusively by IND-DO178C-001 and is not inferred by this gap record.",
-      "required_action": "Satisfy the IND-DO178C-001 publication gate, publish one approved atomic commit, then bind the candidate to its exact tree, full required CI run, object-inclusive package, and primary plus independent retrieval results.",
+      "observed_condition": "CM-DO178C-0004 remains the immutable approved internal predecessor. CM-DO178C-0005 is now bound to exact candidate f24c570bc9c302e4a5cb14cd580b7247f9888916, tree 46db086cfdd538c498de4e1993d6af1805af0686, CI run 31774523702, and the zero-discrepancy internal package and retrieval result. Its promotion remains limited to internal staging.",
+      "required_action": "Retain the immutable candidate binding, resolve the open target-object and lifecycle-data controls, and obtain any required release or authority decisions before promotion beyond internal staging.",
       "status": "open",
       "credit": "none"
     },
@@ -215,10 +215,11 @@
       "id": "GAP-INTERNAL-ARCHIVE-RETRIEVAL",
       "source_refs": ["coverage/archive-control.json:1", "coverage/archive-retrieval.json:1", "scripts/assurance_archive.py:1", "scripts/independent_archive_verify.py:1", "scripts/test_assurance_archive.py:1", "scripts/test_independent_archive_verify.py:1", ".github/workflows/ci.yml:1"],
       "classification": "internal_lifecycle_data_staging",
-      "observed_condition": "The predecessor package remains preserved. The new package contract adds three target-object artifacts and a separately implemented verifier using a host-native SHA-256 utility, so predecessor retrieval results cannot satisfy the changed inventory.",
-      "required_action": "Create and retrieve the exact CM-DO178C-0005 package, require matching primary and independent results, retain both results, and keep external archive retrieval as a separate open gap.",
-      "status": "open",
-      "credit": "none"
+      "observed_condition": "The exact CM-DO178C-0005 package was created by CI run 31774523702, downloaded without modification, and verified with zero discrepancies by the packaged primary verifier, the CI independent verifier, and a supplemental WSL sha256sum verifier. The package contains 694 files and its manifest SHA-256 is 1981909ab7ff23cf9cd4790ea59569d1c6e2aa52ad5267989cae9071291bfc0d.",
+      "required_action": "Retain the exact package and matching verification results under the applicable internal staging controls; keep controlled external archive retrieval as a separate open gap.",
+      "status": "closed",
+      "credit": "none",
+      "closure_basis": "coverage/archive-retrieval.json and coverage/retrieval-results/ASSURANCE-f24c570bc9c3-31774523702.json bind the exact package, commit, tree, workflow run, manifest digest, file count, byte count, and zero-discrepancy primary result; the matching CI independent result and supplemental WSL verification are retained as local evidence."
     },
     {
       "id": "GAP-EXTERNAL-ARCHIVE",
