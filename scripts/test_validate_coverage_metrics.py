@@ -68,10 +68,29 @@ class CoverageMetricTests(unittest.TestCase):
             "fixture",
         )
 
+    def test_stable_profile_requires_rust_1971_and_llvm_2216(self):
+        manifest = self.manifest("stable", "x86_64-unknown-linux-gnu", "1.97.1")
+        manifest["command"] = ["cargo", "+1.97.1", "llvm-cov"]
+        manifest["environment"] = {}
+        manifest["resolved_toolchain"] = (
+            "rustc 1.97.1\nrelease: 1.97.1\nLLVM version: 22.1.6"
+        )
+        validate_profile_configuration(manifest)
+
+    def test_stable_profile_rejects_old_llvm_provenance(self):
+        manifest = self.manifest("stable", "x86_64-unknown-linux-gnu", "1.97.1")
+        manifest["command"] = ["cargo", "+1.97.1", "llvm-cov"]
+        manifest["environment"] = {}
+        manifest["resolved_toolchain"] = (
+            "rustc 1.97.1\nrelease: 1.97.1\nLLVM version: 20.1.5"
+        )
+        with self.assertRaises(ValidationError):
+            validate_profile_configuration(manifest)
+
     def test_accepts_complete_consistent_matrix(self):
         expected = {
-            ("stable", "x86_64-unknown-linux-gnu"): "1.88",
-            ("branch", "x86_64-unknown-linux-gnu"): "nightly-2026-07-23",
+            ("stable", "x86_64-unknown-linux-gnu"): "1.97.1",
+            ("branch", "x86_64-unknown-linux-gnu"): "nightly-2026-08-14",
         }
         manifests = [
             self.manifest(profile, target, toolchain)
@@ -81,32 +100,32 @@ class CoverageMetricTests(unittest.TestCase):
 
     def test_rejects_incomplete_matrix(self):
         expected = {
-            ("stable", "x86_64-unknown-linux-gnu"): "1.88",
-            ("branch", "x86_64-unknown-linux-gnu"): "nightly-2026-07-23",
+            ("stable", "x86_64-unknown-linux-gnu"): "1.97.1",
+            ("branch", "x86_64-unknown-linux-gnu"): "nightly-2026-08-14",
         }
         with self.assertRaises(ValidationError):
-            validate_matrix_runs([self.manifest("stable", "x86_64-unknown-linux-gnu", "1.88")], expected)
+            validate_matrix_runs([self.manifest("stable", "x86_64-unknown-linux-gnu", "1.97.1")], expected)
 
     def test_rejects_mixed_provenance(self):
         expected = {
-            ("stable", "x86_64-unknown-linux-gnu"): "1.88",
-            ("branch", "x86_64-unknown-linux-gnu"): "nightly-2026-07-23",
+            ("stable", "x86_64-unknown-linux-gnu"): "1.97.1",
+            ("branch", "x86_64-unknown-linux-gnu"): "nightly-2026-08-14",
         }
         manifests = [
-            self.manifest("stable", "x86_64-unknown-linux-gnu", "1.88"),
-            self.manifest("branch", "x86_64-unknown-linux-gnu", "nightly-2026-07-23", tree="d" * 40),
+            self.manifest("stable", "x86_64-unknown-linux-gnu", "1.97.1"),
+            self.manifest("branch", "x86_64-unknown-linux-gnu", "nightly-2026-08-14", tree="d" * 40),
         ]
         with self.assertRaises(ValidationError):
             validate_matrix_runs(manifests, expected)
 
     def test_accepts_condition_instrumentation_contract(self):
-        manifest = self.manifest("condition", "x86_64-unknown-linux-gnu", "nightly-2026-07-23")
+        manifest = self.manifest("condition", "x86_64-unknown-linux-gnu", "nightly-2026-08-14")
         manifest["command"] = ["cargo", "llvm-cov", "--branch"]
         manifest["environment"] = {"RUSTFLAGS": "-Z coverage-options=condition"}
         validate_profile_configuration(manifest)
 
     def test_rejects_condition_profile_without_instrumentation_flag(self):
-        manifest = self.manifest("condition", "x86_64-unknown-linux-gnu", "nightly-2026-07-23")
+        manifest = self.manifest("condition", "x86_64-unknown-linux-gnu", "nightly-2026-08-14")
         manifest["command"] = ["cargo", "llvm-cov", "--branch"]
         manifest["environment"] = {}
         with self.assertRaises(ValidationError):

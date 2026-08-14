@@ -13,6 +13,7 @@ from assurance_archive import (  # noqa: E402
     create_archive,
     filesystem_path,
     read_json,
+    required_artifacts,
     verify_archive,
     write_json,
 )
@@ -305,6 +306,20 @@ class AssuranceArchiveTests(unittest.TestCase):
         self.assertEqual(result["status"], "pass")
         if os.name == "nt":
             self.assertGreater(len(os.path.abspath(path)), 260)
+
+    def test_accepts_semantic_source_object_artifact_kind(self):
+        control = read_json(self.control_path)
+        control["internal_staging"]["required_artifacts"]["semantic-source-object-linux"] = {
+            "manifest": "semantic-source-object-manifest.json",
+            "kind": "semantic_source_object",
+            "profile": None,
+            "target": "x86_64-unknown-linux-gnu",
+        }
+        normalized = required_artifacts(control)
+        self.assertEqual(
+            normalized["semantic-source-object-linux"]["kind"],
+            "semantic_source_object",
+        )
 
 
 if __name__ == "__main__":

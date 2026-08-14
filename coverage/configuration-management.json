@@ -83,7 +83,7 @@
       "supported Rust and coverage CI matrix",
       "new exact-commit Windows native-fault run and affected path-validation review",
       "clean native Linux, macOS, and Windows target-object inventory matrix",
-      "clean native Linux, macOS, and Windows source-object map artifacts with generated-code disposition",
+      "clean native Linux, macOS, and Windows semantic source-object companion artifacts with generated-code disposition",
       "new exact-commit object-inclusive assurance package and internal retrieval drill",
       "independent archive-integrity verification with a host-native digest utility",
       "human implementation review under IND-DO178C-001"

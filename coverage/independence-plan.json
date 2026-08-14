@@ -48,19 +48,19 @@
     "assessed_at": "2026-08-14T04:58:08Z"
   },
   "review_gate": {
-    "status": "approved_for_atomic_publication",
+    "status": "awaiting_implementation_review",
     "preparation_parent_commit": "d1054422079406ba9e4d59805016d9c97a6b01ed",
     "digest_algorithm": "sha256-canonical-review-scope-v1",
-    "candidate_change_digest": "dd0d6ca8c88a23f6049c7b2be6af1c13034a1ad8da9ca613919d9ba52178143f",
+    "candidate_change_digest": "65ded83cf4aaf7e44b76b1ff36ea4ebab9246d2242f4e8ec85f1d785c5eae8d7",
     "mechanical_review_markers": [
       "coverage/tool-assessment.json#TOOL-F-001",
       "coverage/tool-assessment.json#TOOL-F-003",
       "coverage/tool-assessment.json#TOOL-F-004",
       "coverage/tool-assessment.json#TOOL-F-005"
     ],
-    "decision": "approve",
-    "decision_ref": "conversation-confirmation:IND-DO178C-001-implementation-review:2026-08-14T05:31:55Z",
-    "decided_at": "2026-08-14T05:31:55Z"
+    "decision": null,
+    "decision_ref": null,
+    "decided_at": null
   },
   "limitations": [
     "The human identity and organizational role are self-attested and not externally identity-proofed.",

@@ -34,7 +34,8 @@ EXPECTED_PROFILE_METRICS = {
     "branch": ("branch",),
     "condition": ("condition_diagnostic",),
 }
-BRANCH_TOOLCHAIN = "nightly-2026-07-23"
+BRANCH_TOOLCHAIN = "nightly-2026-08-14"
+EVIDENCE_TOOLCHAIN = "1.97.1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -274,20 +275,20 @@ def package_rust_version() -> str:
 
 
 def validate_toolchain_policy(registry: SupportRegistry, rust_version: str) -> None:
-    if registry.coverage_profiles["stable"].requested_toolchain != rust_version:
+    if registry.coverage_profiles["stable"].requested_toolchain != EVIDENCE_TOOLCHAIN:
         fail(
-            "stable coverage profile must use the package rust-version "
-            f"{rust_version}"
+            "stable coverage profile must use the evidence toolchain "
+            f"{EVIDENCE_TOOLCHAIN}"
         )
     for target in registry.targets:
         if target.ci is None:
             continue
         toolchains = list(target.ci.toolchains)
-        if target.evidence == "runtime" and toolchains != [rust_version, "stable"]:
+        if target.evidence == "runtime" and toolchains != [rust_version, EVIDENCE_TOOLCHAIN]:
             fail(
-                f"runtime target {target.target} must use Rust {rust_version} and stable"
+                f"runtime target {target.target} must use MSRV Rust {rust_version} and evidence Rust {EVIDENCE_TOOLCHAIN}"
             )
-        if target.evidence == "compile" and toolchains not in ([rust_version], ["nightly"]):
+        if target.evidence == "compile" and toolchains not in ([rust_version], [BRANCH_TOOLCHAIN]):
             fail(f"compile target {target.target} must use Rust {rust_version} or nightly")
 
 
@@ -505,7 +506,7 @@ def validate_coverage_workflow(jobs: dict) -> None:
 
 
 def validate_object_analysis_workflow(jobs: dict) -> None:
-    """Require clean native object inventories and package their exact outputs."""
+    """Require clean native object and semantic companions with exact outputs."""
     job = jobs.get(OBJECT_ANALYSIS_JOB_NAME)
     if not isinstance(job, dict):
         fail("object_analysis job is missing")
@@ -550,6 +551,22 @@ def validate_object_analysis_workflow(jobs: dict) -> None:
         for command in commands
     ):
         fail("object_analysis must fail closed on its retained manifest")
+    if not any(
+        "python scripts/collect_semantic_source_object.py" in command
+        and "--target ${{ matrix.target }}" in command
+        and "--expected-commit" in command
+        and "--locked" in command
+        for command in commands
+    ):
+        fail("object_analysis must collect exact-commit semantic companion evidence")
+    if not any(
+        "python scripts/validate_semantic_source_object.py" in command
+        and "--manifest" in command
+        and "--expected-commit" in command
+        and "--require-pass" in command
+        for command in commands
+    ):
+        fail("object_analysis must fail closed on its semantic companion manifest")
     uploads = [
         step
         for step in steps
@@ -557,14 +574,16 @@ def validate_object_analysis_workflow(jobs: dict) -> None:
         and isinstance(step.get("uses"), str)
         and "actions/upload-artifact@" in step["uses"]
     ]
-    if len(uploads) != 1:
-        fail("object_analysis must upload exactly one artifact")
-    upload = uploads[0].get("with", {})
-    if (
-        upload.get("name") != "object-analysis-${{ matrix.target }}"
-        or upload.get("path") != "target/object-analysis-${{ matrix.target }}"
-        or upload.get("if-no-files-found") != "error"
-    ):
+    if len(uploads) != 2:
+        fail("object_analysis must upload exactly two evidence artifacts")
+    upload_specs = [upload.get("with", {}) for upload in uploads]
+    if {
+        (upload.get("name"), upload.get("path"), upload.get("if-no-files-found"))
+        for upload in upload_specs
+    } != {
+        ("object-analysis-${{ matrix.target }}", "target/object-analysis-${{ matrix.target }}", "error"),
+        ("semantic-source-object-${{ matrix.target }}", "target/semantic-source-object-${{ matrix.target }}", "error"),
+    }:
         fail("object_analysis artifact retention settings are incomplete")
 
     package = jobs.get("assurance-package")
@@ -586,6 +605,15 @@ def validate_object_analysis_workflow(jobs: dict) -> None:
     ]
     if len(object_downloads) != 1:
         fail("assurance-package must download the complete object-analysis matrix")
+    semantic_downloads = [
+        step
+        for step in package_steps
+        if isinstance(step, dict)
+        and step.get("with", {}).get("pattern") == "semantic-source-object-*"
+        and step.get("with", {}).get("path") == "target/assurance-inputs"
+    ]
+    if len(semantic_downloads) != 1:
+        fail("assurance-package must download the complete semantic source-object matrix")
     package_commands = [
         step.get("run", "")
         for step in package_steps

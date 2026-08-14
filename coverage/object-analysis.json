@@ -11,14 +11,15 @@
     "selection_basis": "native_runtime_coverage_matrix",
     "crate": "fs2",
     "profile": "release",
-    "requested_toolchain": "1.88",
+    "requested_toolchain": "1.97.1",
     "source_inventory_ref": "coverage/surface.json",
     "targets": [
       {"target": "x86_64-unknown-linux-gnu", "runner": "ubuntu-latest", "platform_family": "unix", "object_format": "ELF"},
       {"target": "aarch64-apple-darwin", "runner": "macos-latest", "platform_family": "unix", "object_format": "Mach-O"},
       {"target": "x86_64-pc-windows-msvc", "runner": "windows-latest", "platform_family": "windows", "object_format": "COFF"}
     ],
-    "retained_outputs": ["rlib", "archive_members", "defined_symbols", "sections_and_symbols", "disassembly", "source_object_map"],
+    "retained_outputs": ["rlib", "archive_members", "defined_symbols", "sections_and_symbols", "disassembly", "source_object_map", "semantic_source_object_companion"],
+    "semantic_analysis_ref": "coverage/semantic-source-object.json",
     "source_object_mapping_status": "module_symbol_inventory_only",
     "generated_code_disposition": "reviewed_internal_compiler_generated_not_credited"
   },
@@ -39,12 +40,12 @@
   "open_items": [
     "retain the clean exact-commit object inventories for all three registered native targets under the internal evidence package",
     "retain the module-level symbol-to-source reconciliation and repeat it from clean exact-commit output when the compiler, target, source inventory, object-analysis tooling, or evidence configuration changes",
-    "perform semantic source/object reconciliation and object-code structural coverage when required by the applicable controlled basis"
+    "retain the semantic source-object companion and its bounded production non-debug object-byte equality from a clean exact-commit native matrix, then review target-specific observations; it remains diagnostic until the applicable controlled basis decides whether complete production-byte mapping or executed object-code structural coverage is required"
   ],
   "non_claims": [
     "The inventory does not establish source-to-object traceability or source/object equivalence.",
     "Disassembly and symbol presence do not establish object-code structural coverage or MC/DC.",
     "The compiler and LLVM tools are not qualified, and this record grants no certification credit or authority acceptance.",
-    "The reviewed_internal disposition includes only module-level symbol-to-source inventory and generated-code non-credit disposition; it does not close semantic source/object mapping or object-code coverage follow-on items."
+    "The reviewed_internal disposition covers the historical module-level inventory only; the separate semantic companion adds bounded non-debug object-byte equality but remains diagnostic, not complete production-byte source/object equivalence or object-code coverage."
   ]
 }

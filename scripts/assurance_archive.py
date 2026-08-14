@@ -145,7 +145,7 @@ def required_artifacts(control_record: dict[str, Any]) -> dict[str, dict[str, An
         if kind == "coverage":
             if profile not in {"stable", "branch", "condition"}:
                 fail(f"required artifact {name} has an invalid coverage profile")
-        elif kind in {"windows_native_fault", "object_analysis"}:
+        elif kind in {"windows_native_fault", "object_analysis", "semantic_source_object"}:
             if profile is not None:
                 fail(f"required artifact {name} must not define a coverage profile")
         else:
@@ -198,6 +198,13 @@ def validate_source_manifest(
             or manifest.get("schema_version") != 1
         ):
             fail(f"{path} has the wrong Windows native-fault identity")
+    elif spec["kind"] == "semantic_source_object":
+        if (
+            manifest.get("record_type") != "semantic_source_object_run"
+            or manifest.get("schema_version") != 1
+            or manifest.get("profile") != "release"
+        ):
+            fail(f"{path} has the wrong semantic source/object identity")
     elif (
         manifest.get("record_type") != "object_analysis_run"
         or manifest.get("schema_version") != 1
@@ -536,7 +543,7 @@ def verify_archive(
         if record["kind"] == "coverage":
             if record["profile"] not in {"stable", "branch", "condition"}:
                 fail(f"{label}.profile is invalid")
-        elif record["kind"] in {"windows_native_fault", "object_analysis"}:
+        elif record["kind"] in {"windows_native_fault", "object_analysis", "semantic_source_object"}:
             if record["profile"] is not None:
                 fail(f"{label}.profile must be null")
         else:

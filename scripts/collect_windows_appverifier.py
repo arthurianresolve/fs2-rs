@@ -33,7 +33,7 @@ from collect_coverage import (
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGET = "x86_64-pc-windows-msvc"
-TOOLCHAIN = "1.88"
+TOOLCHAIN = "1.97.1"
 TEST_TARGET = "windows_appverifier"
 TEST_ID = "appverifier_file_fault_is_observed"
 MARKER = "FS2_APPVERIFIER_PROBE_JSON="

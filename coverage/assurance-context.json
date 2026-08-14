@@ -30,7 +30,7 @@
     "bind the determined DAL B software level to the applicable controlled certification basis",
     "decide any future certification use of each tool function and whether qualification is required",
     "approve the controlled external archive, retention, disposition, and authority-level independence controls",
-    "retain the approved target-object review and module-level reconciliation, then decide any required semantic source/object, generated-code, or object-code coverage follow-on",
+    "retain the approved target-object review, module-level reconciliation, and the separate semantic companion with bounded production non-debug object-byte comparison; review target applicability and decide any required complete source/object, generated-code, or object-code coverage follow-on",
     "review the hardened native-fault and Application Verifier artifact-path validation against clean exact-commit evidence"
   ]
 }

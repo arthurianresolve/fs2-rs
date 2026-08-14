@@ -22,6 +22,8 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 COVERAGE = ROOT / "coverage"
+EVIDENCE_TOOLCHAIN = "1.97.1"
+EVIDENCE_LLVM_VERSION = "22.1.6"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 SPAN_RE = re.compile(r"^(\d+)-(\d+)$")
@@ -45,6 +47,8 @@ REQUIRED_RECORDS = (
     "software-level-assignment.json",
     "object-analysis.json",
     "object-analysis-run.schema.json",
+    "semantic-source-object.json",
+    "semantic-source-object-run.schema.json",
     "source-object-reconciliation.json",
     "verification-inventory.json",
     "mcdc.json",
@@ -1341,6 +1345,9 @@ def validate_archive_control(record: dict[str, Any]) -> None:
         "object-analysis-aarch64-apple-darwin": {"manifest": "object-analysis-manifest.json", "kind": "object_analysis", "profile": None, "target": "aarch64-apple-darwin"},
         "object-analysis-x86_64-pc-windows-msvc": {"manifest": "object-analysis-manifest.json", "kind": "object_analysis", "profile": None, "target": "x86_64-pc-windows-msvc"},
         "object-analysis-x86_64-unknown-linux-gnu": {"manifest": "object-analysis-manifest.json", "kind": "object_analysis", "profile": None, "target": "x86_64-unknown-linux-gnu"},
+        "semantic-source-object-aarch64-apple-darwin": {"manifest": "semantic-source-object-manifest.json", "kind": "semantic_source_object", "profile": None, "target": "aarch64-apple-darwin"},
+        "semantic-source-object-x86_64-pc-windows-msvc": {"manifest": "semantic-source-object-manifest.json", "kind": "semantic_source_object", "profile": None, "target": "x86_64-pc-windows-msvc"},
+        "semantic-source-object-x86_64-unknown-linux-gnu": {"manifest": "semantic-source-object-manifest.json", "kind": "semantic_source_object", "profile": None, "target": "x86_64-unknown-linux-gnu"},
         "windows-native-faults": {"manifest": "windows-native-fault-manifest.json", "kind": "windows_native_fault", "profile": None, "target": "x86_64-pc-windows-msvc"},
     }
     artifacts = staging["required_artifacts"]
@@ -2145,7 +2152,7 @@ APPVERIFIER_MANIFEST_FIELDS = {
 
 NATIVE_FAULT_COMMAND = [
     "cargo",
-    "+1.88",
+    f"+{EVIDENCE_TOOLCHAIN}",
     "test",
     "--package",
     "fs2",
@@ -2826,9 +2833,14 @@ def validate_windows_native_fault_manifest(
     validate_created_utc(manifest["created_utc"], f"{label}.created_utc")
     if manifest["target"] != "x86_64-pc-windows-msvc" or manifest["test_id"] != "windows::test::records_os_mediated_native_failures":
         fail(f"{label} has the wrong target or test identity")
-    if manifest["requested_toolchain"] != "1.88":
-        fail(f"{label}.requested_toolchain must remain pinned to 1.88")
-    if not isinstance(manifest["resolved_toolchain"], str) or "host: x86_64-pc-windows-msvc" not in manifest["resolved_toolchain"]:
+    if manifest["requested_toolchain"] != EVIDENCE_TOOLCHAIN:
+        fail(f"{label}.requested_toolchain must remain pinned to {EVIDENCE_TOOLCHAIN}")
+    if (
+        not isinstance(manifest["resolved_toolchain"], str)
+        or "host: x86_64-pc-windows-msvc" not in manifest["resolved_toolchain"]
+        or f"release: {EVIDENCE_TOOLCHAIN}" not in manifest["resolved_toolchain"]
+        or f"LLVM version: {EVIDENCE_LLVM_VERSION}" not in manifest["resolved_toolchain"]
+    ):
         fail(f"{label}.resolved_toolchain does not identify the native compiler host")
     if manifest["review_status"] != "independent_review_pending":
         fail(f"{label} cannot claim independent review")
@@ -2918,9 +2930,14 @@ def validate_windows_appverifier_manifest(
     validate_created_utc(manifest["created_utc"], f"{label}.created_utc")
     if manifest["target"] != "x86_64-pc-windows-msvc":
         fail(f"{label}.target is invalid")
-    if manifest["requested_toolchain"] != "1.88":
-        fail(f"{label}.requested_toolchain must remain pinned to 1.88")
-    if not isinstance(manifest["resolved_toolchain"], str) or "host: x86_64-pc-windows-msvc" not in manifest["resolved_toolchain"]:
+    if manifest["requested_toolchain"] != EVIDENCE_TOOLCHAIN:
+        fail(f"{label}.requested_toolchain must remain pinned to {EVIDENCE_TOOLCHAIN}")
+    if (
+        not isinstance(manifest["resolved_toolchain"], str)
+        or "host: x86_64-pc-windows-msvc" not in manifest["resolved_toolchain"]
+        or f"release: {EVIDENCE_TOOLCHAIN}" not in manifest["resolved_toolchain"]
+        or f"LLVM version: {EVIDENCE_LLVM_VERSION}" not in manifest["resolved_toolchain"]
+    ):
         fail(f"{label}.resolved_toolchain does not identify the native compiler host")
     if manifest["review_status"] != "independent_review_pending":
         fail(f"{label} cannot claim independent review")
@@ -2966,7 +2983,7 @@ def validate_windows_appverifier_manifest(
         fail(f"{label}.commands must retain the complete AppVerifier procedure")
     expected_build = [
         "cargo",
-        "+1.88",
+        f"+{EVIDENCE_TOOLCHAIN}",
         "test",
         "--package",
         "fs2",
@@ -3247,6 +3264,8 @@ def validate_static_records() -> None:
     )
     from validate_object_analysis import validate_control as validate_object_control
     from validate_object_analysis import validate_schema as validate_object_schema
+    from validate_semantic_source_object import validate_control as validate_semantic_control
+    from validate_semantic_source_object import validate_schema as validate_semantic_schema
     from validate_source_object_reconciliation import validate_record as validate_source_object_reconciliation
 
     validate_endpoint_schema(records["external-archive-endpoint.schema.json"])
@@ -3255,6 +3274,8 @@ def validate_static_records() -> None:
     validate_independence_plan(records["independence-plan.json"])
     validate_object_control(records["object-analysis.json"])
     validate_object_schema(records["object-analysis-run.schema.json"])
+    validate_semantic_control(records["semantic-source-object.json"])
+    validate_semantic_schema(records["semantic-source-object-run.schema.json"])
     validate_source_object_reconciliation(records["source-object-reconciliation.json"])
     expected_review_status = validate_windows_native_fault_review(
         records["windows-native-fault-review.json"]

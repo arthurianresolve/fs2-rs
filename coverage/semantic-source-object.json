@@ -1,0 +1,44 @@
+{
+  "record_type": "semantic_source_object_control",
+  "schema_version": 1,
+  "status": "assessment_open",
+  "owner": "fs2 DO-178C coverage workstream",
+  "assurance_context": "internal_assurance",
+  "software_level": "DAL_B",
+  "credit": "none",
+  "strategy": {
+    "status": "implemented_internal_companion_with_production_non_debug_equivalence",
+    "selection_basis": "target_object_analysis_follow_on",
+    "crate": "fs2",
+    "profile": "release",
+    "requested_toolchain": "1.97.1",
+    "source_inventory_ref": "coverage/surface.json",
+    "mapping_method": "rustc_mir_llvm_debug_location_source_inventory_bridge_v1",
+    "mapping_scope": "companion_release_debuginfo_mir_llvm_object_with_production_non_debug_object_equivalence",
+    "targets": [
+      {"target": "x86_64-unknown-linux-gnu", "runner": "ubuntu-latest", "platform_family": "unix", "object_format": "ELF"},
+      {"target": "aarch64-apple-darwin", "runner": "macos-latest", "platform_family": "unix", "object_format": "Mach-O"},
+      {"target": "x86_64-pc-windows-msvc", "runner": "windows-latest", "platform_family": "windows", "object_format": "COFF"}
+    ],
+    "retained_outputs": ["production_object", "production_non_debug_object", "mir", "llvm_ir", "debug_info_object", "companion_non_debug_object", "object_structure", "disassembly", "semantic_source_object_map", "production_byte_equivalence"],
+    "production_object_binding": "production_non_debug_object_bytes_equal",
+    "generated_code_disposition": "reviewed_internal_compiler_generated_not_credited"
+  },
+  "review": {
+    "status": "pending_user_review",
+    "reviewer": null,
+    "reviewed_commit": null,
+    "evidence_refs": []
+  },
+  "open_items": [
+    "execute and retain the clean exact-commit native companion for all three registered targets",
+    "review target-specific MIR, LLVM debug-location, object, generated-code, and cfg applicability observations",
+    "decide under the applicable controlled basis whether bounded non-debug object-byte equality is sufficient or whether complete source/object mapping or executed object-code structural coverage is required",
+    "obtain any required independent review before using the companion for an assurance decision"
+  ],
+  "non_claims": [
+    "The byte comparison is limited to the direct release object files after llvm-objcopy --strip-debug; it does not establish full rlib/archive identity or source/object equivalence.",
+    "MIR, LLVM debug locations, and disassembly are diagnostic evidence; they do not establish complete source/object equivalence or statement/basic-block correspondence.",
+    "The companion does not provide executed object-code structural coverage or MC/DC, and it grants no tool qualification, certification credit, or authority acceptance."
+  ]
+}

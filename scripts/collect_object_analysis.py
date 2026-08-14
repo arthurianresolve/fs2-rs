@@ -30,7 +30,7 @@ from validate_source_object_reconciliation import build_source_object_map
 
 REPOSITORY = "arthurianresolve/fs2-rs"
 BRANCH = "DO-178C"
-TOOLCHAIN = "1.88"
+TOOLCHAIN = "1.97.1"
 
 
 class CollectionError(Exception):

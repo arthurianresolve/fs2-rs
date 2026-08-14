@@ -29,7 +29,7 @@ from collect_coverage import (
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGET = "x86_64-pc-windows-msvc"
-TOOLCHAIN = "1.88"
+TOOLCHAIN = "1.97.1"
 TEST_ID = "windows::test::records_os_mediated_native_failures"
 EVIDENCE_FILE = "windows-native-faults.json"
 MANIFEST_FILE = "windows-native-fault-manifest.json"

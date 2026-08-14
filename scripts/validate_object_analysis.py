@@ -24,6 +24,8 @@ SCHEMA_PATH = ROOT / "coverage" / "object-analysis-run.schema.json"
 SURFACE_PATH = ROOT / "coverage" / "surface.json"
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+TOOLCHAIN = "1.97.1"
+LLVM_VERSION = "22.1.6"
 RUN_STATUSES = {"pass", "fail", "indeterminate", "provenance_error", "focused_only"}
 TARGETS = {
     "x86_64-unknown-linux-gnu": {
@@ -65,6 +67,18 @@ class ObjectAnalysisError(Exception):
 
 def fail(message: str) -> None:
     raise ObjectAnalysisError(message)
+
+
+def validate_toolchain_versions(toolchain: dict[str, Any]) -> None:
+    if (
+        f"release: {TOOLCHAIN}" not in toolchain["rustc"]
+        or not re.search(rf"LLVM version:?\s+{re.escape(LLVM_VERSION)}", toolchain["rustc"])
+        or not toolchain["cargo"].startswith(f"cargo {TOOLCHAIN} ")
+        or any(not re.search(rf"LLVM version:?\s+{re.escape(LLVM_VERSION)}", toolchain[field]) for field in (
+            "llvm_ar", "llvm_nm", "llvm_readobj", "llvm_objdump"
+        ))
+    ):
+        fail("object-analysis toolchain versions are not Rust 1.97.1 / LLVM 22.1.6")
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -188,6 +202,7 @@ def validate_control(control: dict[str, Any]) -> None:
         "source_inventory_ref",
         "targets",
         "retained_outputs",
+        "semantic_analysis_ref",
         "source_object_mapping_status",
         "generated_code_disposition",
     }
@@ -198,7 +213,7 @@ def validate_control(control: dict[str, Any]) -> None:
         or strategy["selection_basis"] != "native_runtime_coverage_matrix"
         or strategy["crate"] != "fs2"
         or strategy["profile"] != "release"
-        or strategy["requested_toolchain"] != "1.88"
+        or strategy["requested_toolchain"] != TOOLCHAIN
         or strategy["source_inventory_ref"] != "coverage/surface.json"
         or strategy["retained_outputs"]
         != [
@@ -208,7 +223,9 @@ def validate_control(control: dict[str, Any]) -> None:
             "sections_and_symbols",
             "disassembly",
             "source_object_map",
+            "semantic_source_object_companion",
         ]
+        or strategy["semantic_analysis_ref"] != "coverage/semantic-source-object.json"
         or strategy["source_object_mapping_status"] != "module_symbol_inventory_only"
         or strategy["generated_code_disposition"] != "reviewed_internal_compiler_generated_not_credited"
     ):
@@ -455,16 +472,17 @@ def validate_manifest(
         "llvm_nm",
         "llvm_readobj",
         "llvm_objdump",
-    } or toolchain["requested"] != "1.88" or not all(
+    } or toolchain["requested"] != TOOLCHAIN or not all(
         isinstance(toolchain[field], str) and toolchain[field].strip()
         for field in set(toolchain) - {"requested"}
     ):
         fail("object-analysis toolchain provenance is invalid")
+    validate_toolchain_versions(toolchain)
     command = manifest["command"]
     if not isinstance(command, list) or not all(isinstance(value, str) and value for value in command):
         fail("object-analysis build command is invalid")
     command_text = " ".join(command)
-    for required in ("cargo", "+1.88", "rustc", "--package", "fs2", "--lib", "--release", "--target", target, "--locked"):
+    for required in ("cargo", f"+{TOOLCHAIN}", "rustc", "--package", "fs2", "--lib", "--release", "--target", target, "--locked"):
         if required not in command_text:
             fail("object-analysis build command is incomplete")
     exits = manifest["native_exits"]

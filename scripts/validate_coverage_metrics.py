@@ -23,6 +23,8 @@ from validate_mcdc import validate_record
 
 
 ROOT = Path(__file__).resolve().parents[1]
+STABLE_TOOLCHAIN = "1.97.1"
+STABLE_LLVM_VERSION = "22.1.6"
 PROFILE_METRICS = {
     "stable": ("lines", "regions", "functions"),
     "branch": ("lines", "regions", "branches", "functions"),
@@ -36,15 +38,20 @@ def validate_profile_configuration(manifest: dict[str, Any]) -> None:
     command = manifest["command"]
     environment = manifest["environment"]
     if profile == "stable":
-        if manifest["requested_toolchain"] != "1.88" or "--branch" in command:
+        if (
+            manifest["requested_toolchain"] != STABLE_TOOLCHAIN
+            or "--branch" in command
+            or f"release: {STABLE_TOOLCHAIN}" not in manifest.get("resolved_toolchain", "")
+            or f"LLVM version: {STABLE_LLVM_VERSION}" not in manifest.get("resolved_toolchain", "")
+        ):
             raise ValidationError("stable profile has branch or toolchain configuration drift")
     elif profile == "branch":
-        if manifest["requested_toolchain"] != "nightly-2026-07-23" or "--branch" not in command:
+        if manifest["requested_toolchain"] != "nightly-2026-08-14" or "--branch" not in command:
             raise ValidationError("branch profile is missing its pinned nightly branch configuration")
         if "RUSTFLAGS" in environment:
             raise ValidationError("branch profile must not carry condition instrumentation flags")
     elif profile == "condition":
-        if manifest["requested_toolchain"] != "nightly-2026-07-23" or "--branch" not in command:
+        if manifest["requested_toolchain"] != "nightly-2026-08-14" or "--branch" not in command:
             raise ValidationError("condition profile is missing its pinned nightly branch configuration")
         if environment.get("RUSTFLAGS") != "-Z coverage-options=condition":
             raise ValidationError("condition profile is missing its explicit Rust condition instrumentation flag")

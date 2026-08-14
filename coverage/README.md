@@ -42,9 +42,12 @@ The records are deliberately split by concern:
   archives, members, symbols, sections, and disassembly support target review;
   `source-object-reconciliation.json` adds a reviewed module-level
   symbol-to-source inventory and an explicit compiler-generated-code
-  non-credit disposition.  These records do not establish semantic
-  source/object equivalence, semantic source/object traceability, or
-  object-code coverage.
+  non-credit disposition.  `semantic-source-object.json` defines a separate
+  native companion run that retains MIR, LLVM IR/debug locations, and a
+  debug-info object for reproducible semantic inspection.  It also compares
+  direct production and debug-companion object bytes after LLVM debug sections
+  are removed.  That bounded comparison does not establish full rlib/archive
+  identity, complete source/object equivalence, or object-code coverage.
 - `policy.json` defines the internal gates and non-claims.
 - `tool-assessment.json` records per-function intended and prohibited uses,
   I/O and topology, activity effects, failure escape/detection, fallbacks,
@@ -54,7 +57,7 @@ The records are deliberately split by concern:
 - `configuration-management.json` assigns immutable internal baseline IDs,
   supersession links, change-impact and revalidation controls, and guarded
   promotion states.
-- `archive-control.json` defines the exact thirteen-artifact internal staging
+- `archive-control.json` defines the exact sixteen-artifact internal staging
   package, SHA-256 and safe-path contract, 90-day GitHub Actions retention,
   primary and independently implemented verification procedures, and
   unresolved external-archive authorities.
@@ -139,7 +142,9 @@ Do not enable Driver Verifier against operating-system or filesystem drivers:
 this repository contains no kernel-mode driver for it to target, and such a run
 would not isolate fs2 behavior.
 
-Run a controlled local collection only from a clean, exact-commit checkout:
+Run a controlled local collection only from a clean, exact-commit checkout.
+The stable evidence compiler is Rust 1.97.1 and reports LLVM 22.1.6; the
+package MSRV remains Rust 1.88.0:
 
 ```text
 python scripts/collect_coverage.py --profile stable --target x86_64-pc-windows-msvc --output-dir target/coverage-stable --expected-commit <full-commit> --locked
@@ -156,10 +161,12 @@ MC/DC coverage:
 python scripts/collect_coverage.py --profile branch --target x86_64-pc-windows-msvc --output-dir target/coverage-branch --expected-commit <full-commit> --locked
 ```
 
-The latest available probe on `nightly-2026-08-13` also rejects
-`-Z coverage-options=mcdc`; the accepted compiler values remain
-`block|branch|condition`.  Until an approved basis and a capable, assessed
-toolchain exist, the source-pair records remain internal, non-credit evidence.
+The exact `nightly-2026-08-14` probe rejects `-Z coverage-options=mcdc`; the
+accepted compiler values remain `block|branch|condition`.  The stable
+Rust 1.97.1 probe also rejects the unstable MC/DC option.  The executed
+condition report contains empty `mcdc_records` and an LLVM `mcdc.count` of
+zero.  Until an approved basis and a capable, assessed toolchain exist, the
+source-pair records remain internal, non-credit evidence.
 
 The LLVM 2022 presentation is retained as an advisory design input.  Its
 frontend source mappings, per-decision bitmap test vectors, and
@@ -182,6 +189,21 @@ derived from the exact defined-symbol inventory and records module-level
 source associations only; it is not a statement, basic-block, semantic, or
 object-code coverage map.
 
+The semantic follow-on is collected separately so its debug-info companion
+object cannot be confused with the production release object inventory:
+
+```text
+python scripts/collect_semantic_source_object.py --target x86_64-pc-windows-msvc --output-dir target/semantic-source-object --expected-commit <full-commit>
+python scripts/validate_semantic_source_object.py --manifest target/semantic-source-object/semantic-source-object-manifest.json --expected-commit <full-commit> --require-pass
+```
+
+The map reconciles retained MIR functions, LLVM debug locations, and
+diagnostic conditional sites to the current production source inventory.  The
+collector additionally requires equal direct production/debug-companion object
+bytes after `llvm-objcopy --strip-debug`.  The counts and byte comparison are
+still diagnostic: they are not complete source/object equivalence, executed
+object-code structural coverage, or an MC/DC result.
+
 The analogous CI matrix uses `x86_64-unknown-linux-gnu` and
 `aarch64-apple-darwin` on their native hosts.  A dirty local run may be retained
 only as focused implementation evidence and cannot satisfy the clean-candidate
@@ -193,8 +215,9 @@ provenance-error manifests may be retained for analysis but cannot satisfy it.
 ## Internal archive staging and retrieval
 
 On a push to `DO-178C`, the `assurance-package` CI job waits for the complete
-nine-profile coverage matrix, three native target-object inventories, and the
-deterministic Windows native-fault job.  It downloads exactly those thirteen
+nine-profile coverage matrix, three native target-object inventories, three
+semantic source-object companions, and the deterministic Windows native-fault
+job.  It downloads exactly those sixteen
 artifacts, rejects missing or extra artifact directories, copies only regular
 files under canonical relative paths, and writes an immutable manifest with an
 exact commit, tree, workflow run ID, per-file byte count, and SHA-256 digest.
@@ -311,14 +334,16 @@ exact candidate `f24c570bc9c302e4a5cb14cd580b7247f9888916`, tree
 three-target inventory matrix and was accepted as exact-commit internal DAL B
 engineering evidence.  The target-specific inventory review is approved for
 the registered internal scope.  The derived reconciliation records module-
-level symbol-to-source observations and explicitly treats compiler-generated
-code as non-credit; semantic source/object mapping and object-code coverage
-remain open.
+  level symbol-to-source observations and explicitly treats compiler-generated
+  code as non-credit; the semantic companion now retains bounded production
+  non-debug object-byte equality evidence and remains open for target-specific
+  review and any required complete source/object or object-code follow-on.
 
 The applicable controlled certification basis and its DAL B binding, any
 qualification/TQL determination, authority-approved independence, controlled
-external archive, semantic source/object mapping, compiler-generated-code
-reconciliation under an applicable basis, object-code structural coverage,
+  external archive, production-byte semantic source/object mapping,
+  compiler-generated-code reconciliation under an applicable basis,
+  object-code structural coverage,
 release approval, and authority acceptance remain open.  Passing tests,
 internal human review, transport mechanics, or package integrity cannot infer
 those decisions.

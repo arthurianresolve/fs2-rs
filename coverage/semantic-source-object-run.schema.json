@@ -1,0 +1,41 @@
+{
+  "record_type": "semantic_source_object_run_schema",
+  "schema_version": 1,
+  "required": [
+    "record_type",
+    "schema_version",
+    "run_id",
+    "repository",
+    "branch",
+    "commit",
+    "tree",
+    "dirty",
+    "cargo_lock_sha256",
+    "host",
+    "target",
+    "object_format",
+    "profile",
+    "source_inventory",
+    "toolchain",
+    "command",
+    "production_command",
+    "object_command",
+    "native_exits",
+    "status",
+    "analysis",
+    "production_byte_equivalence",
+    "artifacts",
+    "created_utc",
+    "limitations",
+    "non_claims"
+  ],
+  "enums": {
+    "status": ["pass", "fail", "indeterminate", "provenance_error", "focused_only"],
+    "profile": ["release"],
+    "source_object_mapping_status": ["debug_location_bridge_retained_not_equivalence"],
+    "production_object_binding_status": ["production_non_debug_object_bytes_equal", "non_debug_object_bytes_differ", "not_established"],
+    "generated_code_disposition": ["reviewed_internal_compiler_generated_not_credited"],
+    "object_code_coverage_status": ["not_collected"]
+  },
+  "promotion_rule": "Only a pass manifest from a clean exact-commit native target run may enter internal review; bounded non-debug object-byte equality is diagnostic traceability evidence and does not establish complete source/object equivalence, object-code coverage, MC/DC, qualification, certification credit, or authority acceptance."
+}

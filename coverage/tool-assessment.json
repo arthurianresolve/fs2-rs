@@ -18,9 +18,9 @@
     "archive_transport": "scripts/archive_transport.py",
     "assurance_decision_validator": "scripts/validate_assurance_decisions.py",
     "cargo_llvm_cov": "0.8.7",
-    "stable_profile": "package fs2 library and tests with line and region JSON",
-    "branch_profile": "pinned nightly-2026-07-23 with LLVM branch reporting",
-    "condition_profile": "pinned nightly-2026-07-23 with condition instrumentation but no independent condition total"
+    "stable_profile": "package fs2 library and tests with line and region JSON using Rust 1.97.1 / LLVM 22.1.6",
+    "branch_profile": "pinned nightly-2026-08-14 with LLVM branch reporting",
+    "condition_profile": "pinned nightly-2026-08-14 with condition instrumentation but no independent condition total"
   },
   "qualification_status": "not_qualified",
   "credit_status": "internal_only",
@@ -66,7 +66,7 @@
       "limitations": ["The module-level symbol-to-source reconciliation does not establish semantic source/object mapping or object-code coverage", "No qualified compiler, LLVM object tool, or coverage instrumentation claim", "Compiler-generated, monomorphized, inlined, and target-runtime code remains non-credited pending applicable-basis disposition"],
       "known_problem_ids": ["TOOL-KP-001", "TOOL-KP-004"],
       "owner": "fs2 DO-178C coverage workstream",
-      "review": {"status": "reviewed_internal", "reviewer": "IR-PERSON-001", "evidence_refs": ["support-matrix.json", "coverage/object-analysis.json", "coverage/source-object-reconciliation.json", "scripts/test_validate_object_analysis.py", "scripts/test_validate_source_object_reconciliation.py", ".github/workflows/ci.yml"]},
+      "review": {"status": "pending_user_review", "reviewer": null, "evidence_refs": ["support-matrix.json", "coverage/object-analysis.json", "coverage/source-object-reconciliation.json", "scripts/test_validate_object_analysis.py", "scripts/test_validate_source_object_reconciliation.py", ".github/workflows/ci.yml"]},
       "revalidation_triggers": ["Rust toolchain change", "cargo-llvm-cov change", "target or profile change", "build-script or cfg change", "source-inventory change"]
     },
     {
@@ -124,7 +124,7 @@
       "limitations": ["No independent condition total", "No MC/DC output", "No object-code coverage", "No qualified-tool claim"],
       "known_problem_ids": ["TOOL-KP-001", "TOOL-KP-004"],
       "owner": "fs2 DO-178C coverage workstream",
-      "review": {"status": "reviewed_internal", "reviewer": "IR-PERSON-001", "evidence_refs": ["scripts/validate_coverage_metrics.py", "scripts/test_validate_coverage_metrics.py", "coverage/mcdc.json"]},
+      "review": {"status": "pending_user_review", "reviewer": null, "evidence_refs": ["scripts/validate_coverage_metrics.py", "scripts/test_validate_coverage_metrics.py", "coverage/mcdc.json"]},
       "revalidation_triggers": ["cargo-llvm-cov change", "LLVM report-format change", "profile option change", "source-filter change", "metric parser change"]
     },
     {
@@ -153,7 +153,7 @@
       "limitations": ["Typed resolution checks identity and bytes but not legal or technical sufficiency", "No tool qualification", "No authority-approved semantic oracle"],
       "known_problem_ids": ["TOOL-KP-004"],
       "owner": "fs2 DO-178C coverage workstream",
-      "review": {"status": "reviewed_internal", "reviewer": "IR-PERSON-001", "evidence_refs": ["scripts/test_validate_coverage.py", "scripts/test_external_reference_resolver.py", "scripts/test_validate_object_analysis.py", "coverage/external-reference-registry.json"]},
+      "review": {"status": "pending_user_review", "reviewer": null, "evidence_refs": ["scripts/test_validate_coverage.py", "scripts/test_external_reference_resolver.py", "scripts/test_validate_object_analysis.py", "coverage/external-reference-registry.json"]},
       "revalidation_triggers": ["validator or schema change", "new record type", "claim-state change", "new external reference", "negative-test failure"]
     },
     {
@@ -184,7 +184,7 @@
       "limitations": ["Internal staging and technical-trial transport only", "No designated controlled external archive", "No approved retention or disposition authority", "Separate verifier reduces common mode but does not supply qualified or organizationally independent verification"],
       "known_problem_ids": ["TOOL-KP-002", "TOOL-KP-004", "TOOL-KP-005"],
       "owner": "fs2 DO-178C coverage workstream",
-      "review": {"status": "reviewed_internal", "reviewer": "IR-PERSON-001", "evidence_refs": ["scripts/test_assurance_archive.py", "scripts/test_independent_archive_verify.py", "scripts/test_archive_transport.py", "coverage/archive-control.json", ".github/workflows/ci.yml"]},
+      "review": {"status": "pending_user_review", "reviewer": null, "evidence_refs": ["scripts/test_assurance_archive.py", "scripts/test_independent_archive_verify.py", "scripts/test_archive_transport.py", "coverage/archive-control.json", ".github/workflows/ci.yml"]},
       "revalidation_triggers": ["package schema or hash change", "required artifact change", "storage provider or retention change", "retrieval discrepancy", "external archive adoption"]
     },
     {
@@ -193,7 +193,7 @@
       "status": "non_reliance_internal",
       "intended_uses": ["execute deterministic result-adapter failures", "observe registered OS-mediated Windows errors", "retain native exits, scenario oracles, host identity, and artifact hashes"],
       "prohibited_uses": ["claim kernel-mode fault injection", "target unrelated operating-system or filesystem drivers", "treat optional Application Verifier output as mandatory baseline evidence", "bypass candidate-specific independent review"],
-      "inputs": ["clean Windows exact-commit checkout", "registered scenario matrix", "Rust 1.88", "optional elevated disposable Application Verifier host"],
+      "inputs": ["clean Windows exact-commit checkout", "registered scenario matrix", "Rust 1.97.1 with LLVM 22.1.6", "optional elevated disposable Application Verifier host"],
       "outputs": ["Windows native-fault manifest", "scenario JSON", "stdout and stderr logs", "optional Application Verifier manifest"],
       "upstream_ids": [],
       "downstream_ids": ["TOOL-F-004"],

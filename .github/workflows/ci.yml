@@ -51,7 +51,7 @@ jobs:
   windows-native-faults:
     needs: support-matrix
     if: github.event_name == 'push' && github.ref == 'refs/heads/DO-178C'
-    name: Windows native-fault evidence / Rust 1.88
+    name: Windows native-fault evidence / Rust 1.97.1 / LLVM 22.1.6
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -59,7 +59,7 @@ jobs:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
         with:
-          toolchain: "1.88"
+          toolchain: "1.97.1"
       - name: Collect deterministic Windows native-fault evidence
         run: python scripts/collect_windows_native_faults.py --output-dir target/windows-native-faults --expected-commit "$env:GITHUB_SHA"
       - name: Validate native-fault evidence without claiming independent review
@@ -93,6 +93,15 @@ jobs:
         with:
           name: object-analysis-${{ matrix.target }}
           path: target/object-analysis-${{ matrix.target }}
+          if-no-files-found: error
+      - name: Collect semantic source-object companion
+        run: python scripts/collect_semantic_source_object.py --target ${{ matrix.target }} --output-dir target/semantic-source-object-${{ matrix.target }} --expected-commit "${{ github.sha }}" --locked
+      - name: Validate exact-commit semantic source-object companion
+        run: python scripts/validate_semantic_source_object.py --manifest target/semantic-source-object-${{ matrix.target }}/semantic-source-object-manifest.json --expected-commit "${{ github.sha }}" --require-pass
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: semantic-source-object-${{ matrix.target }}
+          path: target/semantic-source-object-${{ matrix.target }}
           if-no-files-found: error
 
   cross_check:
@@ -234,6 +243,10 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: object-analysis-*
+          path: target/assurance-inputs
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: semantic-source-object-*
           path: target/assurance-inputs
       - name: Create immutable internal staging package
         run: python scripts/assurance_archive.py create --input-root target/assurance-inputs --output-dir target/assurance-package --control-record coverage/archive-control.json --expected-commit "$GITHUB_SHA" --workflow-run-id "$GITHUB_RUN_ID"

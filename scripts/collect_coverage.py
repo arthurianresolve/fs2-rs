@@ -20,7 +20,8 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY = "arthurianresolve/fs2-rs"
 BRANCH = "DO-178C"
-BRANCH_TOOLCHAIN = "nightly-2026-07-23"
+STABLE_TOOLCHAIN = "1.97.1"
+BRANCH_TOOLCHAIN = "nightly-2026-08-14"
 TARGET_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 WINDOWS_PROVIDER_API = "GetDiskSpaceInformationW"
@@ -28,7 +29,7 @@ WINDOWS_PROVIDER_LIBRARY = "kernel32.dll"
 
 PROFILES: dict[str, dict[str, Any]] = {
     "stable": {
-        "toolchain": "1.88",
+        "toolchain": STABLE_TOOLCHAIN,
         "metrics": ["line", "region"],
         "extra": [],
     },

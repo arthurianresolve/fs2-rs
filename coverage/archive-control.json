@@ -25,6 +25,9 @@
       "object-analysis-aarch64-apple-darwin": {"manifest": "object-analysis-manifest.json", "kind": "object_analysis", "profile": null, "target": "aarch64-apple-darwin"},
       "object-analysis-x86_64-pc-windows-msvc": {"manifest": "object-analysis-manifest.json", "kind": "object_analysis", "profile": null, "target": "x86_64-pc-windows-msvc"},
       "object-analysis-x86_64-unknown-linux-gnu": {"manifest": "object-analysis-manifest.json", "kind": "object_analysis", "profile": null, "target": "x86_64-unknown-linux-gnu"},
+      "semantic-source-object-aarch64-apple-darwin": {"manifest": "semantic-source-object-manifest.json", "kind": "semantic_source_object", "profile": null, "target": "aarch64-apple-darwin"},
+      "semantic-source-object-x86_64-pc-windows-msvc": {"manifest": "semantic-source-object-manifest.json", "kind": "semantic_source_object", "profile": null, "target": "x86_64-pc-windows-msvc"},
+      "semantic-source-object-x86_64-unknown-linux-gnu": {"manifest": "semantic-source-object-manifest.json", "kind": "semantic_source_object", "profile": null, "target": "x86_64-unknown-linux-gnu"},
       "windows-native-faults": {"manifest": "windows-native-fault-manifest.json", "kind": "windows_native_fault", "profile": null, "target": "x86_64-pc-windows-msvc"}
     },
     "package_contract": {
