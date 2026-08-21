@@ -1,8 +1,10 @@
 use std::fs::File;
 use std::io::{Error, ErrorKind, Result};
+#[cfg(all(target_os = "linux", target_pointer_width = "64"))]
 use std::mem::MaybeUninit;
 #[cfg(not(all(target_os = "linux", target_pointer_width = "64")))]
 use std::os::unix::fs::MetadataExt;
+#[cfg(all(target_os = "linux", target_pointer_width = "64"))]
 use std::os::unix::io::AsRawFd;
 
 use crate::AllocationState;
@@ -47,6 +49,7 @@ fn blocks_to_bytes(blocks: u64) -> Result<u64> {
     }
 }
 
+#[cfg(all(target_os = "linux", target_pointer_width = "64"))]
 fn i64_to_u64(value: i64, message: &'static str) -> Result<u64> {
     value
         .try_into()
