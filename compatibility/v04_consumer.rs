@@ -8,7 +8,7 @@ compile_error!("select exactly one compatibility subject");
 #[cfg(feature = "legacy")]
 extern crate fs2_v04 as fs2;
 #[cfg(feature = "current")]
-extern crate fs2_v05 as fs2;
+extern crate fs2_current as fs2;
 
 use std::collections::hash_map::DefaultHasher;
 use std::fs::{self, File, OpenOptions};
@@ -35,6 +35,8 @@ use fs2::{
     allocation_granularity, available_space, free_space, lock_contended_error, statvfs,
     total_space, FileExt, FsStats,
 };
+#[cfg(feature = "current")]
+use fs2::FsStatsQuery;
 
 struct DownstreamFile(File);
 
@@ -94,6 +96,15 @@ fn concrete_file_method_surface(file: &File) -> Result<()> {
     file.unlock()
 }
 
+#[cfg(feature = "current")]
+fn current_method_surface<T: FileExt>(file: &T) -> Result<()> {
+    file.fs2_lock_shared()?;
+    file.fs2_lock_exclusive()?;
+    let _ = file.fs2_try_lock_shared();
+    let _ = file.fs2_try_lock_exclusive();
+    file.fs2_unlock()
+}
+
 fn assert_legacy_item_surface() {
     let _: fn(&DownstreamFile) -> Result<()> = legacy_method_surface::<DownstreamFile>;
     let _: fn(&File) -> Result<()> = concrete_file_method_surface;
@@ -106,6 +117,15 @@ fn assert_legacy_item_surface() {
 
     fn assert_fs_stats_traits<T: Clone + std::fmt::Debug + Eq + Hash>() {}
     assert_fs_stats_traits::<FsStats>();
+}
+
+#[cfg(feature = "current")]
+fn assert_current_item_surface() {
+    let _: fn(&DownstreamFile) -> Result<()> = current_method_surface::<DownstreamFile>;
+    let query = FsStatsQuery::new(PathBuf::from("."));
+    if let Ok(query) = query {
+        let _: Result<FsStats> = query.snapshot();
+    }
 }
 
 fn open_file(path: &Path) -> Result<File> {
@@ -214,6 +234,8 @@ impl Drop for TempDirectory {
 
 fn main() -> Result<()> {
     assert_legacy_item_surface();
+    #[cfg(feature = "current")]
+    assert_current_item_surface();
     let tempdir = TempDirectory::new()?;
     let file = tempdir.path().join("fs2");
     verify_duplicate_and_allocation(&file)?;
