@@ -10,12 +10,12 @@ extern crate winapi;
 #[cfg(unix)]
 mod unix;
 #[cfg(unix)]
-use unix as sys;
+use crate::unix as sys;
 
 #[cfg(windows)]
 mod windows;
 #[cfg(windows)]
-use windows as sys;
+use crate::windows as sys;
 
 use std::fs::File;
 use std::io::{Error, Result};
