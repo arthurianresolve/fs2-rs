@@ -1,9 +1,8 @@
 use std::io::Result;
 
-#[cfg(unix)]
-use super::counters::UnixCounters;
+use super::counters::FilesystemCounters;
 #[cfg(windows)]
-use super::counters::{WindowsCounterSource, WindowsCounters};
+use super::counters::WindowsCounterSource;
 use super::{FsStats, SpaceKind, invalid_stats};
 
 #[cfg(unix)]
@@ -49,7 +48,9 @@ impl ValidatedUnixCounters {
 }
 
 #[cfg(unix)]
-pub(super) fn validate_unix_counters(counters: UnixCounters) -> Result<ValidatedUnixCounters> {
+pub(super) fn validate_unix_counters(
+    counters: FilesystemCounters,
+) -> Result<ValidatedUnixCounters> {
     let allocation_granularity = validate_granularity(counters.allocation_granularity)?;
     if counters.free_blocks > counters.total_blocks {
         return Err(invalid_stats("filesystem free space exceeds total space"));
@@ -72,7 +73,7 @@ pub(super) fn validate_unix_counters(counters: UnixCounters) -> Result<Validated
 }
 
 #[cfg(windows)]
-pub(super) struct ValidatedWindowsCounters(WindowsCounters);
+pub(super) struct ValidatedWindowsCounters(FilesystemCounters);
 
 #[cfg(windows)]
 impl ValidatedWindowsCounters {
@@ -97,7 +98,7 @@ impl ValidatedWindowsCounters {
 
 #[cfg(windows)]
 pub(super) fn validate_windows_counters(
-    counters: WindowsCounters,
+    counters: FilesystemCounters,
 ) -> Result<ValidatedWindowsCounters> {
     validate_granularity(counters.allocation_granularity)?;
     if counters.available_space > counters.free_space {

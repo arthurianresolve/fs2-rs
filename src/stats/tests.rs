@@ -10,12 +10,21 @@ fn counters(
     available_space: u64,
     total_space: u64,
 ) -> FilesystemCounters {
-    FilesystemCounters::test(
+    #[cfg(unix)]
+    return FilesystemCounters::unix_blocks(
         allocation_granularity,
         free_space,
         available_space,
         total_space,
-    )
+    );
+
+    #[cfg(windows)]
+    return FilesystemCounters::windows_modern_bytes(
+        allocation_granularity,
+        free_space,
+        available_space,
+        total_space,
+    );
 }
 
 #[cfg(windows)]
@@ -25,7 +34,7 @@ fn legacy_counters(
     available_space: u64,
     total_space: u64,
 ) -> FilesystemCounters {
-    FilesystemCounters::test_legacy(
+    FilesystemCounters::windows_legacy_bytes(
         allocation_granularity,
         free_space,
         available_space,
