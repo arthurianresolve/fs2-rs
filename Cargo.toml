@@ -16,12 +16,12 @@ exclude = [
     "compatibility/",
     "CONTEXT.md",
     "deny.toml",
-    "scripts/",
     "support-matrix.json",
+    "tools/",
 ]
 
 [workspace]
-members = ["benchmarks"]
+members = ["benchmarks", "tools/fs2-dev"]
 exclude = ["compatibility"]
 resolver = "3"
 

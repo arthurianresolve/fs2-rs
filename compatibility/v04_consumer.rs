@@ -5,10 +5,10 @@ compile_error!("select exactly one compatibility subject");
 #[cfg(not(any(feature = "legacy", feature = "current")))]
 compile_error!("select exactly one compatibility subject");
 
-#[cfg(feature = "legacy")]
-extern crate fs2_v04 as fs2;
 #[cfg(feature = "current")]
 extern crate fs2_current as fs2;
+#[cfg(feature = "legacy")]
+extern crate fs2_v04 as fs2;
 
 use std::collections::hash_map::DefaultHasher;
 use std::fs::{self, File, OpenOptions};
@@ -31,12 +31,12 @@ unsafe extern "system" {
     fn GetHandleInformation(object: *mut c_void, flags: *mut u32) -> i32;
 }
 
+#[cfg(feature = "current")]
+use fs2::FsStatsQuery;
 use fs2::{
     allocation_granularity, available_space, free_space, lock_contended_error, statvfs,
     total_space, FileExt, FsStats,
 };
-#[cfg(feature = "current")]
-use fs2::FsStatsQuery;
 
 struct DownstreamFile(File);
 
