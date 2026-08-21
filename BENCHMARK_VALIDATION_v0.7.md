@@ -1,5 +1,8 @@
 # v0.7 performance validation (post-stat change)
 
+> Historical record only. This focused run predates the schema-version-2
+> Rust-native measurement protocol and is not fs2 1.0 release evidence.
+
 ## Commit checked
 - Current head: `e2b74d8`
 - Branch: `v0.7`

@@ -1,39 +1,50 @@
 # fs2
 
-This is the maintained `fs2` fork at
-[github.com/arthurianresolve/fs2-rs](https://github.com/arthurianresolve/fs2-rs),
-focused on evolving the crate for Rust 2024 and current stable Rust releases.
+`fs2` provides cross-platform file locking, allocation, duplication, and
+filesystem statistics. Version 1.0 preserves the public fs2 0.4 API while
+retaining the correctness and safety fixes developed in this maintained fork.
+It uses Rust 2024 and requires Rust 1.88 or newer.
+
 The original implementation is from
-[danburkert/fs2-rs](https://github.com/danburkert/fs2-rs).
-
-Extended utilities for working with files and filesystems in Rust. `fs2`
-requires Rust stable 1.88 or greater.
-
-# Changes
-1. Manifest modernization
-    - Upgraded to SPDX license syntax
-    - Added crate category and more accurate description
-    - Removed deprecated Travis and AppVeyor metadata  
- * Dependency modernization
-   - Replaced `winapi` with `windows-sys`
-   - Replaced `tempdir` with `tempfile`
-   - Updated to Rust 1.88 and Rust 2024 edition syntax
- * Updated to current `libc` library
+[danburkert/fs2-rs](https://github.com/danburkert/fs2-rs). This maintained fork
+lives at
+[github.com/arthurianresolve/fs2-rs](https://github.com/arthurianresolve/fs2-rs).
 
 [![Documentation](https://docs.rs/fs2/badge.svg)](https://docs.rs/fs2)
 [![Crate](https://img.shields.io/crates/v/fs2.svg)](https://crates.io/crates/fs2)
 
 ## Features
 
-- [x] file descriptor duplication.
-- [x] file locks.
-- [x] file (pre)allocation.
-- [x] file allocation information.
-- [x] filesystem space usage information.
+- File descriptor duplication.
+- Shared and exclusive file locks.
+- File preallocation and allocated-size queries.
+- Filesystem snapshots and scalar space queries.
+- Prepared `FsStatsQuery` values for repeated fresh snapshots.
 
 On Unix and Windows, `FileExt::duplicate` retains the original crate's
 inheritable duplicate semantics. Use `File::try_clone` when the duplicate must
 not be inherited by a child process.
+
+## Compatibility
+
+The v0.4 `FileExt` methods and their behavior remain available. Rust 1.97 and
+newer also provide inherent locking methods on `std::fs::File`; use fully
+qualified calls when the fs2 implementation must be selected explicitly:
+
+```rust
+use fs2::FileExt;
+use std::fs::File;
+use std::io;
+
+fn locked(file: &File) -> io::Result<()> {
+    FileExt::lock_exclusive(file)?;
+    FileExt::unlock(file)
+}
+```
+
+The `fs2_lock_shared`, `fs2_lock_exclusive`, `fs2_try_lock_shared`,
+`fs2_try_lock_exclusive`, and `fs2_unlock` forwarding methods are retained for
+collision-safe migration code.
 
 ## Platforms
 
@@ -54,7 +65,7 @@ nightly `build-std`; runtime tests require a target-specific emulator and
 uClibc sysroot.
 
 The target evidence and allocation capability claims are recorded in the
-repository's [`support-matrix.json`](support-matrix.json).
+repository-only `support-matrix.json` registry.
 CI validates the matrix and generates its native and cross-target job matrices
 from the registry, then runs native runtime tests and compile-checks the listed
 cross targets. Compile-only evidence does not imply runtime support.
@@ -78,33 +89,50 @@ preparation without caching counter values. The `stats_snapshot` and
 `windows_root_stats` group also measures exact drive-root preparation and scalar
 queries.
 
-From a repository checkout, the compatibility oracle compiles one frozen v0.4
-consumer against both fs2 0.4.3 and the current checkout across Rust editions
-2015 through 2024, then runs the shared behavior fixture against both. Run it with
-`python scripts/validate_compatibility.py`. Performance comparisons use the
-same benchmark source for both subjects through
-`python scripts/compare_performance.py --baseline <path> --candidate <path>`.
-The default `fs2_legacy` workload uses only the v0.4-compatible API surface.
-Use `--bench fs2` for v0.5-only APIs. The `fs_compat` workload covers the API
-intersection with fs4; select it with `--bench fs_compat` and identify an fs4
-subject with `--baseline-package fs4` or `--candidate-package fs4`. It excludes
-file duplication because fs4 does not expose an equivalent operation. Same-lock
-comparisons are required by default; use `--allow-different-locks` explicitly
-when comparing releases with different dependency graphs, such as upstream
-v0.4.3, v0.5, and fs4. The performance command requires at least 24 alternating
-pairs across six independent build replicates. It computes exact,
-distribution-free one-sided 95% confidence bounds for the median ratio. The
-default policy accepts an upper bound up to 2% above parity as non-inferior;
-`--non-inferiority-margin 0` requires strict parity, and another explicit value
-overrides the shared policy limit.
-The command exits unsuccessfully when any selected workload exceeds its applied
-limit. It freezes both subjects before the first build so edits to a live
-checkout cannot contaminate later replicates; use
-a benchmark-name filter to keep targeted comparisons practical. Pair counts
-must be a multiple of eight and at least 24 so physical build placement,
-execution order, and the confidence claim remain valid. For private refactors,
-every comparison still requires paired timing; object-file equality is not used
-as a substitute because public generic code is generated in the consumer crate.
+Repository operations are implemented by the unpublished Rust `fs2-dev` tool:
+
+```text
+cargo xtask matrix
+cargo xtask compatibility
+cargo xtask policy
+cargo xtask bench refs --help
+cargo xtask bench crates --help
+cargo xtask bench stats --help
+```
+
+The compatibility command compiles one frozen v0.4 consumer against exact fs2
+0.4.3 and the current checkout across Rust editions 2015 through 2024. The
+benchmark commands stage subjects independently, retain native exits and
+artifacts, and apply the versioned policy in
+`benchmarks/measurement-policy.json`.
+
+Every benchmark subject receives one explicit unmeasured priming invocation in
+each fresh process. Its duration, exit status, and errors are cold-start
+evidence only; they are never included in runtime estimates, medians, ratios,
+confidence bounds, or Criterion samples. Stable comparisons use exact,
+distribution-free one-sided 95% median bounds and reject any affected workload
+whose upper candidate-to-baseline ratio exceeds `1.02`. Windows filesystem-stat
+comparisons additionally use same-process alternating calls and an A/A control
+to detect host and fixture-order drift.
+
+## Development validation
+
+The supported local entry points are:
+
+```text
+cargo +1.88.0 fmt --all -- --check
+cargo +1.88.0 test --workspace --locked
+cargo +1.88.0 clippy --workspace --all-targets --locked -- -D warnings
+cargo +1.97.1 test --workspace --locked
+cargo xtask matrix
+cargo xtask compatibility
+cargo xtask policy
+```
+
+Release CI also builds documentation and benchmarks, checks future
+incompatibilities, audits locked dependencies, validates package contents, and
+builds the extracted package. Repository tooling, policies, compatibility
+fixtures, and benchmarks are excluded from the published crate.
 
 ## License
 

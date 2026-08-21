@@ -57,17 +57,30 @@ workflow validation and matrix generation consume only that model.
 The compatibility oracle compiles one frozen v0.4 consumer against exact fs2
 0.4.3 and the current checkout across supported Rust editions, then exercises
 the shared legacy behavior contract through both adapters. Legacy source shape
-and stable behavior come from the v0.4 reference; intentional v0.5 corrections
-remain canonical. Performance comparisons use one byte-identical benchmark
-workload and dependency lock for both checkouts, counterbalance execution order
-and physical A/B build slots on the same host and filesystem, balance logical
-left/right placement across independent build replicates, and reject candidates
-whose exact, distribution-free one-sided 95% median bound exceeds the applied
-non-inferiority margin. The shared default margin is 2%; pass zero explicitly
-to require strict parity. Both subjects are frozen before replicate staging
-so a long run cannot observe live checkout edits. Confidence is computed from
-at least six build-replicate medians, not repeated runs of the same binaries. A
-pure policy module owns pairing, replicate aggregation, exact confidence bounds,
-applied policy context, and decision rules; orchestration owns staging and
-Criterion execution. The oracle is tooling-only and does not enter the
-production dependency graph or call path.
+and stable behavior come from the v0.4 reference; verified correctness and
+safety fixes remain canonical. Rust 1.97 collision fixtures use fully qualified
+`FileExt` calls so standard-library inherent lock methods cannot change the API
+being tested.
+
+The unpublished Rust `fs2-dev` workspace tool owns support-matrix validation,
+compatibility checks, measurement policy, process execution, atomic reports,
+and benchmark orchestration. Typed configuration models reject unknown fields
+and carry explicit schema versions. One native command runner captures stdout,
+stderr, duration, and exact exit status. Tooling dependencies do not enter the
+published package or production dependency graph.
+
+Performance comparisons independently stage both subjects and their target
+directories, use identical harness and lockfile inputs, and retain native exits,
+estimates, dispersion, outliers, disk state, and artifact paths. Every fresh
+subject process performs one explicit priming invocation before timed work; the
+prime is recorded as cold-start evidence and excluded from all runtime
+statistics. Criterion warm-up is likewise excluded.
+
+General ref comparisons use at least eight A-B-B-A blocks and reject blocks
+whose directional-pair spread exceeds 20%. Each accepted block contributes one
+geometric-mean ratio. Windows filesystem-stat comparisons use eight independent
+same-process alternating repetitions plus an A/A control because separate
+processes cannot reliably cancel abrupt filesystem-state changes. Exact,
+distribution-free one-sided 95% median bounds enforce the shared 2%
+non-regression margin. Mixed, unstable, or inconclusive evidence rejects a
+production candidate.
