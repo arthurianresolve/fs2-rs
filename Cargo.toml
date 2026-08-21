@@ -11,9 +11,11 @@ description = "Cross-platform file locks, allocation, duplication and filesystem
 keywords = ["file", "file-system", "lock", "duplicate", "flock"]
 categories = ["filesystem"]
 exclude = [
+    ".cargo/",
     ".github/",
     "benchmarks/",
     "compatibility/",
+    "BENCHMARK_VALIDATION_v0.7.md",
     "CONTEXT.md",
     "deny.toml",
     "support-matrix.json",
