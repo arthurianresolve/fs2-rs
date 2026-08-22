@@ -102,6 +102,7 @@ struct CargoPackage {
 }
 
 pub(crate) fn run(root: &Path, github_output: Option<&Path>) -> Result<()> {
+    validate_xtask_alias(root)?;
     let rust_version = package_rust_version(root)?;
     let registry = load_registry(&root.join("support-matrix.json"))?;
     validate_registry(&registry, &rust_version)?;
@@ -393,8 +394,12 @@ fn validate_workflow_policy(workflow: &Value) -> Result<()> {
 }
 
 fn validate_action(action: &str) -> Result<()> {
-    if action.starts_with("./") || pinned_action(action) {
+    if pinned_action(action) {
         Ok(())
+    } else if action.starts_with("./") {
+        Err(invalid_data(format!(
+            "local workflow action is not recursively policy-validated: {action}"
+        )))
     } else {
         Err(invalid_data(format!(
             "workflow action is not pinned to a commit: {action}"
@@ -415,6 +420,11 @@ fn validate_locked_cargo(job_name: &str, command: &str) -> Result<()> {
             .filter_map(|(index, token)| cargo_executable(token).then_some(index))
             .collect::<Vec<_>>();
         if cargo_positions.is_empty() {
+            if mentions_cargo_executable(line) {
+                return Err(invalid_data(format!(
+                    "workflow Cargo invocation is not a direct, auditable command in {job_name}: {line}"
+                )));
+            }
             continue;
         }
         if cargo_positions != [0] {
@@ -440,8 +450,33 @@ fn validate_locked_cargo(job_name: &str, command: &str) -> Result<()> {
 
 fn cargo_executable(token: &str) -> bool {
     token.rsplit(['/', '\\']).next().is_some_and(|name| {
-        name.eq_ignore_ascii_case("cargo") || name.eq_ignore_ascii_case("cargo.exe")
+        name.eq_ignore_ascii_case("cargo")
+            || name.eq_ignore_ascii_case("cargo.exe")
+            || name.eq_ignore_ascii_case("cargo.cmd")
     })
+}
+
+fn mentions_cargo_executable(line: &str) -> bool {
+    line.split(|character: char| {
+        character.is_ascii_whitespace()
+            || matches!(character, '"' | '\'' | '=' | ';' | '|' | '&' | '(' | ')')
+    })
+    .any(|token| {
+        let normalized = token.trim_matches(['$', '{', '}']).to_ascii_lowercase();
+        cargo_executable(token) || matches!(normalized.as_str(), "cargo" | "env:cargo")
+    })
+}
+
+fn validate_xtask_alias(root: &Path) -> Result<()> {
+    let configuration = fs::read_to_string(root.join(".cargo/config.toml"))?;
+    let expected = "xtask = \"run --locked --package fs2-dev --\"";
+    if configuration.lines().any(|line| line.trim() == expected) {
+        Ok(())
+    } else {
+        Err(invalid_data(
+            "the cargo xtask alias must invoke fs2-dev with --locked",
+        ))
+    }
 }
 
 fn is_target_triple(value: &str) -> bool {
@@ -546,9 +581,17 @@ mod tests {
         assert!(validate_locked_cargo("test", "cargo.exe test").is_err());
         assert!(validate_locked_cargo("test", "cargo\ttest").is_err());
         assert!(validate_locked_cargo("test", "/opt/rust/bin/cargo test").is_err());
+        assert!(validate_locked_cargo("test", "$CARGO test --locked").is_err());
+        assert!(validate_locked_cargo("test", "$env:CARGO test --locked").is_err());
+        assert!(validate_locked_cargo("test", "cargo.cmd test").is_err());
         assert!(
             validate_locked_cargo("test", "cargo check --locked && cargo test --locked").is_err()
         );
+    }
+
+    #[test]
+    fn rejects_unvalidated_local_actions() {
+        assert!(validate_action("./.github/actions/local").is_err());
     }
 
     #[test]

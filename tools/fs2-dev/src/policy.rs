@@ -18,6 +18,7 @@ const STRICT_MEASUREMENT_SECONDS: f64 = 5.0;
 const STRICT_COOLDOWN_SECONDS: f64 = 10.0;
 const STRICT_NON_INFERIORITY_MARGIN: f64 = 0.02;
 const STRICT_MAX_OUTLIER_FRACTION: f64 = 0.5;
+const STRICT_MAX_PAIR_SPREAD: f64 = 0.20;
 pub(crate) const MAX_PAIRED_REPLICATES: u64 = 127;
 pub(crate) const MAX_SAMPLE_SIZE: u64 = 10_000;
 pub(crate) const MAX_DURATION_SECONDS: f64 = 3_600.0;
@@ -36,6 +37,25 @@ pub(crate) struct MeasurementPolicy {
 }
 
 impl MeasurementPolicy {
+    pub(crate) fn meets_strict_criterion_profile(&self) -> bool {
+        self.non_inferiority_margin <= STRICT_NON_INFERIORITY_MARGIN
+            && self.criterion.sample_size >= STRICT_SAMPLE_SIZE
+            && self.criterion.warm_up_seconds >= STRICT_WARM_UP_SECONDS
+            && self.criterion.measurement_seconds >= STRICT_MEASUREMENT_SECONDS
+            && self.criterion.max_outlier_fraction <= STRICT_MAX_OUTLIER_FRACTION
+    }
+
+    pub(crate) fn meets_strict_ref_profile(&self) -> bool {
+        self.meets_strict_criterion_profile()
+            && self.ref_to_ref.blocks >= MIN_DRIFT_CORRECTED_BLOCKS
+            && self.ref_to_ref.max_pair_spread <= STRICT_MAX_PAIR_SPREAD
+            && self.ref_to_ref.cooldown_seconds >= STRICT_COOLDOWN_SECONDS
+    }
+
+    pub(crate) fn meets_strict_cross_crate_profile(&self) -> bool {
+        self.meets_strict_criterion_profile() && self.cross_crate.pairs >= MIN_GATING_PAIRS
+    }
+
     pub(crate) fn meets_strict_paired_profile(&self) -> bool {
         self.non_inferiority_margin <= STRICT_NON_INFERIORITY_MARGIN
             && self.criterion.sample_size >= STRICT_SAMPLE_SIZE
@@ -406,5 +426,21 @@ mod tests {
         let mut policy = valid_policy();
         policy.paired_process.confidence = 0.90;
         assert!(!policy.meets_strict_paired_profile());
+    }
+
+    #[test]
+    fn weak_criterion_profiles_are_exploratory() {
+        let mut policy = valid_policy();
+        policy.non_inferiority_margin = 0.03;
+        assert!(!policy.meets_strict_ref_profile());
+        assert!(!policy.meets_strict_cross_crate_profile());
+
+        let mut policy = valid_policy();
+        policy.ref_to_ref.blocks = 7;
+        assert!(!policy.meets_strict_ref_profile());
+
+        let mut policy = valid_policy();
+        policy.cross_crate.pairs = 16;
+        assert!(!policy.meets_strict_cross_crate_profile());
     }
 }

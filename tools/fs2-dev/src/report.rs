@@ -6,7 +6,7 @@ use tempfile::NamedTempFile;
 
 use crate::Result;
 
-pub(crate) const SCHEMA_VERSION: u64 = 6;
+pub(crate) const SCHEMA_VERSION: u64 = 7;
 
 #[derive(Clone, Copy, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -51,6 +51,12 @@ struct InvalidExecution<'a, T> {
     context: T,
 }
 
+#[derive(Serialize)]
+struct SetupExecutionFailure<'a> {
+    error: &'a str,
+    processes: &'a [crate::process::ProcessRecord],
+}
+
 pub(crate) fn write_invalid<T: Serialize>(
     path: &Path,
     report_kind: ReportKind,
@@ -64,6 +70,23 @@ pub(crate) fn write_invalid<T: Serialize>(
             "invalid-execution",
             false,
             InvalidExecution { error, context },
+        ),
+    )
+}
+
+pub(crate) fn write_setup_failure(
+    path: &Path,
+    report_kind: ReportKind,
+    error: &str,
+    processes: &[crate::process::ProcessRecord],
+) -> Result<()> {
+    write_json(
+        path,
+        &ReportEnvelope::new(
+            report_kind,
+            "setup-failure",
+            false,
+            SetupExecutionFailure { error, processes },
         ),
     )
 }
@@ -98,11 +121,11 @@ mod tests {
             serde_json::json!({ "run": 1 }),
         ))
         .unwrap();
-        assert_eq!(SCHEMA_VERSION, 6);
+        assert_eq!(SCHEMA_VERSION, 7);
         assert_eq!(
             report,
             serde_json::json!({
-                "schema_version": 6,
+                "schema_version": 7,
                 "report_kind": "lock",
                 "status": "completed",
                 "valid": true,
@@ -117,7 +140,7 @@ mod tests {
             serde_json::json!({ "error": "setup failed" }),
         ))
         .unwrap();
-        assert_eq!(invalid["schema_version"], 6);
+        assert_eq!(invalid["schema_version"], 7);
         assert_eq!(invalid["report_kind"], "stats");
         assert_eq!(invalid["status"], "invalid-execution");
         assert_eq!(invalid["valid"], false);

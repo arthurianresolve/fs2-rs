@@ -24,7 +24,7 @@ pub(crate) fn cargo() -> Command {
 
 pub(crate) fn run(command: &mut Command, label: &str) -> Result<()> {
     println!("+ {label}");
-    let execution = execute(command)?;
+    let execution = execute(command, process_timeout()?);
     if execution.outcome.succeeded() {
         Ok(())
     } else {
@@ -42,7 +42,7 @@ pub(crate) fn capture(command: &mut Command, label: &str) -> Result<Output> {
     command
         .stdout(Stdio::from(File::create(&stdout_path)?))
         .stderr(Stdio::from(File::create(&stderr_path)?));
-    let execution = execute(command)?;
+    let execution = execute(command, process_timeout()?);
     let stdout = fs::read(&stdout_path)?;
     let stderr = fs::read(&stderr_path)?;
     if execution.outcome.succeeded() {
@@ -88,7 +88,9 @@ pub(crate) enum ProcessOutcome {
     Exited {
         code: i32,
     },
-    Terminated,
+    Terminated {
+        detail: String,
+    },
     TimedOut {
         timeout_ms: u128,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -119,7 +121,7 @@ impl ProcessOutcome {
     fn description(&self) -> String {
         match self {
             Self::Exited { code } => format!("native exit {code}"),
-            Self::Terminated => "process terminated without an exit code".to_owned(),
+            Self::Terminated { detail } => format!("process terminated: {detail}"),
             Self::TimedOut {
                 timeout_ms,
                 kill_error,
@@ -241,28 +243,6 @@ impl ProcessRecord {
             },
         )
     }
-
-    pub(crate) fn runner_failed(
-        command: &Command,
-        label: impl Into<String>,
-        stdout: PathBuf,
-        stderr: PathBuf,
-        error: impl Into<String>,
-    ) -> Self {
-        ProcessContext::capture(command).record(
-            label.into(),
-            ProcessOutcome::RunnerFailed {
-                error: error.into(),
-            },
-            0,
-            process_timeout().ok().map(|timeout| timeout.as_millis()),
-            ProcessContainment::METHOD,
-            LogPaths {
-                stdout: &stdout,
-                stderr: &stderr,
-            },
-        )
-    }
 }
 
 struct Execution {
@@ -273,13 +253,12 @@ struct Execution {
     containment: &'static str,
 }
 
-fn execute(command: &mut Command) -> Result<Execution> {
-    let timeout = process_timeout()?;
+fn execute(command: &mut Command, timeout: Duration) -> Execution {
     let started = Instant::now();
     let mut containment = match ProcessContainment::configure(command) {
         Ok(containment) => containment,
         Err(error) => {
-            return Ok(Execution {
+            return Execution {
                 outcome: ProcessOutcome::ContainmentFailed {
                     error: error.to_string(),
                 },
@@ -287,13 +266,13 @@ fn execute(command: &mut Command) -> Result<Execution> {
                 duration_ms: started.elapsed().as_millis(),
                 timeout_ms: timeout.as_millis(),
                 containment: ProcessContainment::METHOD,
-            });
+            };
         }
     };
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => {
-            return Ok(Execution {
+            return Execution {
                 outcome: ProcessOutcome::SpawnFailed {
                     error: error.to_string(),
                 },
@@ -301,72 +280,34 @@ fn execute(command: &mut Command) -> Result<Execution> {
                 duration_ms: started.elapsed().as_millis(),
                 timeout_ms: timeout.as_millis(),
                 containment: ProcessContainment::METHOD,
-            });
+            };
         }
     };
     if let Err(error) = containment.attach(&child) {
-        if let Some(status) = child.try_wait()? {
-            return Ok(Execution {
-                outcome: status.code().map_or(ProcessOutcome::Terminated, |code| {
-                    ProcessOutcome::Exited { code }
-                }),
-                status: Some(status),
-                duration_ms: started.elapsed().as_millis(),
-                timeout_ms: timeout.as_millis(),
-                containment: "completed-before-containment",
-            });
-        }
-        let _ = child.kill();
-        let _ = child.wait_timeout(TERMINATION_REAP_TIMEOUT);
-        return Ok(Execution {
-            outcome: ProcessOutcome::ContainmentFailed {
-                error: error.to_string(),
-            },
-            status: None,
+        let (status, cleanup_error) = terminate_and_reap(&containment, &mut child);
+        let error = cleanup_error.map_or_else(
+            || error.to_string(),
+            |cleanup| format!("{error}; cleanup failed: {cleanup}"),
+        );
+        return Execution {
+            outcome: ProcessOutcome::ContainmentFailed { error },
+            status,
             duration_ms: started.elapsed().as_millis(),
             timeout_ms: timeout.as_millis(),
             containment: ProcessContainment::METHOD,
-        });
+        };
     }
-    match child.wait_timeout(timeout)? {
-        Some(status) => Ok(Execution {
-            outcome: status.code().map_or(ProcessOutcome::Terminated, |code| {
-                ProcessOutcome::Exited { code }
-            }),
+    match child.wait_timeout(timeout) {
+        Ok(Some(status)) => Execution {
+            outcome: status_outcome(status),
             status: Some(status),
             duration_ms: started.elapsed().as_millis(),
             timeout_ms: timeout.as_millis(),
             containment: ProcessContainment::METHOD,
-        }),
-        None => {
-            let mut kill_error = containment
-                .terminate(&mut child)
-                .err()
-                .map(|error| error.to_string());
-            let status = match child.wait_timeout(TERMINATION_REAP_TIMEOUT) {
-                Ok(Some(status)) => Some(status),
-                Ok(None) => {
-                    let message = "process did not exit within the termination grace period";
-                    if let Some(error) = &mut kill_error {
-                        error.push_str("; ");
-                        error.push_str(message);
-                    } else {
-                        kill_error = Some(message.to_owned());
-                    }
-                    None
-                }
-                Err(error) => {
-                    let message = format!("unable to reap terminated process: {error}");
-                    if let Some(kill_error) = &mut kill_error {
-                        kill_error.push_str("; ");
-                        kill_error.push_str(&message);
-                    } else {
-                        kill_error = Some(message);
-                    }
-                    None
-                }
-            };
-            Ok(Execution {
+        },
+        Ok(None) => {
+            let (status, kill_error) = terminate_and_reap(&containment, &mut child);
+            Execution {
                 outcome: ProcessOutcome::TimedOut {
                     timeout_ms: timeout.as_millis(),
                     kill_error,
@@ -375,9 +316,92 @@ fn execute(command: &mut Command) -> Result<Execution> {
                 duration_ms: started.elapsed().as_millis(),
                 timeout_ms: timeout.as_millis(),
                 containment: ProcessContainment::METHOD,
-            })
+            }
+        }
+        Err(error) => {
+            let (status, cleanup_error) = terminate_and_reap(&containment, &mut child);
+            let error = cleanup_error.map_or_else(
+                || error.to_string(),
+                |cleanup| format!("{error}; cleanup failed: {cleanup}"),
+            );
+            Execution {
+                outcome: ProcessOutcome::RunnerFailed { error },
+                status,
+                duration_ms: started.elapsed().as_millis(),
+                timeout_ms: timeout.as_millis(),
+                containment: ProcessContainment::METHOD,
+            }
         }
     }
+}
+
+fn terminate_and_reap(
+    containment: &ProcessContainment,
+    child: &mut std::process::Child,
+) -> (Option<ExitStatus>, Option<String>) {
+    let mut errors = Vec::new();
+    if let Err(error) = containment.terminate(child) {
+        errors.push(format!("containment termination failed: {error}"));
+        if let Err(error) = child.kill() {
+            errors.push(format!("direct child termination failed: {error}"));
+        }
+    }
+
+    let status = match child.wait_timeout(TERMINATION_REAP_TIMEOUT) {
+        Ok(Some(status)) => Some(status),
+        Ok(None) => {
+            if let Err(error) = child.kill() {
+                errors.push(format!("direct child termination failed: {error}"));
+            }
+            match child.wait_timeout(TERMINATION_REAP_TIMEOUT) {
+                Ok(Some(status)) => Some(status),
+                Ok(None) => {
+                    errors.push("process did not exit within the termination grace period".into());
+                    None
+                }
+                Err(error) => {
+                    errors.push(format!("unable to reap terminated process: {error}"));
+                    None
+                }
+            }
+        }
+        Err(error) => {
+            errors.push(format!("unable to reap terminated process: {error}"));
+            None
+        }
+    };
+    let error = (!errors.is_empty()).then(|| errors.join("; "));
+    (status, error)
+}
+
+fn status_outcome(status: ExitStatus) -> ProcessOutcome {
+    status.code().map_or_else(
+        || ProcessOutcome::Terminated {
+            detail: termination_detail(status),
+        },
+        |code| ProcessOutcome::Exited { code },
+    )
+}
+
+#[cfg(unix)]
+fn termination_detail(status: ExitStatus) -> String {
+    use std::os::unix::process::ExitStatusExt as _;
+
+    status.signal().map_or_else(
+        || "no exit code or signal was reported".to_owned(),
+        |signal| {
+            if status.core_dumped() {
+                format!("signal {signal} (core dumped)")
+            } else {
+                format!("signal {signal}")
+            }
+        },
+    )
+}
+
+#[cfg(not(unix))]
+fn termination_detail(_status: ExitStatus) -> String {
+    "no native exit code was reported".to_owned()
 }
 
 fn process_timeout() -> Result<Duration> {
@@ -401,10 +425,28 @@ pub(crate) fn run_logged(
     label: impl Into<String>,
     stdout_path: &Path,
     stderr_path: &Path,
-) -> Result<ProcessRecord> {
+) -> ProcessRecord {
     let context = ProcessContext::capture(command);
     let label = label.into();
-    let timeout_ms = process_timeout().ok().map(|timeout| timeout.as_millis());
+    let timeout = match process_timeout() {
+        Ok(timeout) => timeout,
+        Err(error) => {
+            return context.record(
+                label,
+                ProcessOutcome::RunnerFailed {
+                    error: error.to_string(),
+                },
+                0,
+                None,
+                ProcessContainment::METHOD,
+                LogPaths {
+                    stdout: stdout_path,
+                    stderr: stderr_path,
+                },
+            );
+        }
+    };
+    let timeout_ms = Some(timeout.as_millis());
     let failed = |outcome| {
         context.record(
             label.clone(),
@@ -422,36 +464,36 @@ pub(crate) fn run_logged(
         if let Some(parent) = path.parent()
             && let Err(error) = fs::create_dir_all(parent)
         {
-            return Ok(failed(ProcessOutcome::LogSetupFailed {
+            return failed(ProcessOutcome::LogSetupFailed {
                 error: error.to_string(),
-            }));
+            });
         }
     }
     let stdout = match File::create(stdout_path) {
         Ok(stdout) => stdout,
         Err(error) => {
-            return Ok(failed(ProcessOutcome::LogSetupFailed {
+            return failed(ProcessOutcome::LogSetupFailed {
                 error: error.to_string(),
-            }));
+            });
         }
     };
     let stderr = match File::create(stderr_path) {
         Ok(stderr) => stderr,
         Err(error) => {
-            return Ok(failed(ProcessOutcome::LogSetupFailed {
+            return failed(ProcessOutcome::LogSetupFailed {
                 error: error.to_string(),
-            }));
+            });
         }
     };
     println!("+ {label}");
     command
         .stdout(Stdio::from(stdout))
         .stderr(Stdio::from(stderr));
-    let execution = execute(command)?;
+    let execution = execute(command, timeout);
     if let ProcessOutcome::SpawnFailed { error } = &execution.outcome {
         let _ = fs::write(stderr_path, format!("unable to start process: {error}\n"));
     }
-    Ok(context.record(
+    context.record(
         label,
         execution.outcome,
         execution.duration_ms,
@@ -461,7 +503,7 @@ pub(crate) fn run_logged(
             stdout: stdout_path,
             stderr: stderr_path,
         },
-    ))
+    )
 }
 
 pub(crate) fn run_logged_attempt(
@@ -470,17 +512,7 @@ pub(crate) fn run_logged_attempt(
     stdout_path: &Path,
     stderr_path: &Path,
 ) -> ProcessRecord {
-    let label = label.into();
-    match run_logged(command, label.clone(), stdout_path, stderr_path) {
-        Ok(record) => record,
-        Err(error) => ProcessRecord::runner_failed(
-            command,
-            label,
-            stdout_path.to_owned(),
-            stderr_path.to_owned(),
-            error.to_string(),
-        ),
-    }
+    run_logged(command, label, stdout_path, stderr_path)
 }
 
 pub(crate) fn display_os(value: &OsStr) -> String {
@@ -545,5 +577,25 @@ mod tests {
         assert_eq!(serialized["outcome"]["kind"], "skipped");
         assert!(serialized.get("exit_code").is_none());
         assert!(matches!(&process.outcome, ProcessOutcome::Skipped { .. }));
+    }
+
+    #[test]
+    fn timed_out_processes_are_terminated_and_reaped() {
+        #[cfg(windows)]
+        let mut command = {
+            let mut command = Command::new("cmd");
+            command.args(["/C", "ping -n 30 127.0.0.1 >nul"]);
+            command
+        };
+        #[cfg(unix)]
+        let mut command = {
+            let mut command = Command::new("sh");
+            command.args(["-c", "sleep 30"]);
+            command
+        };
+
+        let execution = execute(&mut command, Duration::from_millis(20));
+        assert!(matches!(execution.outcome, ProcessOutcome::TimedOut { .. }));
+        assert!(execution.status.is_some());
     }
 }

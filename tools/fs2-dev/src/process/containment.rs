@@ -54,7 +54,11 @@ pub(super) struct ProcessContainment {
 
 #[cfg(windows)]
 impl ProcessContainment {
-    pub(super) const METHOD: &'static str = "windows-job-object";
+    // `std::process::Command` has no MSRV-compatible pre-spawn job-list hook.
+    // Assignment is therefore verified immediately after spawn, and any
+    // assignment failure invalidates the process record instead of accepting
+    // a successful native exit as contained evidence.
+    pub(super) const METHOD: &'static str = "windows-job-object-post-spawn";
 
     pub(super) fn configure(_command: &mut Command) -> io::Result<Self> {
         use std::mem::{size_of, zeroed};
