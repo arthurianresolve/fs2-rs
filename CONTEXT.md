@@ -66,15 +66,16 @@ The unpublished Rust `fs2-dev` workspace tool owns support-matrix validation,
 compatibility checks, measurement policy, process execution, atomic reports,
 and benchmark orchestration. Typed configuration models reject unknown fields
 and carry explicit schema versions. One native command runner captures stdout,
-stderr, duration, and exact exit status. Tooling dependencies do not enter the
-published package or production dependency graph.
+stderr, duration, working directory, command-local environment, and a typed
+process outcome. Tooling dependencies do not enter the published package or
+production dependency graph.
 
 Performance comparisons independently stage both subjects and their target
-directories, use identical harness and lockfile inputs, and retain native exits,
-estimates, dispersion, outliers, disk state, and artifact paths. Every fresh
-subject process performs one explicit priming invocation before timed work; the
-prime is recorded as cold-start evidence and excluded from all runtime
-statistics. Criterion warm-up is likewise excluded.
+directories, use identical harness and lockfile inputs, and retain typed process
+outcomes, estimates, dispersion, outliers, disk state, and artifact paths. Every
+fresh subject process performs and records one explicit priming invocation
+before Criterion warm-up and timed work. A separate single-execution process
+records cold-start evidence. Neither source enters runtime statistics.
 
 General ref comparisons use at least eight A-B-B-A blocks and reject blocks
 whose directional-pair spread exceeds 20%. Each accepted block contributes one

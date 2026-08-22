@@ -35,22 +35,20 @@ pub(crate) fn statvfs(path: &Path) -> Result<FilesystemCounters> {
 }
 
 #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
-// libc fields are platform ABI-dependent (including signed widths), so we
-// normalize to i64 before doing a checked nonnegative conversion.
-#[allow(clippy::unnecessary_cast)]
 fn statvfs_cstr(path: &CStr) -> Result<FilesystemCounters> {
     let stat = query_stat(MaybeUninit::<libc::statfs>::uninit(), |stat| unsafe {
         // SAFETY: `path` is null-terminated and `stat` points to writable storage
         // large enough for `libc::statfs`.
         libc::statfs(path.as_ptr(), stat)
     })?;
-    unix_filesystem_counters_from_values(
-        stat.f_frsize as i64,
-        stat.f_bsize as i64,
-        stat.f_bfree as i64,
-        stat.f_bavail as i64,
-        stat.f_blocks as i64,
-    )
+    let fragment_size = filesystem_value(stat.f_frsize, INVALID_FRAGMENT_SIZE)?;
+    let block_size = filesystem_value(stat.f_bsize, "filesystem returned a negative block size")?;
+    Ok(FilesystemCounters::unix_blocks(
+        linux_allocation_granularity(fragment_size, block_size),
+        filesystem_value(stat.f_bfree, INVALID_FREE_BLOCKS)?,
+        filesystem_value(stat.f_bavail, INVALID_AVAILABLE_BLOCKS)?,
+        filesystem_value(stat.f_blocks, INVALID_TOTAL_BLOCKS)?,
+    ))
 }
 
 #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
@@ -63,20 +61,17 @@ fn linux_allocation_granularity(fragment_size: u64, block_size: u64) -> u64 {
 }
 
 #[cfg(not(all(target_os = "linux", target_pointer_width = "64")))]
-// libc fields are platform ABI-dependent (including signed widths), so we
-// normalize to i64 before doing a checked nonnegative conversion.
-#[allow(clippy::unnecessary_cast)]
 fn statvfs_cstr(path: &CStr) -> Result<FilesystemCounters> {
     let stat = query_stat(MaybeUninit::<libc::statvfs>::uninit(), |stat| unsafe {
         // SAFETY: `path` is null-terminated and `stat` points to writable storage.
         libc::statvfs(path.as_ptr() as *const _, stat)
     })?;
-    unix_filesystem_counters_from_values(
-        stat.f_frsize as i64,
-        stat.f_bfree as i64,
-        stat.f_bavail as i64,
-        stat.f_blocks as i64,
-    )
+    Ok(FilesystemCounters::unix_blocks(
+        filesystem_value(stat.f_frsize, INVALID_FRAGMENT_SIZE)?,
+        filesystem_value(stat.f_bfree, INVALID_FREE_BLOCKS)?,
+        filesystem_value(stat.f_bavail, INVALID_AVAILABLE_BLOCKS)?,
+        filesystem_value(stat.f_blocks, INVALID_TOTAL_BLOCKS)?,
+    ))
 }
 
 #[inline(always)]
@@ -90,73 +85,22 @@ fn query_stat<T>(mut stat: MaybeUninit<T>, query: impl FnOnce(*mut T) -> libc::c
     }
 }
 
-#[cfg(all(target_os = "linux", target_pointer_width = "64"))]
-#[inline(always)]
-fn unix_filesystem_counters_from_values(
-    fragment_size: i64,
-    block_size: i64,
-    free_blocks: i64,
-    available_blocks: i64,
-    total_blocks: i64,
-) -> Result<FilesystemCounters> {
-    let (fragment_size, free_blocks, available_blocks, total_blocks) =
-        parse_unix_block_values(fragment_size, free_blocks, available_blocks, total_blocks)?;
-    let block_size =
-        nonnegative_filesystem_value(block_size, "filesystem returned a negative block size")?;
-    Ok(FilesystemCounters::unix_blocks(
-        linux_allocation_granularity(fragment_size, block_size),
-        free_blocks,
-        available_blocks,
-        total_blocks,
-    ))
-}
-
-#[cfg(not(all(target_os = "linux", target_pointer_width = "64")))]
-#[inline(always)]
-fn unix_filesystem_counters_from_values(
-    fragment_size: i64,
-    free_blocks: i64,
-    available_blocks: i64,
-    total_blocks: i64,
-) -> Result<FilesystemCounters> {
-    let (fragment_size, free_blocks, available_blocks, total_blocks) =
-        parse_unix_block_values(fragment_size, free_blocks, available_blocks, total_blocks)?;
-    Ok(FilesystemCounters::unix_blocks(
-        fragment_size,
-        free_blocks,
-        available_blocks,
-        total_blocks,
-    ))
-}
-
 pub(crate) fn space(path: &Path, kind: SpaceKind) -> Result<u64> {
     statvfs(path)?.space(kind)
 }
 
-fn nonnegative_filesystem_value(value: i64, message: &'static str) -> Result<u64> {
+fn filesystem_value<T>(value: T, message: &'static str) -> Result<u64>
+where
+    T: TryInto<u64>,
+{
     value.try_into().map_err(|_| invalid_stats(message))
-}
-
-#[inline(always)]
-fn parse_unix_block_values(
-    fragment_size: i64,
-    free_blocks: i64,
-    available_blocks: i64,
-    total_blocks: i64,
-) -> Result<(u64, u64, u64, u64)> {
-    Ok((
-        nonnegative_filesystem_value(fragment_size, INVALID_FRAGMENT_SIZE)?,
-        nonnegative_filesystem_value(free_blocks, INVALID_FREE_BLOCKS)?,
-        nonnegative_filesystem_value(available_blocks, INVALID_AVAILABLE_BLOCKS)?,
-        nonnegative_filesystem_value(total_blocks, INVALID_TOTAL_BLOCKS)?,
-    ))
 }
 
 #[cfg(test)]
 mod test {
     #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
     use super::linux_allocation_granularity;
-    use super::{nonnegative_filesystem_value, statvfs};
+    use super::{filesystem_value, statvfs};
     use std::io::ErrorKind;
     use tempfile::tempdir;
 
@@ -170,15 +114,13 @@ mod test {
     #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
     #[test]
     fn rejects_negative_native_sizes_and_statfs_values() {
+        assert_eq!(filesystem_value(0, "negative value").unwrap(), 0);
+        assert_eq!(filesystem_value(4096i64, "negative value").unwrap(), 4096);
+        assert!(filesystem_value(-1i64, "negative value").is_err());
         assert_eq!(
-            nonnegative_filesystem_value(0, "negative value").unwrap(),
-            0
+            filesystem_value(u64::MAX, "negative value").unwrap(),
+            u64::MAX
         );
-        assert_eq!(
-            nonnegative_filesystem_value(4096i64, "negative value").unwrap(),
-            4096
-        );
-        assert!(nonnegative_filesystem_value(-1i64, "negative value").is_err());
     }
 
     #[cfg(all(target_os = "linux", target_pointer_width = "64"))]

@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
@@ -61,20 +62,62 @@ pub(crate) fn toolchain_key() -> Result<String> {
 }
 
 #[derive(Clone, Debug, Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub(crate) enum ProcessOutcome {
+    Exited { code: i32 },
+    Terminated,
+    SpawnFailed { error: String },
+    LogSetupFailed { error: String },
+    Skipped { reason: String },
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub(crate) struct ProcessRecord {
     pub(crate) label: String,
     pub(crate) command: Vec<String>,
-    pub(crate) exit_code: i32,
+    pub(crate) current_dir: Option<PathBuf>,
+    pub(crate) environment_overrides: BTreeMap<String, Option<String>>,
+    pub(crate) outcome: ProcessOutcome,
     pub(crate) duration_ms: u128,
     pub(crate) stdout: PathBuf,
     pub(crate) stderr: PathBuf,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) spawn_error: Option<String>,
 }
 
 impl ProcessRecord {
     pub(crate) fn succeeded(&self) -> bool {
-        self.exit_code == 0 && self.spawn_error.is_none()
+        matches!(&self.outcome, ProcessOutcome::Exited { code: 0 })
+    }
+
+    pub(crate) fn failure_description(&self) -> String {
+        match &self.outcome {
+            ProcessOutcome::Exited { code } => format!("native exit {code}"),
+            ProcessOutcome::Terminated => "process terminated without an exit code".to_owned(),
+            ProcessOutcome::SpawnFailed { error } => format!("process spawn failed: {error}"),
+            ProcessOutcome::LogSetupFailed { error } => {
+                format!("process log setup failed: {error}")
+            }
+            ProcessOutcome::Skipped { reason } => format!("process skipped: {reason}"),
+        }
+    }
+
+    pub(crate) fn skipped(
+        label: impl Into<String>,
+        stdout: PathBuf,
+        stderr: PathBuf,
+        reason: impl Into<String>,
+    ) -> Self {
+        Self {
+            label: label.into(),
+            command: Vec::new(),
+            current_dir: std::env::current_dir().ok(),
+            environment_overrides: BTreeMap::new(),
+            outcome: ProcessOutcome::Skipped {
+                reason: reason.into(),
+            },
+            duration_ms: 0,
+            stdout,
+            stderr,
+        }
     }
 }
 
@@ -88,34 +131,60 @@ pub(crate) fn run_logged(
         .chain(command.get_args())
         .map(|value| value.to_string_lossy().into_owned())
         .collect::<Vec<_>>();
+    let current_dir = command
+        .get_current_dir()
+        .map(Path::to_owned)
+        .or_else(|| std::env::current_dir().ok());
+    let environment_overrides = command
+        .get_envs()
+        .map(|(name, value)| {
+            (
+                name.to_string_lossy().into_owned(),
+                value.map(|value| value.to_string_lossy().into_owned()),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
     let label = label.into();
-    let failed = |error: std::io::Error| ProcessRecord {
+    let failed = |outcome| ProcessRecord {
         label: label.clone(),
         command: rendered.clone(),
-        exit_code: 127,
+        current_dir: current_dir.clone(),
+        environment_overrides: environment_overrides.clone(),
+        outcome,
         duration_ms: 0,
         stdout: stdout_path.to_owned(),
         stderr: stderr_path.to_owned(),
-        spawn_error: Some(error.to_string()),
     };
     if let Some(parent) = stdout_path.parent()
         && let Err(error) = fs::create_dir_all(parent)
     {
-        return Ok(failed(error));
+        return Ok(failed(ProcessOutcome::LogSetupFailed {
+            error: error.to_string(),
+        }));
     }
     if let Some(parent) = stderr_path.parent()
         && let Err(error) = fs::create_dir_all(parent)
     {
-        return Ok(failed(error));
+        return Ok(failed(ProcessOutcome::LogSetupFailed {
+            error: error.to_string(),
+        }));
     }
     println!("+ {label}");
     let stdout = match File::create(stdout_path) {
         Ok(stdout) => stdout,
-        Err(error) => return Ok(failed(error)),
+        Err(error) => {
+            return Ok(failed(ProcessOutcome::LogSetupFailed {
+                error: error.to_string(),
+            }));
+        }
     };
     let stderr = match File::create(stderr_path) {
         Ok(stderr) => stderr,
-        Err(error) => return Ok(failed(error)),
+        Err(error) => {
+            return Ok(failed(ProcessOutcome::LogSetupFailed {
+                error: error.to_string(),
+            }));
+        }
     };
     command
         .stdout(Stdio::from(stdout))
@@ -125,23 +194,46 @@ pub(crate) fn run_logged(
         Ok(status) => Ok(ProcessRecord {
             label,
             command: rendered,
-            exit_code: status.code().unwrap_or(-1),
+            current_dir,
+            environment_overrides,
+            outcome: status.code().map_or(ProcessOutcome::Terminated, |code| {
+                ProcessOutcome::Exited { code }
+            }),
             duration_ms: started.elapsed().as_millis(),
             stdout: stdout_path.to_owned(),
             stderr: stderr_path.to_owned(),
-            spawn_error: None,
         }),
         Err(error) => {
             let _ = fs::write(stderr_path, format!("unable to start process: {error}\n"));
             Ok(ProcessRecord {
                 label,
                 command: rendered,
-                exit_code: 127,
+                current_dir,
+                environment_overrides,
+                outcome: ProcessOutcome::SpawnFailed {
+                    error: error.to_string(),
+                },
                 duration_ms: started.elapsed().as_millis(),
                 stdout: stdout_path.to_owned(),
                 stderr: stderr_path.to_owned(),
-                spawn_error: Some(error.to_string()),
             })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn skipped_processes_are_not_native_exits() {
+        let process = ProcessRecord::skipped(
+            "build",
+            PathBuf::from("stdout"),
+            PathBuf::from("stderr"),
+            "setup failed",
+        );
+        assert!(!process.succeeded());
+        assert!(matches!(process.outcome, ProcessOutcome::Skipped { .. }));
     }
 }

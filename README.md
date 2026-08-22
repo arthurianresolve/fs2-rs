@@ -102,14 +102,15 @@ cargo xtask bench stats --help
 
 The compatibility command compiles one frozen v0.4 consumer against exact fs2
 0.4.3 and the current checkout across Rust editions 2015 through 2024. The
-benchmark commands stage subjects independently, retain native exits and
-artifacts, and apply the versioned policy in
+benchmark commands stage subjects independently, retain typed process outcomes
+and artifacts, and apply the versioned policy in
 `benchmarks/measurement-policy.json`.
 
 Every benchmark subject receives one explicit unmeasured priming invocation in
-each fresh process. Its duration, exit status, and errors are cold-start
-evidence only; they are never included in runtime estimates, medians, ratios,
-confidence bounds, or Criterion samples. Stable comparisons use exact,
+each fresh process before Criterion warm-up. A separate single-execution
+process records cold-start duration, outcome, and errors. Neither source is
+included in runtime estimates, medians, ratios, confidence bounds, or Criterion
+samples. Stable comparisons use exact,
 distribution-free one-sided 95% median bounds and reject any affected workload
 whose upper candidate-to-baseline ratio exceeds `1.02`. Windows filesystem-stat
 comparisons additionally use same-process alternating calls and an A/A control
