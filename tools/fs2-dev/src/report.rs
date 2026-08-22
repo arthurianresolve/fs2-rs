@@ -73,9 +73,50 @@ mod tests {
             serde_json::json!({ "run": 1 }),
         ))
         .unwrap();
-        assert_eq!(report["schema_version"], SCHEMA_VERSION);
-        assert_eq!(report["status"], "completed");
-        assert_eq!(report["valid"], true);
+        assert_eq!(SCHEMA_VERSION, 3);
+        assert_eq!(
+            report,
+            serde_json::json!({
+                "schema_version": 3,
+                "status": "completed",
+                "valid": true,
+                "run": 1
+            })
+        );
+
+        let invalid = serde_json::to_value(ReportEnvelope::new(
+            "invalid-execution",
+            false,
+            serde_json::json!({ "error": "setup failed" }),
+        ))
+        .unwrap();
+        assert_eq!(invalid["schema_version"], 3);
+        assert_eq!(invalid["status"], "invalid-execution");
+        assert_eq!(invalid["valid"], false);
+        assert_eq!(invalid["error"], "setup failed");
+
+        let mut command = std::process::Command::new("cargo");
+        command.current_dir("repository").arg("build");
+        let process = crate::process::ProcessRecord::skipped(
+            &command,
+            "build",
+            "stdout".into(),
+            "stderr".into(),
+            "setup failed",
+        );
+        let skipped = serde_json::to_value(ReportEnvelope::new(
+            "setup-failure",
+            false,
+            serde_json::json!({ "process": process }),
+        ))
+        .unwrap();
+        assert_eq!(skipped["schema_version"], 3);
+        assert_eq!(skipped["process"]["outcome"]["kind"], "skipped");
+        assert_eq!(
+            skipped["process"]["command"],
+            serde_json::json!(["cargo", "build"])
+        );
+        assert_eq!(skipped["process"]["current_dir"], "repository");
     }
 
     #[test]

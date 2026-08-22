@@ -17,7 +17,8 @@ pub(crate) struct MeasurementPolicy {
     pub(crate) criterion: CriterionPolicy,
     pub(crate) ref_to_ref: RefPolicy,
     pub(crate) cross_crate: CrossCratePolicy,
-    pub(crate) paired_stats: PairedStatsPolicy,
+    #[serde(rename = "paired_stats")]
+    pub(crate) paired_process: PairedProcessPolicy,
 }
 
 #[derive(Debug, Deserialize)]
@@ -46,7 +47,7 @@ pub(crate) struct CrossCratePolicy {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct PairedStatsPolicy {
+pub(crate) struct PairedProcessPolicy {
     pub(crate) confidence: f64,
     pub(crate) process_replicates: u64,
     pub(crate) cooldown_seconds: f64,
@@ -100,24 +101,24 @@ fn validate(policy: MeasurementPolicy) -> Result<MeasurementPolicy> {
         ));
     }
     balanced_order("cross_crate", &policy.cross_crate.pair_order)?;
-    if !(0.5..1.0).contains(&policy.paired_stats.confidence) {
+    if !(0.5..1.0).contains(&policy.paired_process.confidence) {
         return Err(invalid_data(
             "paired_stats confidence must be between 0.5 and 1",
         ));
     }
     minimum(
         "process_replicates",
-        policy.paired_stats.process_replicates,
+        policy.paired_process.process_replicates,
         1,
     )?;
-    if !policy.paired_stats.cooldown_seconds.is_finite()
-        || policy.paired_stats.cooldown_seconds < 0.0
+    if !policy.paired_process.cooldown_seconds.is_finite()
+        || policy.paired_process.cooldown_seconds < 0.0
     {
         return Err(invalid_data(
             "paired_stats cooldown_seconds must be finite and nonnegative",
         ));
     }
-    let _ = policy.paired_stats.aa_control;
+    let _ = policy.paired_process.aa_control;
     Ok(policy)
 }
 
@@ -195,7 +196,7 @@ mod tests {
                 pairs: 24,
                 pair_order: vec!["A".into(), "B".into(), "A".into(), "B".into()],
             },
-            paired_stats: PairedStatsPolicy {
+            paired_process: PairedProcessPolicy {
                 confidence: 0.95,
                 process_replicates: 8,
                 cooldown_seconds: 10.0,

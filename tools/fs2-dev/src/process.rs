@@ -83,6 +83,57 @@ pub(crate) struct ProcessRecord {
     pub(crate) stderr: PathBuf,
 }
 
+#[derive(Clone)]
+struct ProcessContext {
+    command: Vec<String>,
+    current_dir: Option<PathBuf>,
+    environment_overrides: BTreeMap<String, Option<String>>,
+}
+
+impl ProcessContext {
+    fn capture(command: &Command) -> Self {
+        Self {
+            command: std::iter::once(command.get_program())
+                .chain(command.get_args())
+                .map(|value| value.to_string_lossy().into_owned())
+                .collect(),
+            current_dir: command
+                .get_current_dir()
+                .map(Path::to_owned)
+                .or_else(|| std::env::current_dir().ok()),
+            environment_overrides: command
+                .get_envs()
+                .map(|(name, value)| {
+                    (
+                        name.to_string_lossy().into_owned(),
+                        value.map(|value| value.to_string_lossy().into_owned()),
+                    )
+                })
+                .collect(),
+        }
+    }
+
+    fn record(
+        &self,
+        label: String,
+        outcome: ProcessOutcome,
+        duration_ms: u128,
+        stdout: &Path,
+        stderr: &Path,
+    ) -> ProcessRecord {
+        ProcessRecord {
+            label,
+            command: self.command.clone(),
+            current_dir: self.current_dir.clone(),
+            environment_overrides: self.environment_overrides.clone(),
+            outcome,
+            duration_ms,
+            stdout: stdout.to_owned(),
+            stderr: stderr.to_owned(),
+        }
+    }
+}
+
 impl ProcessRecord {
     pub(crate) fn succeeded(&self) -> bool {
         matches!(&self.outcome, ProcessOutcome::Exited { code: 0 })
@@ -101,23 +152,21 @@ impl ProcessRecord {
     }
 
     pub(crate) fn skipped(
+        command: &Command,
         label: impl Into<String>,
         stdout: PathBuf,
         stderr: PathBuf,
         reason: impl Into<String>,
     ) -> Self {
-        Self {
-            label: label.into(),
-            command: Vec::new(),
-            current_dir: None,
-            environment_overrides: BTreeMap::new(),
-            outcome: ProcessOutcome::Skipped {
+        ProcessContext::capture(command).record(
+            label.into(),
+            ProcessOutcome::Skipped {
                 reason: reason.into(),
             },
-            duration_ms: 0,
-            stdout,
-            stderr,
-        }
+            0,
+            &stdout,
+            &stderr,
+        )
     }
 }
 
@@ -127,34 +176,9 @@ pub(crate) fn run_logged(
     stdout_path: &Path,
     stderr_path: &Path,
 ) -> Result<ProcessRecord> {
-    let rendered = std::iter::once(command.get_program())
-        .chain(command.get_args())
-        .map(|value| value.to_string_lossy().into_owned())
-        .collect::<Vec<_>>();
-    let current_dir = command
-        .get_current_dir()
-        .map(Path::to_owned)
-        .or_else(|| std::env::current_dir().ok());
-    let environment_overrides = command
-        .get_envs()
-        .map(|(name, value)| {
-            (
-                name.to_string_lossy().into_owned(),
-                value.map(|value| value.to_string_lossy().into_owned()),
-            )
-        })
-        .collect::<BTreeMap<_, _>>();
+    let context = ProcessContext::capture(command);
     let label = label.into();
-    let failed = |outcome| ProcessRecord {
-        label: label.clone(),
-        command: rendered.clone(),
-        current_dir: current_dir.clone(),
-        environment_overrides: environment_overrides.clone(),
-        outcome,
-        duration_ms: 0,
-        stdout: stdout_path.to_owned(),
-        stderr: stderr_path.to_owned(),
-    };
+    let failed = |outcome| context.record(label.clone(), outcome, 0, stdout_path, stderr_path);
     if let Some(parent) = stdout_path.parent()
         && let Err(error) = fs::create_dir_all(parent)
     {
@@ -191,32 +215,28 @@ pub(crate) fn run_logged(
         .stderr(Stdio::from(stderr));
     let started = Instant::now();
     match command.status() {
-        Ok(status) => Ok(ProcessRecord {
+        Ok(status) => Ok(context.record(
             label,
-            command: rendered,
-            current_dir,
-            environment_overrides,
-            outcome: status.code().map_or(ProcessOutcome::Terminated, |code| {
-                ProcessOutcome::Exited { code }
-            }),
-            duration_ms: started.elapsed().as_millis(),
-            stdout: stdout_path.to_owned(),
-            stderr: stderr_path.to_owned(),
-        }),
+            status
+                .code()
+                .map_or(ProcessOutcome::Terminated, |code| ProcessOutcome::Exited {
+                    code,
+                }),
+            started.elapsed().as_millis(),
+            stdout_path,
+            stderr_path,
+        )),
         Err(error) => {
             let _ = fs::write(stderr_path, format!("unable to start process: {error}\n"));
-            Ok(ProcessRecord {
+            Ok(context.record(
                 label,
-                command: rendered,
-                current_dir,
-                environment_overrides,
-                outcome: ProcessOutcome::SpawnFailed {
+                ProcessOutcome::SpawnFailed {
                     error: error.to_string(),
                 },
-                duration_ms: started.elapsed().as_millis(),
-                stdout: stdout_path.to_owned(),
-                stderr: stderr_path.to_owned(),
-            })
+                started.elapsed().as_millis(),
+                stdout_path,
+                stderr_path,
+            ))
         }
     }
 }
@@ -227,14 +247,28 @@ mod tests {
 
     #[test]
     fn skipped_processes_are_not_native_exits() {
+        let mut command = Command::new("cargo");
+        command
+            .current_dir("repository")
+            .arg("build")
+            .env("RUSTFLAGS", "-Ctarget-cpu=native");
         let process = ProcessRecord::skipped(
+            &command,
             "build",
             PathBuf::from("stdout"),
             PathBuf::from("stderr"),
             "setup failed",
         );
         assert!(!process.succeeded());
-        assert!(process.current_dir.is_none());
+        assert_eq!(
+            process.command,
+            vec!["cargo".to_owned(), "build".to_owned()]
+        );
+        assert_eq!(process.current_dir, Some(PathBuf::from("repository")));
+        assert_eq!(
+            process.environment_overrides["RUSTFLAGS"],
+            Some("-Ctarget-cpu=native".to_owned())
+        );
         let serialized = serde_json::to_value(&process).unwrap();
         assert_eq!(serialized["outcome"]["kind"], "skipped");
         assert!(serialized.get("exit_code").is_none());
