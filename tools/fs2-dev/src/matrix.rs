@@ -442,12 +442,32 @@ fn validate_locked_cargo(job_name: &str, command: &str) -> Result<()> {
 }
 
 fn next_cargo_invocation(value: &str) -> Option<usize> {
-    value.match_indices("cargo ").find_map(|(index, _)| {
-        let boundary = index == 0
-            || value.as_bytes()[index - 1].is_ascii_whitespace()
-            || matches!(value.as_bytes()[index - 1], b'&' | b'|' | b';' | b'(');
-        boundary.then_some(index)
-    })
+    let mut start = None;
+    for (index, character) in value
+        .char_indices()
+        .chain(std::iter::once((value.len(), ' ')))
+    {
+        let delimiter =
+            character.is_ascii_whitespace() || matches!(character, '&' | '|' | ';' | '(' | ')');
+        if delimiter {
+            if let Some(token_start) = start.take() {
+                let token = value[token_start..index]
+                    .trim_matches(|character| matches!(character, '\'' | '"'));
+                let executable = token
+                    .rsplit(|character| matches!(character, '/' | '\\'))
+                    .next()
+                    .unwrap_or(token);
+                if executable.eq_ignore_ascii_case("cargo")
+                    || executable.eq_ignore_ascii_case("cargo.exe")
+                {
+                    return Some(token_start);
+                }
+            }
+        } else if start.is_none() {
+            start = Some(index);
+        }
+    }
+    None
 }
 
 fn pinned_action(action: &str) -> bool {
@@ -545,6 +565,9 @@ mod tests {
         ));
         assert!(validate_locked_cargo("test", "echo preparing\ncargo test").is_err());
         assert!(validate_locked_cargo("test", "cargo check --locked && cargo test").is_err());
+        assert!(validate_locked_cargo("test", "cargo.exe test").is_err());
+        assert!(validate_locked_cargo("test", "cargo\ttest").is_err());
+        assert!(validate_locked_cargo("test", "/opt/rust/bin/cargo test").is_err());
         assert!(
             validate_locked_cargo("test", "cargo check --locked && cargo test --locked").is_ok()
         );

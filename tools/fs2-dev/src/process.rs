@@ -84,20 +84,39 @@ pub(crate) fn run_logged(
     stdout_path: &Path,
     stderr_path: &Path,
 ) -> Result<ProcessRecord> {
-    if let Some(parent) = stdout_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    if let Some(parent) = stderr_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
     let rendered = std::iter::once(command.get_program())
         .chain(command.get_args())
         .map(|value| value.to_string_lossy().into_owned())
         .collect::<Vec<_>>();
     let label = label.into();
+    let failed = |error: std::io::Error| ProcessRecord {
+        label: label.clone(),
+        command: rendered.clone(),
+        exit_code: 127,
+        duration_ms: 0,
+        stdout: stdout_path.to_owned(),
+        stderr: stderr_path.to_owned(),
+        spawn_error: Some(error.to_string()),
+    };
+    if let Some(parent) = stdout_path.parent()
+        && let Err(error) = fs::create_dir_all(parent)
+    {
+        return Ok(failed(error));
+    }
+    if let Some(parent) = stderr_path.parent()
+        && let Err(error) = fs::create_dir_all(parent)
+    {
+        return Ok(failed(error));
+    }
     println!("+ {label}");
-    let stdout = File::create(stdout_path)?;
-    let stderr = File::create(stderr_path)?;
+    let stdout = match File::create(stdout_path) {
+        Ok(stdout) => stdout,
+        Err(error) => return Ok(failed(error)),
+    };
+    let stderr = match File::create(stderr_path) {
+        Ok(stderr) => stderr,
+        Err(error) => return Ok(failed(error)),
+    };
     command
         .stdout(Stdio::from(stdout))
         .stderr(Stdio::from(stderr));
@@ -113,7 +132,7 @@ pub(crate) fn run_logged(
             spawn_error: None,
         }),
         Err(error) => {
-            fs::write(stderr_path, format!("unable to start process: {error}\n"))?;
+            let _ = fs::write(stderr_path, format!("unable to start process: {error}\n"));
             Ok(ProcessRecord {
                 label,
                 command: rendered,

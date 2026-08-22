@@ -29,14 +29,20 @@ impl<T> ReportEnvelope<T> {
 }
 
 #[derive(Serialize)]
-struct InvalidExecution<'a> {
+struct InvalidExecution<'a, T> {
     error: &'a str,
+    #[serde(flatten)]
+    context: T,
 }
 
-pub(crate) fn write_invalid(path: &Path, error: &str) -> Result<()> {
+pub(crate) fn write_invalid<T: Serialize>(path: &Path, error: &str, context: T) -> Result<()> {
     write_json(
         path,
-        &ReportEnvelope::new("invalid-execution", false, InvalidExecution { error }),
+        &ReportEnvelope::new(
+            "invalid-execution",
+            false,
+            InvalidExecution { error, context },
+        ),
     )
 }
 
