@@ -97,6 +97,7 @@ cargo xtask compatibility
 cargo xtask policy
 cargo xtask bench refs --help
 cargo xtask bench crates --help
+cargo xtask bench lock --help
 cargo xtask bench stats --help
 ```
 

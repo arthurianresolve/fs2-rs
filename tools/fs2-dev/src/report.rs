@@ -6,7 +6,7 @@ use tempfile::NamedTempFile;
 
 use crate::Result;
 
-pub(crate) const SCHEMA_VERSION: u64 = 3;
+pub(crate) const SCHEMA_VERSION: u64 = 4;
 
 #[derive(Serialize)]
 pub(crate) struct ReportEnvelope<T> {
@@ -73,11 +73,11 @@ mod tests {
             serde_json::json!({ "run": 1 }),
         ))
         .unwrap();
-        assert_eq!(SCHEMA_VERSION, 3);
+        assert_eq!(SCHEMA_VERSION, 4);
         assert_eq!(
             report,
             serde_json::json!({
-                "schema_version": 3,
+                "schema_version": 4,
                 "status": "completed",
                 "valid": true,
                 "run": 1
@@ -90,7 +90,7 @@ mod tests {
             serde_json::json!({ "error": "setup failed" }),
         ))
         .unwrap();
-        assert_eq!(invalid["schema_version"], 3);
+        assert_eq!(invalid["schema_version"], 4);
         assert_eq!(invalid["status"], "invalid-execution");
         assert_eq!(invalid["valid"], false);
         assert_eq!(invalid["error"], "setup failed");
@@ -110,7 +110,7 @@ mod tests {
             serde_json::json!({ "process": process }),
         ))
         .unwrap();
-        assert_eq!(skipped["schema_version"], 3);
+        assert_eq!(skipped["schema_version"], 4);
         assert_eq!(skipped["process"]["outcome"]["kind"], "skipped");
         assert_eq!(
             skipped["process"]["command"],

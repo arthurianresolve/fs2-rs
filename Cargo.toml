@@ -15,7 +15,7 @@ exclude = [
     ".github/",
     "benchmarks/",
     "compatibility/",
-    "BENCHMARK_VALIDATION_v0.7.md",
+    "BENCHMARK_VALIDATION_HISTORICAL.md",
     "CONTEXT.md",
     "deny.toml",
     "support-matrix.json",

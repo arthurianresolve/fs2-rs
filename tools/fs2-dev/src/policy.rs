@@ -8,6 +8,16 @@ use crate::{Result, invalid_data};
 const PAIRS_PER_BUILD_REPLICATE: usize = 4;
 const MIN_GATING_PAIRS: u64 = 24;
 const MIN_DRIFT_CORRECTED_BLOCKS: u64 = 8;
+const STRICT_PAIRED_REPLICATES: u64 = 8;
+const STRICT_PAIRED_CONFIDENCE: f64 = 0.95;
+const STRICT_SAMPLE_SIZE: u64 = 50;
+const STRICT_WARM_UP_SECONDS: f64 = 2.0;
+const STRICT_MEASUREMENT_SECONDS: f64 = 5.0;
+const STRICT_COOLDOWN_SECONDS: f64 = 10.0;
+const STRICT_NON_INFERIORITY_MARGIN: f64 = 0.02;
+pub(crate) const MAX_PAIRED_REPLICATES: u64 = 127;
+pub(crate) const MAX_SAMPLE_SIZE: u64 = 10_000;
+pub(crate) const MAX_DURATION_SECONDS: f64 = 3_600.0;
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -17,8 +27,20 @@ pub(crate) struct MeasurementPolicy {
     pub(crate) criterion: CriterionPolicy,
     pub(crate) ref_to_ref: RefPolicy,
     pub(crate) cross_crate: CrossCratePolicy,
-    #[serde(rename = "paired_stats")]
     pub(crate) paired_process: PairedProcessPolicy,
+}
+
+impl MeasurementPolicy {
+    pub(crate) fn meets_strict_paired_profile(&self) -> bool {
+        self.non_inferiority_margin <= STRICT_NON_INFERIORITY_MARGIN
+            && self.criterion.sample_size >= STRICT_SAMPLE_SIZE
+            && self.criterion.warm_up_seconds >= STRICT_WARM_UP_SECONDS
+            && self.criterion.measurement_seconds >= STRICT_MEASUREMENT_SECONDS
+            && self.paired_process.confidence >= STRICT_PAIRED_CONFIDENCE
+            && self.paired_process.process_replicates >= STRICT_PAIRED_REPLICATES
+            && self.paired_process.cooldown_seconds >= STRICT_COOLDOWN_SECONDS
+            && self.paired_process.aa_control
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -71,13 +93,24 @@ fn validate_path(path: &Path) -> Result<MeasurementPolicy> {
 }
 
 fn validate(policy: MeasurementPolicy) -> Result<MeasurementPolicy> {
-    if policy.schema_version != 2 {
-        return Err(invalid_data("measurement policy schema_version must be 2"));
+    if policy.schema_version != 3 {
+        return Err(invalid_data("measurement policy schema_version must be 3"));
     }
     fraction("non_inferiority_margin", policy.non_inferiority_margin)?;
     minimum("sample_size", policy.criterion.sample_size, 10)?;
+    maximum("sample_size", policy.criterion.sample_size, MAX_SAMPLE_SIZE)?;
     positive("warm_up_seconds", policy.criterion.warm_up_seconds)?;
     positive("measurement_seconds", policy.criterion.measurement_seconds)?;
+    maximum_float(
+        "warm_up_seconds",
+        policy.criterion.warm_up_seconds,
+        MAX_DURATION_SECONDS,
+    )?;
+    maximum_float(
+        "measurement_seconds",
+        policy.criterion.measurement_seconds,
+        MAX_DURATION_SECONDS,
+    )?;
     minimum(
         "minimum_blocks",
         policy.ref_to_ref.minimum_blocks,
@@ -103,7 +136,7 @@ fn validate(policy: MeasurementPolicy) -> Result<MeasurementPolicy> {
     balanced_order("cross_crate", &policy.cross_crate.pair_order)?;
     if !(0.5..1.0).contains(&policy.paired_process.confidence) {
         return Err(invalid_data(
-            "paired_stats confidence must be between 0.5 and 1",
+            "paired_process confidence must be between 0.5 and 1",
         ));
     }
     minimum(
@@ -111,14 +144,23 @@ fn validate(policy: MeasurementPolicy) -> Result<MeasurementPolicy> {
         policy.paired_process.process_replicates,
         1,
     )?;
+    maximum(
+        "process_replicates",
+        policy.paired_process.process_replicates,
+        MAX_PAIRED_REPLICATES,
+    )?;
     if !policy.paired_process.cooldown_seconds.is_finite()
         || policy.paired_process.cooldown_seconds < 0.0
     {
         return Err(invalid_data(
-            "paired_stats cooldown_seconds must be finite and nonnegative",
+            "paired_process cooldown_seconds must be finite and nonnegative",
         ));
     }
-    let _ = policy.paired_process.aa_control;
+    maximum_float(
+        "paired_process.cooldown_seconds",
+        policy.paired_process.cooldown_seconds,
+        MAX_DURATION_SECONDS,
+    )?;
     Ok(policy)
 }
 
@@ -129,6 +171,26 @@ fn minimum(name: &str, value: u64, minimum: u64) -> Result<()> {
         )))
     } else {
         Ok(())
+    }
+}
+
+fn maximum(name: &str, value: u64, maximum: u64) -> Result<()> {
+    if value > maximum {
+        Err(invalid_data(format!(
+            "measurement policy field {name:?} must be an integer <= {maximum}"
+        )))
+    } else {
+        Ok(())
+    }
+}
+
+fn maximum_float(name: &str, value: f64, maximum: f64) -> Result<()> {
+    if value <= maximum {
+        Ok(())
+    } else {
+        Err(invalid_data(format!(
+            "measurement policy field {name:?} must be <= {maximum}"
+        )))
     }
 }
 
@@ -179,7 +241,7 @@ mod tests {
 
     fn valid_policy() -> MeasurementPolicy {
         MeasurementPolicy {
-            schema_version: 2,
+            schema_version: 3,
             non_inferiority_margin: 0.02,
             criterion: CriterionPolicy {
                 sample_size: 50,
@@ -207,8 +269,10 @@ mod tests {
 
     #[test]
     fn accepts_repository_policy() {
-        validate_path(&crate::repository_root().join("benchmarks/measurement-policy.json"))
-            .unwrap();
+        let policy =
+            validate_path(&crate::repository_root().join("benchmarks/measurement-policy.json"))
+                .unwrap();
+        assert!(policy.meets_strict_paired_profile());
     }
 
     #[test]
@@ -223,5 +287,20 @@ mod tests {
         let mut policy = valid_policy();
         policy.cross_crate.pairs = 16;
         assert!(validate(policy).is_err());
+    }
+
+    #[test]
+    fn weak_paired_profiles_are_exploratory() {
+        let mut policy = valid_policy();
+        policy.paired_process.aa_control = false;
+        assert!(!policy.meets_strict_paired_profile());
+
+        let mut policy = valid_policy();
+        policy.paired_process.process_replicates = 7;
+        assert!(!policy.meets_strict_paired_profile());
+
+        let mut policy = valid_policy();
+        policy.paired_process.confidence = 0.90;
+        assert!(!policy.meets_strict_paired_profile());
     }
 }
