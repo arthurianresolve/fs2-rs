@@ -8,6 +8,8 @@ use crate::{Result, invalid_data};
 const PAIRS_PER_BUILD_REPLICATE: usize = 4;
 const MIN_GATING_PAIRS: u64 = 24;
 const MIN_DRIFT_CORRECTED_BLOCKS: u64 = 8;
+const MAX_DRIFT_CORRECTED_BLOCKS: u64 = 64;
+const MAX_GATING_PAIRS: u64 = 128;
 const STRICT_PAIRED_REPLICATES: u64 = 8;
 const STRICT_PAIRED_CONFIDENCE: f64 = 0.95;
 const STRICT_SAMPLE_SIZE: u64 = 50;
@@ -18,6 +20,7 @@ const STRICT_NON_INFERIORITY_MARGIN: f64 = 0.02;
 pub(crate) const MAX_PAIRED_REPLICATES: u64 = 127;
 pub(crate) const MAX_SAMPLE_SIZE: u64 = 10_000;
 pub(crate) const MAX_DURATION_SECONDS: f64 = 3_600.0;
+pub(crate) const MIN_BENCHMARK_FREE_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -56,7 +59,9 @@ pub(crate) struct CriterionPolicy {
 pub(crate) struct RefPolicy {
     pub(crate) blocks: u64,
     pub(crate) minimum_blocks: u64,
+    pub(crate) maximum_blocks: u64,
     pub(crate) max_pair_spread: f64,
+    pub(crate) cooldown_seconds: f64,
     pub(crate) pair_order: Vec<String>,
 }
 
@@ -64,6 +69,8 @@ pub(crate) struct RefPolicy {
 #[serde(deny_unknown_fields)]
 pub(crate) struct CrossCratePolicy {
     pub(crate) pairs: u64,
+    pub(crate) maximum_pairs: u64,
+    pub(crate) minimum_free_bytes: u64,
     pub(crate) pair_order: Vec<String>,
 }
 
@@ -93,8 +100,8 @@ fn validate_path(path: &Path) -> Result<MeasurementPolicy> {
 }
 
 fn validate(policy: MeasurementPolicy) -> Result<MeasurementPolicy> {
-    if policy.schema_version != 3 {
-        return Err(invalid_data("measurement policy schema_version must be 3"));
+    if policy.schema_version != 4 {
+        return Err(invalid_data("measurement policy schema_version must be 4"));
     }
     fraction("non_inferiority_margin", policy.non_inferiority_margin)?;
     minimum("sample_size", policy.criterion.sample_size, 10)?;
@@ -121,9 +128,43 @@ fn validate(policy: MeasurementPolicy) -> Result<MeasurementPolicy> {
         policy.ref_to_ref.blocks,
         policy.ref_to_ref.minimum_blocks,
     )?;
+    maximum(
+        "maximum_blocks",
+        policy.ref_to_ref.maximum_blocks,
+        MAX_DRIFT_CORRECTED_BLOCKS,
+    )?;
+    maximum(
+        "blocks",
+        policy.ref_to_ref.blocks,
+        policy.ref_to_ref.maximum_blocks,
+    )?;
     fraction("max_pair_spread", policy.ref_to_ref.max_pair_spread)?;
+    positive(
+        "ref_to_ref.cooldown_seconds",
+        policy.ref_to_ref.cooldown_seconds,
+    )?;
+    maximum_float(
+        "ref_to_ref.cooldown_seconds",
+        policy.ref_to_ref.cooldown_seconds,
+        MAX_DURATION_SECONDS,
+    )?;
     balanced_order("ref_to_ref", &policy.ref_to_ref.pair_order)?;
     minimum("pairs", policy.cross_crate.pairs, MIN_GATING_PAIRS)?;
+    maximum(
+        "maximum_pairs",
+        policy.cross_crate.maximum_pairs,
+        MAX_GATING_PAIRS,
+    )?;
+    maximum(
+        "pairs",
+        policy.cross_crate.pairs,
+        policy.cross_crate.maximum_pairs,
+    )?;
+    minimum(
+        "minimum_free_bytes",
+        policy.cross_crate.minimum_free_bytes,
+        MIN_BENCHMARK_FREE_BYTES,
+    )?;
     if !policy
         .cross_crate
         .pairs
@@ -241,7 +282,7 @@ mod tests {
 
     fn valid_policy() -> MeasurementPolicy {
         MeasurementPolicy {
-            schema_version: 3,
+            schema_version: 4,
             non_inferiority_margin: 0.02,
             criterion: CriterionPolicy {
                 sample_size: 50,
@@ -251,11 +292,15 @@ mod tests {
             ref_to_ref: RefPolicy {
                 blocks: 8,
                 minimum_blocks: 8,
+                maximum_blocks: 64,
                 max_pair_spread: 0.2,
+                cooldown_seconds: 10.0,
                 pair_order: vec!["A".into(), "B".into(), "B".into(), "A".into()],
             },
             cross_crate: CrossCratePolicy {
                 pairs: 24,
+                maximum_pairs: 128,
+                minimum_free_bytes: MIN_BENCHMARK_FREE_BYTES,
                 pair_order: vec!["A".into(), "B".into(), "A".into(), "B".into()],
             },
             paired_process: PairedProcessPolicy {

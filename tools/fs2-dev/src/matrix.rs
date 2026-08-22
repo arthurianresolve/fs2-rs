@@ -9,42 +9,52 @@ use serde_json::Value;
 use crate::process;
 use crate::{Result, invalid_data};
 
-const APPROVED_RUNNERS: [&str; 4] = [
-    "macos-15-intel",
-    "macos-latest",
-    "ubuntu-latest",
-    "windows-latest",
-];
-const APPROVED_TARGETS: [&str; 19] = [
-    "aarch64-apple-darwin",
-    "aarch64-linux-android",
-    "aarch64-pc-windows-msvc",
-    "aarch64-unknown-linux-gnu",
-    "aarch64-unknown-linux-musl",
-    "armv7-unknown-linux-uclibceabihf",
-    "i686-linux-android",
-    "i686-pc-windows-gnu",
-    "i686-unknown-linux-gnu",
-    "powerpc64-unknown-linux-gnu",
-    "riscv64gc-unknown-linux-gnu",
-    "x86_64-apple-darwin",
-    "x86_64-pc-windows-gnu",
-    "x86_64-pc-windows-msvc",
-    "x86_64-unknown-freebsd",
-    "x86_64-unknown-illumos",
-    "x86_64-unknown-linux-gnu",
-    "x86_64-unknown-netbsd",
-    "x86_64-unknown-redox",
-];
-const EVIDENCE_LEVELS: [&str; 3] = ["runtime", "compile", "not-covered"];
-const ALLOCATION_CAPABILITIES: [&str; 3] = ["physical-reservation", "unsupported", "unknown"];
 const MATRIX_TARGET_EXPRESSION: &str = "${{ matrix.target }}";
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd)]
+#[serde(rename_all = "kebab-case")]
+enum EvidenceLevel {
+    Runtime,
+    Compile,
+    NotCovered,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+enum AllocationCapability {
+    PhysicalReservation,
+    Unsupported,
+    Unknown,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize)]
+enum Runner {
+    #[serde(rename = "macos-15-intel")]
+    MacOsIntel,
+    #[serde(rename = "macos-latest")]
+    MacOs,
+    #[serde(rename = "ubuntu-latest")]
+    Ubuntu,
+    #[serde(rename = "windows-latest")]
+    Windows,
+}
+
+impl Runner {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::MacOsIntel => "macos-15-intel",
+            Self::MacOs => "macos-latest",
+            Self::Ubuntu => "ubuntu-latest",
+            Self::Windows => "windows-latest",
+        }
+    }
+}
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SupportRegistry {
     version: u64,
-    evidence_levels: Vec<String>,
+    evidence_levels: Vec<EvidenceLevel>,
     targets: Vec<TargetSpec>,
 }
 
@@ -53,8 +63,8 @@ struct SupportRegistry {
 struct TargetSpec {
     target: String,
     platform: String,
-    evidence: String,
-    allocation: String,
+    evidence: EvidenceLevel,
+    allocation: AllocationCapability,
     ci: Option<CiSpec>,
 }
 
@@ -62,7 +72,7 @@ struct TargetSpec {
 #[serde(deny_unknown_fields)]
 struct CiSpec {
     job: String,
-    runner: String,
+    runner: Runner,
     toolchains: Vec<String>,
     #[serde(default)]
     coverage: bool,
@@ -138,9 +148,17 @@ fn validate_registry(registry: &SupportRegistry, rust_version: &str) -> Result<(
     let levels = registry
         .evidence_levels
         .iter()
-        .map(String::as_str)
+        .copied()
         .collect::<BTreeSet<_>>();
-    if levels != EVIDENCE_LEVELS.into_iter().collect() {
+    if levels
+        != [
+            EvidenceLevel::Runtime,
+            EvidenceLevel::Compile,
+            EvidenceLevel::NotCovered,
+        ]
+        .into_iter()
+        .collect()
+    {
         return Err(invalid_data(
             "evidence_levels must contain runtime, compile, and not-covered",
         ));
@@ -153,7 +171,7 @@ fn validate_registry(registry: &SupportRegistry, rust_version: &str) -> Result<(
     let mut has_runtime = false;
     let mut has_coverage = false;
     for entry in &registry.targets {
-        if !APPROVED_TARGETS.contains(&entry.target.as_str()) {
+        if !is_target_triple(&entry.target) {
             return Err(invalid_data(format!(
                 "target is not approved: {:?}",
                 entry.target
@@ -171,21 +189,9 @@ fn validate_registry(registry: &SupportRegistry, rust_version: &str) -> Result<(
                 entry.target
             )));
         }
-        if !EVIDENCE_LEVELS.contains(&entry.evidence.as_str()) {
-            return Err(invalid_data(format!(
-                "unknown evidence level for {}",
-                entry.target
-            )));
-        }
-        if !ALLOCATION_CAPABILITIES.contains(&entry.allocation.as_str()) {
-            return Err(invalid_data(format!(
-                "unknown allocation capability for {}",
-                entry.target
-            )));
-        }
-        has_runtime |= entry.evidence == "runtime";
-        if entry.evidence == "not-covered" {
-            if entry.allocation != "unknown" || entry.ci.is_some() {
+        has_runtime |= entry.evidence == EvidenceLevel::Runtime;
+        if entry.evidence == EvidenceLevel::NotCovered {
+            if entry.allocation != AllocationCapability::Unknown || entry.ci.is_some() {
                 return Err(invalid_data(format!(
                     "not-covered target {} must use unknown allocation and no CI",
                     entry.target
@@ -193,7 +199,7 @@ fn validate_registry(registry: &SupportRegistry, rust_version: &str) -> Result<(
             }
             continue;
         }
-        if entry.allocation == "unknown" {
+        if entry.allocation == AllocationCapability::Unknown {
             return Err(invalid_data(format!(
                 "covered target {} must declare allocation capability",
                 entry.target
@@ -209,19 +215,13 @@ fn validate_registry(registry: &SupportRegistry, rust_version: &str) -> Result<(
                 entry.target
             )));
         }
-        if !APPROVED_RUNNERS.contains(&ci.runner.as_str()) {
-            return Err(invalid_data(format!(
-                "unapproved runner for {}",
-                entry.target
-            )));
-        }
         if ci.toolchains.is_empty() {
             return Err(invalid_data(format!(
                 "toolchains missing for {}",
                 entry.target
             )));
         }
-        if entry.evidence == "runtime"
+        if entry.evidence == EvidenceLevel::Runtime
             && ci.toolchains != [rust_version.to_owned(), "stable".to_owned()]
         {
             return Err(invalid_data(format!(
@@ -229,7 +229,7 @@ fn validate_registry(registry: &SupportRegistry, rust_version: &str) -> Result<(
                 entry.target
             )));
         }
-        if entry.evidence == "compile"
+        if entry.evidence == EvidenceLevel::Compile
             && ci.toolchains != [rust_version.to_owned()]
             && ci.toolchains != ["nightly".to_owned()]
         {
@@ -238,7 +238,7 @@ fn validate_registry(registry: &SupportRegistry, rust_version: &str) -> Result<(
                 entry.target
             )));
         }
-        if ci.coverage && entry.evidence != "runtime" {
+        if ci.coverage && entry.evidence != EvidenceLevel::Runtime {
             return Err(invalid_data(format!(
                 "compile target {} cannot provide native coverage",
                 entry.target
@@ -266,7 +266,7 @@ fn matrices(registry: &SupportRegistry) -> BTreeMap<String, Matrix> {
         });
         for toolchain in &ci.toolchains {
             matrix.include.push(MatrixEntry {
-                os: ci.runner.clone(),
+                os: ci.runner.as_str().to_owned(),
                 target: entry.target.clone(),
                 toolchain: toolchain.clone(),
             });
@@ -281,7 +281,7 @@ fn matrices(registry: &SupportRegistry) -> BTreeMap<String, Matrix> {
                 .filter_map(|entry| {
                     let ci = entry.ci.as_ref()?;
                     ci.coverage.then(|| MatrixEntry {
-                        os: ci.runner.clone(),
+                        os: ci.runner.as_str().to_owned(),
                         target: entry.target.clone(),
                         toolchain: ci.toolchains[0].clone(),
                     })
@@ -403,71 +403,129 @@ fn validate_action(action: &str) -> Result<()> {
 }
 
 fn validate_locked_cargo(job_name: &str, command: &str) -> Result<()> {
-    for line in command.lines() {
-        let mut remainder = line;
-        while let Some(index) = next_cargo_invocation(remainder) {
-            let candidate = &remainder[index..];
-            let end = [
-                candidate.find("&&"),
-                candidate.find("||"),
-                candidate.find(';'),
-            ]
-            .into_iter()
-            .flatten()
-            .min()
-            .unwrap_or(candidate.len());
-            let invocation = candidate[..end].trim();
-            let mut words = invocation.split_whitespace();
-            let _cargo = words.next();
+    for invocation in shell_segments(command)? {
+        for cargo_index in invocation
+            .iter()
+            .enumerate()
+            .filter_map(|(index, token)| cargo_executable(token).then_some(index))
+        {
+            let mut words = invocation[cargo_index + 1..].iter().map(String::as_str);
             let mut subcommand = words.next().unwrap_or_default();
             if subcommand.starts_with('+') {
                 subcommand = words.next().unwrap_or_default();
             }
             let exempt = matches!(subcommand, "audit" | "deny" | "fmt" | "xtask");
-            let locked = invocation
-                .split_whitespace()
+            let locked = invocation[cargo_index + 1..]
+                .iter()
                 .any(|argument| argument == "--locked");
             if !exempt && !locked {
                 return Err(invalid_data(format!(
-                    "workflow cargo command is not locked in {job_name}: {invocation}"
+                    "workflow cargo command is not locked in {job_name}: {}",
+                    invocation.join(" ")
                 )));
             }
-            if end == candidate.len() {
-                break;
-            }
-            remainder = &candidate[end + 1..];
         }
     }
     Ok(())
 }
 
-fn next_cargo_invocation(value: &str) -> Option<usize> {
-    let mut start = None;
-    for (index, character) in value
-        .char_indices()
-        .chain(std::iter::once((value.len(), ' ')))
-    {
-        let delimiter =
-            character.is_ascii_whitespace() || matches!(character, '&' | '|' | ';' | '(' | ')');
-        if delimiter {
-            if let Some(token_start) = start.take() {
-                let token = value[token_start..index]
-                    .trim_matches(|character| matches!(character, '\'' | '"'));
-                let executable = token
-                    .rsplit(|character| matches!(character, '/' | '\\'))
-                    .next()
-                    .unwrap_or(token);
-                if executable.eq_ignore_ascii_case("cargo")
-                    || executable.eq_ignore_ascii_case("cargo.exe")
-                {
-                    return Some(token_start);
-                }
+fn cargo_executable(token: &str) -> bool {
+    token.rsplit(['/', '\\']).next().is_some_and(|name| {
+        name.eq_ignore_ascii_case("cargo") || name.eq_ignore_ascii_case("cargo.exe")
+    })
+}
+
+fn shell_segments(command: &str) -> Result<Vec<Vec<String>>> {
+    let mut segments = Vec::new();
+    let mut segment = String::new();
+    let mut quote = None;
+    let mut escaped = false;
+    for character in command.chars() {
+        if escaped {
+            segment.push(character);
+            escaped = false;
+            continue;
+        }
+        if character == '\\' && quote != Some('\'') {
+            segment.push(character);
+            escaped = true;
+            continue;
+        }
+        if matches!(character, '\'' | '"') {
+            if quote == Some(character) {
+                quote = None;
+            } else if quote.is_none() {
+                quote = Some(character);
             }
-        } else if start.is_none() {
-            start = Some(index);
+            segment.push(character);
+            continue;
+        }
+        if quote.is_none() && matches!(character, '&' | '|' | ';' | '\n' | '\r') {
+            if !segment.trim().is_empty() {
+                segments.push(shell_words(segment.trim())?);
+            }
+            segment.clear();
+        } else {
+            segment.push(character);
         }
     }
-    None
+    if quote.is_some() || escaped {
+        return Err(invalid_data(
+            "workflow command contains unterminated quoting",
+        ));
+    }
+    if !segment.trim().is_empty() {
+        segments.push(shell_words(segment.trim())?);
+    }
+    Ok(segments)
+}
+
+fn shell_words(segment: &str) -> Result<Vec<String>> {
+    let mut words = Vec::new();
+    let mut word = String::new();
+    let mut quote = None;
+    let mut escaped = false;
+    for character in segment.chars() {
+        if escaped {
+            word.push(character);
+            escaped = false;
+        } else if character == '\\' && quote != Some('\'') {
+            escaped = true;
+        } else if matches!(character, '\'' | '"') {
+            if quote == Some(character) {
+                quote = None;
+            } else if quote.is_none() {
+                quote = Some(character);
+            } else {
+                word.push(character);
+            }
+        } else if character.is_whitespace() && quote.is_none() {
+            if !word.is_empty() {
+                words.push(std::mem::take(&mut word));
+            }
+        } else {
+            word.push(character);
+        }
+    }
+    if quote.is_some() || escaped {
+        return Err(invalid_data(
+            "workflow command contains unterminated quoting",
+        ));
+    }
+    if !word.is_empty() {
+        words.push(word);
+    }
+    Ok(words)
+}
+
+fn is_target_triple(value: &str) -> bool {
+    value.is_ascii()
+        && value.split('-').count() >= 3
+        && !value.starts_with('-')
+        && !value.ends_with('-')
+        && value.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'-' | b'_')
+        })
 }
 
 fn pinned_action(action: &str) -> bool {
@@ -488,12 +546,12 @@ fn is_ci_job_name(value: &str) -> bool {
 }
 
 fn has_unquoted_matrix_target(command: &str) -> bool {
-    let mut in_quotes = false;
+    let mut quote = None;
     let mut escaped = false;
     let mut index = 0;
     while index < command.len() {
         if command[index..].starts_with(MATRIX_TARGET_EXPRESSION) {
-            if !in_quotes {
+            if quote.is_none() {
                 return true;
             }
             index += MATRIX_TARGET_EXPRESSION.len();
@@ -501,10 +559,14 @@ fn has_unquoted_matrix_target(command: &str) -> bool {
             continue;
         }
         let byte = command.as_bytes()[index];
-        if byte == b'"' && !escaped {
-            in_quotes = !in_quotes;
+        if matches!(byte, b'\'' | b'"') && !escaped {
+            if quote == Some(byte) {
+                quote = None;
+            } else if quote.is_none() {
+                quote = Some(byte);
+            }
         }
-        escaped = byte == b'\\' && !escaped;
+        escaped = byte == b'\\' && quote != Some(b'\'') && !escaped;
         index += 1;
     }
     false

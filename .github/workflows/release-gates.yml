@@ -66,7 +66,7 @@ jobs:
         run: cargo package --locked --list | tee package-files.txt
       - name: Reject repository-only files
         run: |
-          if grep -E '^(benchmarks|compatibility|tools|\.cargo|\.github)/|^(deny\.toml|support-matrix\.json|CONTEXT\.md|BENCHMARK_VALIDATION_v0\.7\.md)$' package-files.txt; then
+          if grep -E '^(benchmarks|compatibility|tools|\.cargo|\.github)/|^(deny\.toml|support-matrix\.json|CONTEXT\.md)$' package-files.txt; then
             echo "repository-only files entered the fs2 package" >&2
             exit 1
           fi

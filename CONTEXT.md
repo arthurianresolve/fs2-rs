@@ -13,9 +13,9 @@ physical-space guarantee.
 ## File locks
 
 File locks provide shared or exclusive advisory access, either blocking or
-non-blocking, plus release. The private lock module owns operation construction
-and compatibility routing; Unix and Windows adapters translate those
-operations into operating-system locking calls while preserving
+non-blocking, plus release. `FileExt` routes the requested mode and blocking
+behavior through the private platform seam; Unix and Windows adapters translate
+that request into operating-system locking calls while preserving
 platform-specific behavior. Shared lock-contract tests exercise the
 cross-platform interface; adapter tests retain OS-specific semantics.
 

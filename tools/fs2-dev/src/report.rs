@@ -6,7 +6,7 @@ use tempfile::NamedTempFile;
 
 use crate::Result;
 
-pub(crate) const SCHEMA_VERSION: u64 = 4;
+pub(crate) const SCHEMA_VERSION: u64 = 5;
 
 #[derive(Serialize)]
 pub(crate) struct ReportEnvelope<T> {
@@ -58,6 +58,8 @@ pub(crate) fn write_json(path: &Path, value: &impl Serialize) -> Result<()> {
     temporary
         .persist_noclobber(path)
         .map_err(|error| error.error)?;
+    #[cfg(unix)]
+    std::fs::File::open(parent)?.sync_all()?;
     Ok(())
 }
 
@@ -73,11 +75,11 @@ mod tests {
             serde_json::json!({ "run": 1 }),
         ))
         .unwrap();
-        assert_eq!(SCHEMA_VERSION, 4);
+        assert_eq!(SCHEMA_VERSION, 5);
         assert_eq!(
             report,
             serde_json::json!({
-                "schema_version": 4,
+                "schema_version": 5,
                 "status": "completed",
                 "valid": true,
                 "run": 1
@@ -90,7 +92,7 @@ mod tests {
             serde_json::json!({ "error": "setup failed" }),
         ))
         .unwrap();
-        assert_eq!(invalid["schema_version"], 4);
+        assert_eq!(invalid["schema_version"], 5);
         assert_eq!(invalid["status"], "invalid-execution");
         assert_eq!(invalid["valid"], false);
         assert_eq!(invalid["error"], "setup failed");
@@ -110,7 +112,7 @@ mod tests {
             serde_json::json!({ "process": process }),
         ))
         .unwrap();
-        assert_eq!(skipped["schema_version"], 4);
+        assert_eq!(skipped["schema_version"], 5);
         assert_eq!(skipped["process"]["outcome"]["kind"], "skipped");
         assert_eq!(
             skipped["process"]["command"],
