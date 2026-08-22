@@ -11,6 +11,7 @@ use crate::{Result, invalid_data};
 const EXPECTED_CONSUMER_SHA256: &str =
     "3f3b5ea95f12828437a8e851baad8cc58eee3a6206f5957748248195f6ceab29";
 const SUBJECTS: [&str; 2] = ["legacy", "current"];
+const REQUIRED_EDITIONS: [&str; 4] = ["2015", "2018", "2021", "2024"];
 
 #[derive(Debug, Deserialize)]
 struct CargoMetadata {
@@ -132,6 +133,12 @@ fn compatibility_packages(
     if editions.len() != packages.len() {
         return Err(invalid_data(
             "compatibility workspace has duplicate Rust editions",
+        ));
+    }
+    let required = REQUIRED_EDITIONS.into_iter().collect::<HashSet<_>>();
+    if editions != required {
+        return Err(invalid_data(
+            "compatibility workspace must cover editions 2015, 2018, 2021, and 2024 exactly",
         ));
     }
     Ok(packages)

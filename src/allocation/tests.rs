@@ -1,7 +1,4 @@
-use super::{
-    AllocationState, allocate, allocate_with_state, extend_file_length_after_snapshot,
-    should_extend_file_length,
-};
+use super::{AllocationState, allocate, allocate_with_state, extend_file_length_after_snapshot};
 use std::fs::OpenOptions;
 use std::io::Error;
 use tempfile::tempdir;
@@ -17,14 +14,6 @@ fn accepts_already_allocated_zero_length() {
         .unwrap();
 
     allocate(&file, 0).unwrap();
-}
-
-#[test]
-fn evaluates_file_length_extension_decision() {
-    assert!(should_extend_file_length(0, 1));
-    assert!(!should_extend_file_length(1, 1));
-    assert!(!should_extend_file_length(1, 0));
-    assert!(!should_extend_file_length(2, 1));
 }
 
 #[test]
@@ -62,9 +51,9 @@ fn preserves_a_file_that_grew_between_allocation_snapshots() {
         .open(tempdir.path().join("fs2"))
         .unwrap();
 
-    file.set_len(1).unwrap();
+    file.set_len(2).unwrap();
     extend_file_length_after_snapshot(&file, 1).unwrap();
-    assert_eq!(file.metadata().unwrap().len(), 1);
+    assert_eq!(file.metadata().unwrap().len(), 2);
 }
 
 #[test]

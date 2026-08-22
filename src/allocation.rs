@@ -45,10 +45,9 @@ fn allocate_with_state(file: &File, len: u64, state: Result<AllocationState>) ->
 }
 
 fn extend_file_length_after_snapshot(file: &File, len: u64) -> Result<()> {
-    file.set_len(len)
-}
-
-#[cfg(test)]
-const fn should_extend_file_length(current_file_size: u64, requested_len: u64) -> bool {
-    current_file_size < requested_len
+    if file.metadata()?.len() < len {
+        file.set_len(len)
+    } else {
+        Ok(())
+    }
 }

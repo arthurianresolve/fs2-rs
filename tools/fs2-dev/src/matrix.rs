@@ -97,6 +97,8 @@ pub(crate) fn run(root: &Path, github_output: Option<&Path>) -> Result<()> {
     validate_registry(&registry, &rust_version)?;
     let workflow = load_workflow(&root.join(".github/workflows/ci.yml"))?;
     validate_workflow(&registry, &workflow)?;
+    let release_gates = load_workflow(&root.join(".github/workflows/release-gates.yml"))?;
+    validate_workflow_policy(&release_gates)?;
     let generated = matrices(&registry);
     if let Some(path) = github_output {
         write_github_output(path, &generated, &rust_version)?;
@@ -291,6 +293,7 @@ fn matrices(registry: &SupportRegistry) -> BTreeMap<String, Matrix> {
 }
 
 fn validate_workflow(registry: &SupportRegistry, workflow: &Value) -> Result<()> {
+    validate_workflow_policy(workflow)?;
     let jobs = workflow
         .get("jobs")
         .and_then(Value::as_object)
@@ -302,33 +305,6 @@ fn validate_workflow(registry: &SupportRegistry, workflow: &Value) -> Result<()>
         let job = job
             .as_object()
             .ok_or_else(|| invalid_data(format!("workflow job {job_name} must be an object")))?;
-        if let Some(steps) = job.get("steps") {
-            let steps = steps.as_array().ok_or_else(|| {
-                invalid_data(format!("workflow job {job_name} steps must be a list"))
-            })?;
-            for step in steps {
-                let step = step.as_object().ok_or_else(|| {
-                    invalid_data(format!("workflow job {job_name} contains an invalid step"))
-                })?;
-                if let Some(action) = step.get("uses").and_then(Value::as_str)
-                    && !action.starts_with("./")
-                    && !pinned_action(action)
-                {
-                    return Err(invalid_data(format!(
-                        "workflow action is not pinned to a commit: {action}"
-                    )));
-                }
-                if let Some(command) = step.get("run").and_then(Value::as_str) {
-                    if has_unquoted_matrix_target(command) {
-                        return Err(invalid_data(format!(
-                            "workflow job {job_name} uses an unquoted matrix target"
-                        )));
-                    }
-                    validate_locked_cargo(job_name, command)?;
-                }
-            }
-        }
-
         let configured = job
             .get("strategy")
             .and_then(Value::as_object)
@@ -378,19 +354,100 @@ fn validate_workflow(registry: &SupportRegistry, workflow: &Value) -> Result<()>
     Ok(())
 }
 
-fn validate_locked_cargo(job_name: &str, command: &str) -> Result<()> {
-    let command = command.trim_start();
-    if !command.starts_with("cargo ")
-        || command.starts_with("cargo fmt ")
-        || command.starts_with("cargo xtask ")
-        || command.contains("--locked")
-    {
+fn validate_workflow_policy(workflow: &Value) -> Result<()> {
+    let jobs = workflow
+        .get("jobs")
+        .and_then(Value::as_object)
+        .ok_or_else(|| invalid_data("workflow must define a jobs object"))?;
+    for (job_name, job) in jobs {
+        let job = job
+            .as_object()
+            .ok_or_else(|| invalid_data(format!("workflow job {job_name} must be an object")))?;
+        if let Some(action) = job.get("uses").and_then(Value::as_str) {
+            validate_action(action)?;
+        }
+        let Some(steps) = job.get("steps") else {
+            continue;
+        };
+        let steps = steps
+            .as_array()
+            .ok_or_else(|| invalid_data(format!("workflow job {job_name} steps must be a list")))?;
+        for step in steps {
+            let step = step.as_object().ok_or_else(|| {
+                invalid_data(format!("workflow job {job_name} contains an invalid step"))
+            })?;
+            if let Some(action) = step.get("uses").and_then(Value::as_str) {
+                validate_action(action)?;
+            }
+            if let Some(command) = step.get("run").and_then(Value::as_str) {
+                if has_unquoted_matrix_target(command) {
+                    return Err(invalid_data(format!(
+                        "workflow job {job_name} uses an unquoted matrix target"
+                    )));
+                }
+                validate_locked_cargo(job_name, command)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_action(action: &str) -> Result<()> {
+    if action.starts_with("./") || pinned_action(action) {
         Ok(())
     } else {
         Err(invalid_data(format!(
-            "workflow cargo command is not locked in {job_name}: {command}"
+            "workflow action is not pinned to a commit: {action}"
         )))
     }
+}
+
+fn validate_locked_cargo(job_name: &str, command: &str) -> Result<()> {
+    for line in command.lines() {
+        let mut remainder = line;
+        while let Some(index) = next_cargo_invocation(remainder) {
+            let candidate = &remainder[index..];
+            let end = [
+                candidate.find("&&"),
+                candidate.find("||"),
+                candidate.find(';'),
+            ]
+            .into_iter()
+            .flatten()
+            .min()
+            .unwrap_or(candidate.len());
+            let invocation = candidate[..end].trim();
+            let mut words = invocation.split_whitespace();
+            let _cargo = words.next();
+            let mut subcommand = words.next().unwrap_or_default();
+            if subcommand.starts_with('+') {
+                subcommand = words.next().unwrap_or_default();
+            }
+            let exempt = matches!(subcommand, "audit" | "deny" | "fmt" | "xtask");
+            let locked = invocation
+                .split_whitespace()
+                .any(|argument| argument == "--locked");
+            if !exempt && !locked {
+                return Err(invalid_data(format!(
+                    "workflow cargo command is not locked in {job_name}: {invocation}"
+                )));
+            }
+            if end == candidate.len() {
+                break;
+            }
+            remainder = &candidate[end + 1..];
+        }
+    }
+    Ok(())
+}
+
+fn next_cargo_invocation(value: &str) -> Option<usize> {
+    value.match_indices("cargo ").find_map(|(index, _)| {
+        let boundary = index == 0
+            || value.as_bytes()[index - 1].is_ascii_whitespace()
+            || matches!(value.as_bytes()[index - 1], b'&' | b'|' | b';' | b'(');
+        boundary.then_some(index)
+    })
 }
 
 fn pinned_action(action: &str) -> bool {
@@ -459,6 +516,10 @@ mod tests {
         let workflow =
             load_workflow(&crate::repository_root().join(".github/workflows/ci.yml")).unwrap();
         validate_workflow(&registry, &workflow).unwrap();
+        let release_gates =
+            load_workflow(&crate::repository_root().join(".github/workflows/release-gates.yml"))
+                .unwrap();
+        validate_workflow_policy(&release_gates).unwrap();
     }
 
     #[test]
@@ -482,6 +543,11 @@ mod tests {
         assert!(!has_unquoted_matrix_target(
             "cargo check --target \"${{ matrix.target }}\""
         ));
+        assert!(validate_locked_cargo("test", "echo preparing\ncargo test").is_err());
+        assert!(validate_locked_cargo("test", "cargo check --locked && cargo test").is_err());
+        assert!(
+            validate_locked_cargo("test", "cargo check --locked && cargo test --locked").is_ok()
+        );
     }
 
     #[test]
