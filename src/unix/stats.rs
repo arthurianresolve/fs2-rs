@@ -111,9 +111,8 @@ mod test {
         assert_eq!(error.kind(), ErrorKind::NotFound);
     }
 
-    #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
     #[test]
-    fn rejects_negative_native_sizes_and_statfs_values() {
+    fn rejects_invalid_filesystem_values() {
         assert_eq!(filesystem_value(0, "negative value").unwrap(), 0);
         assert_eq!(filesystem_value(4096i64, "negative value").unwrap(), 4096);
         assert!(filesystem_value(-1i64, "negative value").is_err());

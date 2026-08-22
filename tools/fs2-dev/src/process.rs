@@ -109,7 +109,7 @@ impl ProcessRecord {
         Self {
             label: label.into(),
             command: Vec::new(),
-            current_dir: std::env::current_dir().ok(),
+            current_dir: None,
             environment_overrides: BTreeMap::new(),
             outcome: ProcessOutcome::Skipped {
                 reason: reason.into(),
@@ -234,6 +234,10 @@ mod tests {
             "setup failed",
         );
         assert!(!process.succeeded());
-        assert!(matches!(process.outcome, ProcessOutcome::Skipped { .. }));
+        assert!(process.current_dir.is_none());
+        let serialized = serde_json::to_value(&process).unwrap();
+        assert_eq!(serialized["outcome"]["kind"], "skipped");
+        assert!(serialized.get("exit_code").is_none());
+        assert!(matches!(&process.outcome, ProcessOutcome::Skipped { .. }));
     }
 }

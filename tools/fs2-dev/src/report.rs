@@ -6,7 +6,7 @@ use tempfile::NamedTempFile;
 
 use crate::Result;
 
-pub(crate) const SCHEMA_VERSION: u64 = 2;
+pub(crate) const SCHEMA_VERSION: u64 = 3;
 
 #[derive(Serialize)]
 pub(crate) struct ReportEnvelope<T> {
@@ -64,6 +64,19 @@ pub(crate) fn write_json(path: &Path, value: &impl Serialize) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn report_envelopes_publish_the_current_schema() {
+        let report = serde_json::to_value(ReportEnvelope::new(
+            "completed",
+            true,
+            serde_json::json!({ "run": 1 }),
+        ))
+        .unwrap();
+        assert_eq!(report["schema_version"], SCHEMA_VERSION);
+        assert_eq!(report["status"], "completed");
+        assert_eq!(report["valid"], true);
+    }
 
     #[test]
     fn report_writes_are_atomic_and_never_replace_existing_evidence() {
