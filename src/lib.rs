@@ -53,7 +53,7 @@ pub(crate) use allocation::AllocationState;
 /// relied upon; see the tests in `unix` and `windows` for examples of
 /// platform-specific behavior. File locks are implemented with
 /// [`flock(2)`](http://man7.org/linux/man-pages/man2/flock.2.html) on Unix and
-/// [`LockFile`](https://msdn.microsoft.com/en-us/library/windows/desktop/aa365202(v=vs.85).aspx)
+/// [`LockFileEx`](https://learn.microsoft.com/windows/win32/api/fileapi/nf-fileapi-lockfileex)
 /// on Windows.
 pub trait FileExt {
     /// Returns a duplicate instance of the file.
@@ -61,13 +61,12 @@ pub trait FileExt {
     /// The returned file will share the same file position as the original
     /// file.
     ///
-    /// If using rustc version 1.9 or later, prefer using `File::try_clone` to this.
-    ///
     /// # Notes
     ///
     /// On Unix and Windows this retains the historical behavior, including an
-    /// inheritable descriptor or handle. Use [`File::try_clone`] when the
-    /// duplicate must not be inherited by a child process.
+    /// inheritable descriptor or handle. Prefer [`File::try_clone`] when the
+    /// duplicate must not be inherited by a child process; use this method when
+    /// retaining the historical inheritable behavior is required.
     fn duplicate(&self) -> Result<File>;
 
     /// Returns the amount of physical space allocated for a file.

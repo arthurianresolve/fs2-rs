@@ -43,6 +43,8 @@ jobs:
         run: cargo doc --workspace --no-deps --locked
       - name: Compile benchmarks
         run: cargo bench --workspace --no-run --locked
+      - name: Compile generated paired-stats harness source
+        run: cargo check --manifest-path benchmarks/Cargo.toml --bin fs2-paired-stats-smoke --locked
       - name: Validate support metadata
         run: cargo xtask matrix
       - name: Validate measurement policy

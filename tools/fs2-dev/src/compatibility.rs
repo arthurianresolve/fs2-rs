@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -10,6 +10,7 @@ use crate::{Result, invalid_data};
 
 const EXPECTED_CONSUMER_SHA256: &str =
     "3f3b5ea95f12828437a8e851baad8cc58eee3a6206f5957748248195f6ceab29";
+const LEGACY_CHECKSUM: &str = "9564fc758e15025b46aa6643b1b77d047d1a56a1aea6e01002ac0c7026876213";
 const SUBJECTS: [&str; 2] = ["legacy", "current"];
 const REQUIRED_EDITIONS: [&str; 4] = ["2015", "2018", "2021", "2024"];
 
@@ -22,6 +23,15 @@ struct CargoMetadata {
 struct CargoPackage {
     name: String,
     edition: String,
+    dependencies: Vec<CargoDependency>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CargoDependency {
+    name: String,
+    req: String,
+    source: Option<String>,
+    path: Option<PathBuf>,
 }
 
 pub(crate) fn run(root: &Path) -> Result<()> {
@@ -35,6 +45,7 @@ pub(crate) fn run(root: &Path) -> Result<()> {
         ));
     }
     println!("v0.4 consumer sha256={digest}");
+    validate_lockfile(&compatibility.join("Cargo.lock"))?;
 
     let target = root
         .join("target/xtask/compatibility")
@@ -48,6 +59,7 @@ pub(crate) fn run(root: &Path) -> Result<()> {
     process::run(&mut format, "format compatibility fixtures")?;
 
     let packages = compatibility_packages(root, &manifest, &target)?;
+    validate_dependencies(root, &packages)?;
     let runtime = packages
         .iter()
         .filter(|package| package.edition == "2015")
@@ -87,6 +99,53 @@ pub(crate) fn run(root: &Path) -> Result<()> {
                 "--locked",
             ]);
         process::run(&mut run, &format!("run {subject} v0.4 consumer"))?;
+    }
+    Ok(())
+}
+
+fn validate_lockfile(path: &Path) -> Result<()> {
+    let contents = fs::read_to_string(path)?;
+    let legacy = format!(
+        "name = \"fs2\"\nversion = \"0.4.3\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"{LEGACY_CHECKSUM}\""
+    );
+    if !contents.replace("\r\n", "\n").contains(&legacy)
+        || contents.matches("name = \"fs2\"").count() != 2
+    {
+        return Err(invalid_data(
+            "compatibility lockfile does not contain exactly the approved legacy and current fs2 packages",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_dependencies(root: &Path, packages: &[CargoPackage]) -> Result<()> {
+    let current = root.canonicalize()?;
+    for package in packages {
+        let fs2_dependencies = package
+            .dependencies
+            .iter()
+            .filter(|dependency| dependency.name == "fs2")
+            .collect::<Vec<_>>();
+        let legacy = fs2_dependencies.iter().any(|dependency| {
+            dependency.req == "=0.4.3"
+                && dependency.path.is_none()
+                && dependency.source.as_deref()
+                    == Some("registry+https://github.com/rust-lang/crates.io-index")
+        });
+        let current_path = fs2_dependencies.iter().any(|dependency| {
+            dependency.source.is_none()
+                && dependency
+                    .path
+                    .as_deref()
+                    .and_then(|path| path.canonicalize().ok())
+                    .is_some_and(|path| path == current)
+        });
+        if fs2_dependencies.len() != 2 || !legacy || !current_path {
+            return Err(invalid_data(format!(
+                "{} must depend on exact fs2 0.4.3 and the current checkout",
+                package.name
+            )));
+        }
     }
     Ok(())
 }

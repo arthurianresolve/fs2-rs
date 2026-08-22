@@ -403,27 +403,36 @@ fn validate_action(action: &str) -> Result<()> {
 }
 
 fn validate_locked_cargo(job_name: &str, command: &str) -> Result<()> {
-    for invocation in shell_segments(command)? {
-        for cargo_index in invocation
+    for line in command
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        let words = line.split_ascii_whitespace().collect::<Vec<_>>();
+        let cargo_positions = words
             .iter()
             .enumerate()
             .filter_map(|(index, token)| cargo_executable(token).then_some(index))
-        {
-            let mut words = invocation[cargo_index + 1..].iter().map(String::as_str);
-            let mut subcommand = words.next().unwrap_or_default();
-            if subcommand.starts_with('+') {
-                subcommand = words.next().unwrap_or_default();
-            }
-            let exempt = matches!(subcommand, "audit" | "deny" | "fmt" | "xtask");
-            let locked = invocation[cargo_index + 1..]
-                .iter()
-                .any(|argument| argument == "--locked");
-            if !exempt && !locked {
-                return Err(invalid_data(format!(
-                    "workflow cargo command is not locked in {job_name}: {}",
-                    invocation.join(" ")
-                )));
-            }
+            .collect::<Vec<_>>();
+        if cargo_positions.is_empty() {
+            continue;
+        }
+        if cargo_positions != [0] {
+            return Err(invalid_data(format!(
+                "workflow cargo commands must be direct, one-per-line statements in {job_name}: {line}"
+            )));
+        }
+        let mut arguments = words[1..].iter().copied();
+        let mut subcommand = arguments.next().unwrap_or_default();
+        if subcommand.starts_with('+') {
+            subcommand = arguments.next().unwrap_or_default();
+        }
+        let exempt = matches!(subcommand, "audit" | "deny" | "fmt" | "xtask");
+        let locked = words[1..].contains(&"--locked");
+        if !exempt && !locked {
+            return Err(invalid_data(format!(
+                "workflow cargo command is not locked in {job_name}: {line}"
+            )));
         }
     }
     Ok(())
@@ -433,89 +442,6 @@ fn cargo_executable(token: &str) -> bool {
     token.rsplit(['/', '\\']).next().is_some_and(|name| {
         name.eq_ignore_ascii_case("cargo") || name.eq_ignore_ascii_case("cargo.exe")
     })
-}
-
-fn shell_segments(command: &str) -> Result<Vec<Vec<String>>> {
-    let mut segments = Vec::new();
-    let mut segment = String::new();
-    let mut quote = None;
-    let mut escaped = false;
-    for character in command.chars() {
-        if escaped {
-            segment.push(character);
-            escaped = false;
-            continue;
-        }
-        if character == '\\' && quote != Some('\'') {
-            segment.push(character);
-            escaped = true;
-            continue;
-        }
-        if matches!(character, '\'' | '"') {
-            if quote == Some(character) {
-                quote = None;
-            } else if quote.is_none() {
-                quote = Some(character);
-            }
-            segment.push(character);
-            continue;
-        }
-        if quote.is_none() && matches!(character, '&' | '|' | ';' | '\n' | '\r') {
-            if !segment.trim().is_empty() {
-                segments.push(shell_words(segment.trim())?);
-            }
-            segment.clear();
-        } else {
-            segment.push(character);
-        }
-    }
-    if quote.is_some() || escaped {
-        return Err(invalid_data(
-            "workflow command contains unterminated quoting",
-        ));
-    }
-    if !segment.trim().is_empty() {
-        segments.push(shell_words(segment.trim())?);
-    }
-    Ok(segments)
-}
-
-fn shell_words(segment: &str) -> Result<Vec<String>> {
-    let mut words = Vec::new();
-    let mut word = String::new();
-    let mut quote = None;
-    let mut escaped = false;
-    for character in segment.chars() {
-        if escaped {
-            word.push(character);
-            escaped = false;
-        } else if character == '\\' && quote != Some('\'') {
-            escaped = true;
-        } else if matches!(character, '\'' | '"') {
-            if quote == Some(character) {
-                quote = None;
-            } else if quote.is_none() {
-                quote = Some(character);
-            } else {
-                word.push(character);
-            }
-        } else if character.is_whitespace() && quote.is_none() {
-            if !word.is_empty() {
-                words.push(std::mem::take(&mut word));
-            }
-        } else {
-            word.push(character);
-        }
-    }
-    if quote.is_some() || escaped {
-        return Err(invalid_data(
-            "workflow command contains unterminated quoting",
-        ));
-    }
-    if !word.is_empty() {
-        words.push(word);
-    }
-    Ok(words)
 }
 
 fn is_target_triple(value: &str) -> bool {
@@ -546,30 +472,20 @@ fn is_ci_job_name(value: &str) -> bool {
 }
 
 fn has_unquoted_matrix_target(command: &str) -> bool {
-    let mut quote = None;
-    let mut escaped = false;
-    let mut index = 0;
-    while index < command.len() {
-        if command[index..].starts_with(MATRIX_TARGET_EXPRESSION) {
-            if quote.is_none() {
-                return true;
-            }
-            index += MATRIX_TARGET_EXPRESSION.len();
-            escaped = false;
-            continue;
-        }
-        let byte = command.as_bytes()[index];
-        if matches!(byte, b'\'' | b'"') && !escaped {
-            if quote == Some(byte) {
-                quote = None;
-            } else if quote.is_none() {
-                quote = Some(byte);
-            }
-        }
-        escaped = byte == b'\\' && quote != Some(b'\'') && !escaped;
-        index += 1;
-    }
-    false
+    command
+        .match_indices(MATRIX_TARGET_EXPRESSION)
+        .any(|(start, _)| {
+            let end = start + MATRIX_TARGET_EXPRESSION.len();
+            let token_start = command[..start]
+                .rfind(char::is_whitespace)
+                .map_or(0, |index| index + 1);
+            let token_end = command[end..]
+                .find(char::is_whitespace)
+                .map_or(command.len(), |index| end + index);
+            let token = &command[token_start..token_end];
+            !((token.starts_with('"') && token.ends_with('"'))
+                || (token.starts_with('\'') && token.ends_with('\'')))
+        })
 }
 
 fn write_github_output(
@@ -631,7 +547,7 @@ mod tests {
         assert!(validate_locked_cargo("test", "cargo\ttest").is_err());
         assert!(validate_locked_cargo("test", "/opt/rust/bin/cargo test").is_err());
         assert!(
-            validate_locked_cargo("test", "cargo check --locked && cargo test --locked").is_ok()
+            validate_locked_cargo("test", "cargo check --locked && cargo test --locked").is_err()
         );
     }
 

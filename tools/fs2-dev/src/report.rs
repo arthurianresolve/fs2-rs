@@ -6,11 +6,21 @@ use tempfile::NamedTempFile;
 
 use crate::Result;
 
-pub(crate) const SCHEMA_VERSION: u64 = 5;
+pub(crate) const SCHEMA_VERSION: u64 = 6;
+
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum ReportKind {
+    CrossCrate,
+    Lock,
+    RefToRef,
+    Stats,
+}
 
 #[derive(Serialize)]
 pub(crate) struct ReportEnvelope<T> {
     schema_version: u64,
+    report_kind: ReportKind,
     status: &'static str,
     valid: bool,
     #[serde(flatten)]
@@ -18,9 +28,15 @@ pub(crate) struct ReportEnvelope<T> {
 }
 
 impl<T> ReportEnvelope<T> {
-    pub(crate) const fn new(status: &'static str, valid: bool, content: T) -> Self {
+    pub(crate) const fn new(
+        report_kind: ReportKind,
+        status: &'static str,
+        valid: bool,
+        content: T,
+    ) -> Self {
         Self {
             schema_version: SCHEMA_VERSION,
+            report_kind,
             status,
             valid,
             content,
@@ -35,10 +51,16 @@ struct InvalidExecution<'a, T> {
     context: T,
 }
 
-pub(crate) fn write_invalid<T: Serialize>(path: &Path, error: &str, context: T) -> Result<()> {
+pub(crate) fn write_invalid<T: Serialize>(
+    path: &Path,
+    report_kind: ReportKind,
+    error: &str,
+    context: T,
+) -> Result<()> {
     write_json(
         path,
         &ReportEnvelope::new(
+            report_kind,
             "invalid-execution",
             false,
             InvalidExecution { error, context },
@@ -70,16 +92,18 @@ mod tests {
     #[test]
     fn report_envelopes_publish_the_current_schema() {
         let report = serde_json::to_value(ReportEnvelope::new(
+            ReportKind::Lock,
             "completed",
             true,
             serde_json::json!({ "run": 1 }),
         ))
         .unwrap();
-        assert_eq!(SCHEMA_VERSION, 5);
+        assert_eq!(SCHEMA_VERSION, 6);
         assert_eq!(
             report,
             serde_json::json!({
-                "schema_version": 5,
+                "schema_version": 6,
+                "report_kind": "lock",
                 "status": "completed",
                 "valid": true,
                 "run": 1
@@ -87,12 +111,14 @@ mod tests {
         );
 
         let invalid = serde_json::to_value(ReportEnvelope::new(
+            ReportKind::Stats,
             "invalid-execution",
             false,
             serde_json::json!({ "error": "setup failed" }),
         ))
         .unwrap();
-        assert_eq!(invalid["schema_version"], 5);
+        assert_eq!(invalid["schema_version"], 6);
+        assert_eq!(invalid["report_kind"], "stats");
         assert_eq!(invalid["status"], "invalid-execution");
         assert_eq!(invalid["valid"], false);
         assert_eq!(invalid["error"], "setup failed");
@@ -107,12 +133,13 @@ mod tests {
             "setup failed",
         );
         let skipped = serde_json::to_value(ReportEnvelope::new(
+            ReportKind::CrossCrate,
             "setup-failure",
             false,
             serde_json::json!({ "process": process }),
         ))
         .unwrap();
-        assert_eq!(skipped["schema_version"], 5);
+        assert_eq!(skipped["schema_version"], SCHEMA_VERSION);
         assert_eq!(skipped["process"]["outcome"]["kind"], "skipped");
         assert_eq!(
             skipped["process"]["command"],

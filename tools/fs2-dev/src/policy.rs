@@ -17,6 +17,7 @@ const STRICT_WARM_UP_SECONDS: f64 = 2.0;
 const STRICT_MEASUREMENT_SECONDS: f64 = 5.0;
 const STRICT_COOLDOWN_SECONDS: f64 = 10.0;
 const STRICT_NON_INFERIORITY_MARGIN: f64 = 0.02;
+const STRICT_MAX_OUTLIER_FRACTION: f64 = 0.5;
 pub(crate) const MAX_PAIRED_REPLICATES: u64 = 127;
 pub(crate) const MAX_SAMPLE_SIZE: u64 = 10_000;
 pub(crate) const MAX_DURATION_SECONDS: f64 = 3_600.0;
@@ -27,6 +28,7 @@ pub(crate) const MIN_BENCHMARK_FREE_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 pub(crate) struct MeasurementPolicy {
     pub(crate) schema_version: u64,
     pub(crate) non_inferiority_margin: f64,
+    pub(crate) resources: ResourcePolicy,
     pub(crate) criterion: CriterionPolicy,
     pub(crate) ref_to_ref: RefPolicy,
     pub(crate) cross_crate: CrossCratePolicy,
@@ -39,6 +41,7 @@ impl MeasurementPolicy {
             && self.criterion.sample_size >= STRICT_SAMPLE_SIZE
             && self.criterion.warm_up_seconds >= STRICT_WARM_UP_SECONDS
             && self.criterion.measurement_seconds >= STRICT_MEASUREMENT_SECONDS
+            && self.criterion.max_outlier_fraction <= STRICT_MAX_OUTLIER_FRACTION
             && self.paired_process.confidence >= STRICT_PAIRED_CONFIDENCE
             && self.paired_process.process_replicates >= STRICT_PAIRED_REPLICATES
             && self.paired_process.cooldown_seconds >= STRICT_COOLDOWN_SECONDS
@@ -52,6 +55,35 @@ pub(crate) struct CriterionPolicy {
     pub(crate) sample_size: u64,
     pub(crate) warm_up_seconds: f64,
     pub(crate) measurement_seconds: f64,
+    pub(crate) max_outlier_fraction: f64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ResourcePolicy {
+    pub(crate) minimum_free_bytes: u64,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+pub(crate) enum PairSubject {
+    A,
+    B,
+}
+
+impl PairSubject {
+    pub(crate) const fn as_char(self) -> char {
+        match self {
+            Self::A => 'A',
+            Self::B => 'B',
+        }
+    }
+
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::A => "A",
+            Self::B => "B",
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -62,7 +94,7 @@ pub(crate) struct RefPolicy {
     pub(crate) maximum_blocks: u64,
     pub(crate) max_pair_spread: f64,
     pub(crate) cooldown_seconds: f64,
-    pub(crate) pair_order: Vec<String>,
+    pub(crate) pair_order: [PairSubject; PAIRS_PER_BUILD_REPLICATE],
 }
 
 #[derive(Debug, Deserialize)]
@@ -70,8 +102,7 @@ pub(crate) struct RefPolicy {
 pub(crate) struct CrossCratePolicy {
     pub(crate) pairs: u64,
     pub(crate) maximum_pairs: u64,
-    pub(crate) minimum_free_bytes: u64,
-    pub(crate) pair_order: Vec<String>,
+    pub(crate) pair_order: [PairSubject; PAIRS_PER_BUILD_REPLICATE],
 }
 
 #[derive(Debug, Deserialize)]
@@ -100,12 +131,16 @@ fn validate_path(path: &Path) -> Result<MeasurementPolicy> {
 }
 
 fn validate(policy: MeasurementPolicy) -> Result<MeasurementPolicy> {
-    if policy.schema_version != 4 {
-        return Err(invalid_data("measurement policy schema_version must be 4"));
+    if policy.schema_version != 5 {
+        return Err(invalid_data("measurement policy schema_version must be 5"));
     }
     fraction("non_inferiority_margin", policy.non_inferiority_margin)?;
     minimum("sample_size", policy.criterion.sample_size, 10)?;
     maximum("sample_size", policy.criterion.sample_size, MAX_SAMPLE_SIZE)?;
+    fraction(
+        "criterion.max_outlier_fraction",
+        policy.criterion.max_outlier_fraction,
+    )?;
     positive("warm_up_seconds", policy.criterion.warm_up_seconds)?;
     positive("measurement_seconds", policy.criterion.measurement_seconds)?;
     maximum_float(
@@ -148,7 +183,16 @@ fn validate(policy: MeasurementPolicy) -> Result<MeasurementPolicy> {
         policy.ref_to_ref.cooldown_seconds,
         MAX_DURATION_SECONDS,
     )?;
-    balanced_order("ref_to_ref", &policy.ref_to_ref.pair_order)?;
+    exact_order(
+        "ref_to_ref",
+        policy.ref_to_ref.pair_order,
+        [
+            PairSubject::A,
+            PairSubject::B,
+            PairSubject::B,
+            PairSubject::A,
+        ],
+    )?;
     minimum("pairs", policy.cross_crate.pairs, MIN_GATING_PAIRS)?;
     maximum(
         "maximum_pairs",
@@ -162,7 +206,7 @@ fn validate(policy: MeasurementPolicy) -> Result<MeasurementPolicy> {
     )?;
     minimum(
         "minimum_free_bytes",
-        policy.cross_crate.minimum_free_bytes,
+        policy.resources.minimum_free_bytes,
         MIN_BENCHMARK_FREE_BYTES,
     )?;
     if !policy
@@ -174,7 +218,16 @@ fn validate(policy: MeasurementPolicy) -> Result<MeasurementPolicy> {
             "cross_crate pairs must provide balanced build replicates",
         ));
     }
-    balanced_order("cross_crate", &policy.cross_crate.pair_order)?;
+    exact_order(
+        "cross_crate",
+        policy.cross_crate.pair_order,
+        [
+            PairSubject::A,
+            PairSubject::B,
+            PairSubject::A,
+            PairSubject::B,
+        ],
+    )?;
     if !(0.5..1.0).contains(&policy.paired_process.confidence) {
         return Err(invalid_data(
             "paired_process confidence must be between 0.5 and 1",
@@ -255,23 +308,16 @@ fn positive(name: &str, value: f64) -> Result<()> {
     }
 }
 
-fn balanced_order(name: &str, order: &[String]) -> Result<()> {
-    let a = order
-        .iter()
-        .filter(|subject| subject.as_str() == "A")
-        .count();
-    let b = order
-        .iter()
-        .filter(|subject| subject.as_str() == "B")
-        .count();
-    if order.len() == PAIRS_PER_BUILD_REPLICATE
-        && a == PAIRS_PER_BUILD_REPLICATE / 2
-        && b == PAIRS_PER_BUILD_REPLICATE / 2
-    {
+fn exact_order(
+    name: &str,
+    order: [PairSubject; PAIRS_PER_BUILD_REPLICATE],
+    expected: [PairSubject; PAIRS_PER_BUILD_REPLICATE],
+) -> Result<()> {
+    if order == expected {
         Ok(())
     } else {
         Err(invalid_data(format!(
-            "{name} pair_order must contain a balanced four-entry A/B order"
+            "{name} pair_order must match the declared four-entry schedule"
         )))
     }
 }
@@ -282,12 +328,16 @@ mod tests {
 
     fn valid_policy() -> MeasurementPolicy {
         MeasurementPolicy {
-            schema_version: 4,
+            schema_version: 5,
             non_inferiority_margin: 0.02,
+            resources: ResourcePolicy {
+                minimum_free_bytes: MIN_BENCHMARK_FREE_BYTES,
+            },
             criterion: CriterionPolicy {
                 sample_size: 50,
                 warm_up_seconds: 2.0,
                 measurement_seconds: 5.0,
+                max_outlier_fraction: 0.5,
             },
             ref_to_ref: RefPolicy {
                 blocks: 8,
@@ -295,13 +345,22 @@ mod tests {
                 maximum_blocks: 64,
                 max_pair_spread: 0.2,
                 cooldown_seconds: 10.0,
-                pair_order: vec!["A".into(), "B".into(), "B".into(), "A".into()],
+                pair_order: [
+                    PairSubject::A,
+                    PairSubject::B,
+                    PairSubject::B,
+                    PairSubject::A,
+                ],
             },
             cross_crate: CrossCratePolicy {
                 pairs: 24,
                 maximum_pairs: 128,
-                minimum_free_bytes: MIN_BENCHMARK_FREE_BYTES,
-                pair_order: vec!["A".into(), "B".into(), "A".into(), "B".into()],
+                pair_order: [
+                    PairSubject::A,
+                    PairSubject::B,
+                    PairSubject::A,
+                    PairSubject::B,
+                ],
             },
             paired_process: PairedProcessPolicy {
                 confidence: 0.95,
@@ -323,7 +382,7 @@ mod tests {
     #[test]
     fn rejects_unbalanced_order() {
         let mut policy = valid_policy();
-        policy.ref_to_ref.pair_order = vec!["A".into(); 4];
+        policy.ref_to_ref.pair_order = [PairSubject::A; 4];
         assert!(validate(policy).is_err());
     }
 

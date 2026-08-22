@@ -56,9 +56,11 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo clippy --package fs2 --all-targets --target "${{ matrix.target }}" --locked -- -D warnings
       - run: cargo test --package fs2 --target "${{ matrix.target }}" --locked
+      - run: cargo test --package fs2-dev --target "${{ matrix.target }}" --locked
       - if: matrix.toolchain == needs.support-matrix.outputs.rust_version
         run: cargo xtask compatibility
-      - run: cargo bench --manifest-path benchmarks/Cargo.toml --bench fs2 --no-run --locked --target "${{ matrix.target }}"
+      - run: cargo bench --manifest-path benchmarks/Cargo.toml --no-run --locked --target "${{ matrix.target }}"
+      - run: cargo check --manifest-path benchmarks/Cargo.toml --bin fs2-paired-stats-smoke --locked --target "${{ matrix.target }}"
 
   cross_check:
     needs: support-matrix
