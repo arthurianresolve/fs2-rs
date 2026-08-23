@@ -45,11 +45,7 @@ impl FsStatsQuery {
 
     #[cfg(unix)]
     fn new_path(path: &Path) -> Result<Self> {
-        let path = if path.is_absolute() {
-            Cow::Borrowed(path)
-        } else {
-            Cow::Owned(std::path::absolute(path)?)
-        };
+        let path = absolute_path(path)?;
         let path = CString::new(path.as_ref().as_os_str().as_bytes())
             .map_err(|_| Error::new(ErrorKind::InvalidInput, "path contained a null"))?;
         Ok(Self {
@@ -59,16 +55,20 @@ impl FsStatsQuery {
 
     #[cfg(not(unix))]
     fn new_path(path: &Path) -> Result<Self> {
-        let path = if path.is_absolute() {
-            Cow::Borrowed(path)
-        } else {
-            Cow::Owned(std::path::absolute(path)?)
-        };
+        let path = absolute_path(path)?;
         crate::sys::StatsQuery::new(path.as_ref()).map(|inner| Self { inner })
     }
 
     /// Acquires a fresh statistics snapshot.
     pub fn snapshot(&self) -> Result<FsStats> {
         self.inner.counters().and_then(FsStats::from_counters)
+    }
+}
+
+fn absolute_path(path: &Path) -> Result<Cow<'_, Path>> {
+    if path.is_absolute() {
+        Ok(Cow::Borrowed(path))
+    } else {
+        std::path::absolute(path).map(Cow::Owned)
     }
 }

@@ -27,7 +27,7 @@ enum AllocationCapability {
     Unknown,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 enum Runner {
     #[serde(rename = "macos-15-intel")]
     MacOsIntel,
@@ -109,7 +109,7 @@ pub(crate) fn run(root: &Path, github_output: Option<&Path>) -> Result<()> {
     let workflow = load_workflow(&root.join(".github/workflows/ci.yml"))?;
     validate_workflow(&registry, &workflow)?;
     let release_gates = load_workflow(&root.join(".github/workflows/release-gates.yml"))?;
-    validate_workflow_policy(&release_gates)?;
+    validate_release_workflow(&release_gates)?;
     let generated = matrices(&registry);
     if let Some(path) = github_output {
         write_github_output(path, &generated, &rust_version)?;
@@ -227,6 +227,14 @@ fn validate_registry(registry: &SupportRegistry, rust_version: &str) -> Result<(
         {
             return Err(invalid_data(format!(
                 "runtime target {} must use Rust {rust_version} and stable",
+                entry.target
+            )));
+        }
+        if entry.evidence == EvidenceLevel::Runtime
+            && expected_runtime_runner(&entry.target) != Some(ci.runner)
+        {
+            return Err(invalid_data(format!(
+                "runtime target {} uses the wrong native runner",
                 entry.target
             )));
         }
@@ -393,6 +401,33 @@ fn validate_workflow_policy(workflow: &Value) -> Result<()> {
     Ok(())
 }
 
+fn validate_release_workflow(workflow: &Value) -> Result<()> {
+    validate_workflow_policy(workflow)?;
+    let triggers = workflow
+        .get("on")
+        .and_then(Value::as_object)
+        .ok_or_else(|| invalid_data("release workflow must define triggers"))?;
+    for trigger in ["push", "pull_request", "workflow_dispatch"] {
+        if !triggers.contains_key(trigger) {
+            return Err(invalid_data(format!(
+                "release workflow must retain the {trigger} trigger"
+            )));
+        }
+    }
+    let jobs = workflow
+        .get("jobs")
+        .and_then(Value::as_object)
+        .ok_or_else(|| invalid_data("release workflow must define jobs"))?;
+    for job in ["toolchains", "package", "dependencies"] {
+        if !jobs.contains_key(job) {
+            return Err(invalid_data(format!(
+                "release workflow must retain the {job} job"
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn validate_action(action: &str) -> Result<()> {
     if pinned_action(action) {
         Ok(())
@@ -490,9 +525,32 @@ fn is_target_triple(value: &str) -> bool {
 }
 
 fn pinned_action(action: &str) -> bool {
-    action.rsplit_once('@').is_some_and(|(_, revision)| {
-        revision.len() == 40 && revision.bytes().all(|byte| byte.is_ascii_hexdigit())
-    })
+    action
+        .rsplit_once('@')
+        .is_some_and(|(repository, revision)| {
+            matches!(
+                repository,
+                "actions/checkout"
+                    | "actions/upload-artifact"
+                    | "dtolnay/rust-toolchain"
+                    | "taiki-e/install-action"
+            ) && revision.len() == 40
+                && revision.bytes().all(|byte| byte.is_ascii_hexdigit())
+        })
+}
+
+fn expected_runtime_runner(target: &str) -> Option<Runner> {
+    if target.contains("-pc-windows-") {
+        Some(Runner::Windows)
+    } else if target == "x86_64-apple-darwin" {
+        Some(Runner::MacOsIntel)
+    } else if target == "aarch64-apple-darwin" {
+        Some(Runner::MacOs)
+    } else if target.contains("-unknown-linux-") {
+        Some(Runner::Ubuntu)
+    } else {
+        None
+    }
 }
 
 fn is_ci_job_name(value: &str) -> bool {
@@ -552,7 +610,7 @@ mod tests {
         let release_gates =
             load_workflow(&crate::repository_root().join(".github/workflows/release-gates.yml"))
                 .unwrap();
-        validate_workflow_policy(&release_gates).unwrap();
+        validate_release_workflow(&release_gates).unwrap();
     }
 
     #[test]
@@ -569,6 +627,9 @@ mod tests {
         assert!(!pinned_action("actions/checkout@v4"));
         assert!(pinned_action(
             "actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5"
+        ));
+        assert!(!pinned_action(
+            "untrusted/example@34e114876b0b11c390a56381ad16ebd13914f8d5"
         ));
         assert!(has_unquoted_matrix_target(
             "cargo check --target ${{ matrix.target }}"

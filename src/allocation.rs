@@ -19,9 +19,6 @@ pub(crate) fn allocated_size(file: &File) -> Result<u64> {
 
 #[inline]
 pub(crate) fn allocate(file: &File, len: u64) -> Result<()> {
-    if len == 0 {
-        return Ok(());
-    }
     allocate_with_state(file, len, sys::allocation_state(file))
 }
 

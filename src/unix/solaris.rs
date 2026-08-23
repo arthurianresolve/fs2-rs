@@ -9,7 +9,7 @@ use std::os::unix::io::AsRawFd;
 
 pub(crate) fn flock(file: &File, flag: libc::c_int) -> Result<()> {
     let mut fl = libc::flock {
-        l_whence: 0,
+        l_whence: libc::SEEK_SET as _,
         l_start: 0,
         l_len: 0,
         l_type: 0,

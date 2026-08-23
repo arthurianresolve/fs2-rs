@@ -93,6 +93,7 @@ pub(crate) enum ProcessOutcome {
     },
     TimedOut {
         timeout_ms: u128,
+        reaped: bool,
         #[serde(skip_serializing_if = "Option::is_none")]
         kill_error: Option<String>,
     },
@@ -124,9 +125,10 @@ impl ProcessOutcome {
             Self::Terminated { detail } => format!("process terminated: {detail}"),
             Self::TimedOut {
                 timeout_ms,
+                reaped,
                 kill_error,
             } => kill_error.as_ref().map_or_else(
-                || format!("process timed out after {timeout_ms} ms"),
+                || format!("process timed out after {timeout_ms} ms; reaped={reaped}"),
                 |error| format!("process timed out after {timeout_ms} ms; kill failed: {error}"),
             ),
             Self::SpawnFailed { error } => format!("process spawn failed: {error}"),
@@ -222,6 +224,10 @@ impl ProcessRecord {
         self.outcome.description()
     }
 
+    pub(crate) fn may_still_be_running(&self) -> bool {
+        matches!(self.outcome, ProcessOutcome::TimedOut { reaped: false, .. })
+    }
+
     pub(crate) fn skipped(
         command: &Command,
         label: impl Into<String>,
@@ -310,6 +316,7 @@ fn execute(command: &mut Command, timeout: Duration) -> Execution {
             Execution {
                 outcome: ProcessOutcome::TimedOut {
                     timeout_ms: timeout.as_millis(),
+                    reaped: status.is_some(),
                     kill_error,
                 },
                 status,

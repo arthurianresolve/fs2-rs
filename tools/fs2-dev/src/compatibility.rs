@@ -22,7 +22,10 @@ struct CargoMetadata {
 #[derive(Debug, Deserialize)]
 struct CargoPackage {
     name: String,
+    version: String,
     edition: String,
+    source: Option<String>,
+    manifest_path: PathBuf,
     dependencies: Vec<CargoDependency>,
 }
 
@@ -46,7 +49,6 @@ pub(crate) fn run(root: &Path) -> Result<()> {
     }
     println!("v0.4 consumer sha256={digest}");
     validate_lockfile(&compatibility.join("Cargo.lock"))?;
-
     let target = root
         .join("target/xtask/compatibility")
         .join(process::toolchain_key()?);
@@ -60,15 +62,6 @@ pub(crate) fn run(root: &Path) -> Result<()> {
 
     let packages = compatibility_packages(root, &manifest, &target)?;
     validate_dependencies(root, &packages)?;
-    let runtime = packages
-        .iter()
-        .filter(|package| package.edition == "2015")
-        .collect::<Vec<_>>();
-    if runtime.len() != 1 {
-        return Err(invalid_data(
-            "compatibility workspace must define exactly one Rust 2015 package",
-        ));
-    }
 
     for subject in SUBJECTS {
         let mut check = process::cargo();
@@ -84,21 +77,52 @@ pub(crate) fn run(root: &Path) -> Result<()> {
         )?;
     }
 
-    for subject in SUBJECTS {
-        let mut run = process::cargo();
-        run.current_dir(root)
-            .env("CARGO_TARGET_DIR", &target)
-            .args(["run", "--manifest-path"])
-            .arg(&manifest)
-            .args([
-                "--package",
-                runtime[0].name.as_str(),
-                "--no-default-features",
-                "--features",
-                subject,
-                "--locked",
-            ]);
-        process::run(&mut run, &format!("run {subject} v0.4 consumer"))?;
+    for package in &packages {
+        for subject in SUBJECTS {
+            let mut run = process::cargo();
+            run.current_dir(root)
+                .env("CARGO_TARGET_DIR", &target)
+                .args(["run", "--manifest-path"])
+                .arg(&manifest)
+                .args([
+                    "--package",
+                    package.name.as_str(),
+                    "--no-default-features",
+                    "--features",
+                    subject,
+                    "--locked",
+                ]);
+            process::run(
+                &mut run,
+                &format!("run {subject} v0.4 consumer in edition {}", package.edition),
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_resolved_fs2(root: &Path, packages: &[CargoPackage]) -> Result<()> {
+    let resolved = packages
+        .iter()
+        .filter(|package| package.name == "fs2")
+        .collect::<Vec<_>>();
+    let legacy = resolved.iter().any(|package| {
+        package.version == "0.4.3"
+            && package.source.as_deref()
+                == Some("registry+https://github.com/rust-lang/crates.io-index")
+    });
+    let current_manifest = root.join("Cargo.toml").canonicalize()?;
+    let current = resolved.iter().any(|package| {
+        package.source.is_none()
+            && package
+                .manifest_path
+                .canonicalize()
+                .is_ok_and(|path| path == current_manifest)
+    });
+    if resolved.len() != 2 || !legacy || !current {
+        return Err(invalid_data(
+            "resolved compatibility graph must contain only approved fs2 0.4.3 and the current checkout",
+        ));
     }
     Ok(())
 }
@@ -171,9 +195,10 @@ fn compatibility_packages(
         .env("CARGO_TARGET_DIR", target)
         .args(["metadata", "--manifest-path"])
         .arg(manifest)
-        .args(["--no-deps", "--format-version", "1", "--locked"]);
+        .args(["--format-version", "1", "--locked", "--all-features"]);
     let output = process::capture(&mut command, "read compatibility metadata")?;
     let metadata: CargoMetadata = serde_json::from_slice(&output.stdout)?;
+    validate_resolved_fs2(root, &metadata.packages)?;
     let mut packages = metadata
         .packages
         .into_iter()

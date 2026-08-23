@@ -25,7 +25,10 @@ pub(crate) fn allocation_state(file: &File) -> Result<AllocationState> {
     // SAFETY: a successful `fstat` initialized the complete `stat` value.
     let stat = unsafe { stat.assume_init() };
     Ok(AllocationState {
-        allocated_size: blocks_to_bytes(stat.st_blocks as u64)?,
+        allocated_size: blocks_to_bytes(i64_to_u64(
+            stat.st_blocks,
+            "filesystem returned a negative allocated block count",
+        )?)?,
         file_size: i64_to_u64(stat.st_size, "filesystem returned a negative file size")?,
     })
 }
@@ -50,6 +53,8 @@ fn blocks_to_bytes(blocks: u64) -> Result<u64> {
 }
 
 #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
+#[cold]
+#[inline(never)]
 fn i64_to_u64(value: i64, message: &'static str) -> Result<u64> {
     value
         .try_into()

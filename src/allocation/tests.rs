@@ -27,7 +27,7 @@ fn propagates_allocation_state_errors() {
         .unwrap();
 
     let error = Error::other("allocation state failed");
-    assert!(allocate_with_state(&file, 1, Err(error)).is_err());
+    assert!(allocate_with_state(&file, 0, Err(error)).is_err());
     assert!(
         allocate_with_state(
             &file,

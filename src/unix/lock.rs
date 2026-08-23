@@ -1,10 +1,6 @@
 use std::fs::File;
-use std::io::{Error, ErrorKind, Result};
+use std::io::{Error, Result};
 use std::os::unix::io::AsRawFd;
-
-// Compile-time proof: `lock_contended_error` requires `ErrorKind::WouldBlock`.
-// This preserves the Unix contract for try-lock contention mapping.
-const _: ErrorKind = ErrorKind::WouldBlock;
 
 #[cfg(target_os = "solaris")]
 use super::solaris::flock as flock_solaris;

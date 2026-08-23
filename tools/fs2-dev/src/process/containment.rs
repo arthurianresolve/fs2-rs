@@ -54,14 +54,11 @@ pub(super) struct ProcessContainment {
 
 #[cfg(windows)]
 impl ProcessContainment {
-    // `std::process::Command` has no MSRV-compatible pre-spawn job-list hook.
-    // Assignment is therefore verified immediately after spawn, and any
-    // assignment failure invalidates the process record instead of accepting
-    // a successful native exit as contained evidence.
-    pub(super) const METHOD: &'static str = "windows-job-object-post-spawn";
+    pub(super) const METHOD: &'static str = "windows-job-object-suspended";
 
-    pub(super) fn configure(_command: &mut Command) -> io::Result<Self> {
+    pub(super) fn configure(command: &mut Command) -> io::Result<Self> {
         use std::mem::{size_of, zeroed};
+        use std::os::windows::process::CommandExt as _;
         use std::ptr;
         use windows_sys::Win32::Foundation::CloseHandle;
         use windows_sys::Win32::System::JobObjects::{
@@ -69,6 +66,10 @@ impl ProcessContainment {
             JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
             SetInformationJobObject,
         };
+
+        // The suspended child cannot create descendants before the job owns it.
+        // Assignment and resume happen in `attach`.
+        command.creation_flags(windows_sys::Win32::System::Threading::CREATE_SUSPENDED);
 
         // SAFETY: null security attributes and name request an unnamed job with
         // default security. The returned handle is owned by this value.
@@ -110,7 +111,7 @@ impl ProcessContainment {
         if unsafe { AssignProcessToJobObject(self.job, child.as_raw_handle().cast()) } == 0 {
             Err(io::Error::last_os_error())
         } else {
-            Ok(())
+            resume_process(child.id())
         }
     }
 
@@ -124,6 +125,61 @@ impl ProcessContainment {
             Ok(())
         }
     }
+}
+
+#[cfg(windows)]
+fn resume_process(process_id: u32) -> io::Result<()> {
+    use std::mem::{size_of, zeroed};
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
+    };
+    use windows_sys::Win32::System::Threading::{OpenThread, ResumeThread, THREAD_SUSPEND_RESUME};
+
+    // SAFETY: the snapshot handle is checked before use and closed below.
+    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
+    if snapshot == INVALID_HANDLE_VALUE {
+        return Err(io::Error::last_os_error());
+    }
+    let result = (|| {
+        // SAFETY: THREADENTRY32 is plain Windows API data; dwSize is set before use.
+        let mut entry: THREADENTRY32 = unsafe { zeroed() };
+        entry.dwSize = u32::try_from(size_of::<THREADENTRY32>())
+            .map_err(|_| io::Error::other("Windows thread entry size exceeds u32"))?;
+        // SAFETY: snapshot and entry are valid for enumeration.
+        if unsafe { Thread32First(snapshot, &mut entry) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        loop {
+            if entry.th32OwnerProcessID == process_id {
+                // SAFETY: the thread ID came from the live snapshot entry.
+                let thread = unsafe { OpenThread(THREAD_SUSPEND_RESUME, 0, entry.th32ThreadID) };
+                if thread.is_null() {
+                    return Err(io::Error::last_os_error());
+                }
+                // SAFETY: thread is an owned handle opened with suspend/resume access.
+                let resumed = unsafe { ResumeThread(thread) };
+                let resume_error = (resumed == u32::MAX).then(io::Error::last_os_error);
+                // SAFETY: thread is owned and closed exactly once.
+                unsafe { CloseHandle(thread) };
+                return if let Some(error) = resume_error {
+                    Err(error)
+                } else {
+                    Ok(())
+                };
+            }
+            // SAFETY: snapshot and entry remain valid for enumeration.
+            if unsafe { Thread32Next(snapshot, &mut entry) } == 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "suspended child thread was not found",
+                ));
+            }
+        }
+    })();
+    // SAFETY: snapshot is owned and closed exactly once.
+    unsafe { CloseHandle(snapshot) };
+    result
 }
 
 #[cfg(windows)]

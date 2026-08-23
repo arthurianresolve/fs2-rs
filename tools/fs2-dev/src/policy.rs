@@ -17,7 +17,7 @@ const STRICT_WARM_UP_SECONDS: f64 = 2.0;
 const STRICT_MEASUREMENT_SECONDS: f64 = 5.0;
 const STRICT_COOLDOWN_SECONDS: f64 = 10.0;
 const STRICT_NON_INFERIORITY_MARGIN: f64 = 0.02;
-const STRICT_MAX_OUTLIER_FRACTION: f64 = 0.5;
+const STRICT_MAX_OUTLIER_FRACTION: f64 = 0.30;
 const STRICT_MAX_PAIR_SPREAD: f64 = 0.20;
 pub(crate) const MAX_PAIRED_REPLICATES: u64 = 127;
 pub(crate) const MAX_SAMPLE_SIZE: u64 = 10_000;
@@ -357,7 +357,7 @@ mod tests {
                 sample_size: 50,
                 warm_up_seconds: 2.0,
                 measurement_seconds: 5.0,
-                max_outlier_fraction: 0.5,
+                max_outlier_fraction: 0.30,
             },
             ref_to_ref: RefPolicy {
                 blocks: 8,

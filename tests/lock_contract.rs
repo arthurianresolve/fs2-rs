@@ -1,7 +1,9 @@
 use std::fs::{File, OpenOptions};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::mpsc;
 use std::thread;
+use std::time::Duration;
 
 use fs2::{FileExt, lock_contended_error};
 
@@ -70,17 +72,53 @@ fn blocking_acquisition_completes_after_release() {
     let file1 = open_file(&path);
     let file2 = open_file(&path);
     let (ready_tx, ready_rx) = mpsc::channel();
+    let (done_tx, done_rx) = mpsc::channel();
 
     file1.fs2_lock_exclusive().unwrap();
     let worker = thread::spawn(move || {
+        assert_contended(file2.fs2_try_lock_shared());
         ready_tx.send(()).unwrap();
-        file2.fs2_lock_shared().unwrap();
-        file2.fs2_unlock().unwrap();
+        let result = file2.fs2_lock_shared().and_then(|()| file2.fs2_unlock());
+        done_tx.send(result).unwrap();
     });
 
     ready_rx.recv().unwrap();
+    assert!(matches!(
+        done_rx.recv_timeout(Duration::from_millis(250)),
+        Err(mpsc::RecvTimeoutError::Timeout)
+    ));
     file1.fs2_unlock().unwrap();
+    done_rx
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap()
+        .unwrap();
     worker.join().unwrap();
+}
+
+#[test]
+fn cross_process_exclusive_lock_is_observed() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let path = tempdir.path().join("fs2-cross-process");
+    let file = open_file(&path);
+    file.fs2_lock_exclusive().unwrap();
+
+    let status = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "cross_process_lock_probe", "--nocapture"])
+        .env("FS2_LOCK_PROBE_PATH", &path)
+        .status()
+        .unwrap();
+
+    file.fs2_unlock().unwrap();
+    assert!(status.success());
+}
+
+#[test]
+fn cross_process_lock_probe() {
+    let Some(path) = std::env::var_os("FS2_LOCK_PROBE_PATH").map(PathBuf::from) else {
+        return;
+    };
+    let file = open_file(&path);
+    assert_contended(file.fs2_try_lock_exclusive());
 }
 
 #[test]
