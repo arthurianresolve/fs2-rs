@@ -6,7 +6,7 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 use crate::process;
-use crate::{Result, invalid_data};
+use crate::{Result, invalid_data, lower_hex};
 
 const EXPECTED_CONSUMER_SHA256: &str =
     "3f3b5ea95f12828437a8e851baad8cc58eee3a6206f5957748248195f6ceab29";
@@ -181,7 +181,7 @@ fn consumer_digest(path: &Path) -> Result<String> {
 
 fn digest_contents(contents: &str) -> String {
     let normalized = contents.replace("\r\n", "\n").replace('\r', "\n");
-    format!("{:x}", Sha256::digest(normalized.as_bytes()))
+    lower_hex(Sha256::digest(normalized.as_bytes()))
 }
 
 fn compatibility_packages(
