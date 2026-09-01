@@ -52,7 +52,11 @@ pub(crate) fn allocation_state_result(
 }
 
 pub(crate) fn allocate_space(file: &File, _state: AllocationState, len: u64) -> Result<()> {
-    let len = i64::try_from(len)
+    // FileAllocationInfo may reduce EOF when AllocationSize is below the
+    // current logical length. Refresh EOF at the destructive sink instead of
+    // relying on the earlier allocation-policy snapshot.
+    let live_state = allocation_state(file)?;
+    let len = i64::try_from(allocation_target(live_state, len))
         .map_err(|_| Error::new(ErrorKind::InvalidInput, "allocation length is too large"))?;
     let info = FILE_ALLOCATION_INFO {
         AllocationSize: len,
@@ -68,4 +72,9 @@ pub(crate) fn allocate_space(file: &File, _state: AllocationState, len: u64) -> 
     };
     win32_bool_result(ret)?;
     Ok(())
+}
+
+#[inline]
+pub(crate) fn allocation_target(state: AllocationState, len: u64) -> u64 {
+    len.max(state.file_size)
 }

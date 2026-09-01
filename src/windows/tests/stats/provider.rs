@@ -1,4 +1,6 @@
 use super::*;
+use crate::AllocationState;
+use crate::windows::allocation::allocation_target;
 
 #[test]
 fn maps_win32_boolean_results() {
@@ -52,6 +54,18 @@ fn maps_native_result_seams_without_faulting_the_os() {
     assert_eq!(bytes.actual_free, 3);
     assert_eq!(bytes.caller_available, 1);
     assert_eq!(bytes.caller_total, 2);
+}
+
+#[test]
+fn allocation_target_never_drops_below_existing_eof() {
+    let state = AllocationState {
+        allocated_size: 8,
+        file_size: 12,
+    };
+
+    assert_eq!(allocation_target(state, 10), 12);
+    assert_eq!(allocation_target(state, 12), 12);
+    assert_eq!(allocation_target(state, 14), 14);
 }
 
 #[test]

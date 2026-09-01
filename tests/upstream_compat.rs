@@ -11,7 +11,7 @@ use tempfile::tempdir;
 // Compile the complete upstream method surface in a downstream crate. The
 // function is intentionally not called because several lock operations block
 // when performed sequentially on one file.
-#[allow(dead_code)]
+#[allow(dead_code, deprecated)]
 fn upstream_method_syntax<T: FileExt>(file: &T) -> Result<()> {
     let _ = file.duplicate()?;
     let _ = file.allocated_size()?;
@@ -33,6 +33,7 @@ fn upstream_named_generic_function_items() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn upstream_duplicate_and_allocation_surface() {
     let tempdir = tempdir().unwrap();
     let path = tempdir.path().join("fs2");

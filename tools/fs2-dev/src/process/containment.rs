@@ -13,6 +13,9 @@ impl ProcessContainment {
     pub(super) fn configure(command: &mut Command) -> io::Result<Self> {
         use std::os::unix::process::CommandExt as _;
 
+        // This is same-group lifecycle containment, not an adversarial
+        // sandbox. A child can escape with setsid() or another process-group
+        // change; hostile subjects require a stronger isolation primitive.
         command.process_group(0);
         Ok(Self {
             process_group: None,

@@ -67,6 +67,10 @@ pub trait FileExt {
     /// inheritable descriptor or handle. Prefer [`File::try_clone`] when the
     /// duplicate must not be inherited by a child process; use this method when
     /// retaining the historical inheritable behavior is required.
+    #[deprecated(
+        since = "1.0.0",
+        note = "legacy duplicates are inheritable; use File::try_clone unless inheritance is required"
+    )]
     fn duplicate(&self) -> Result<File>;
 
     /// Returns the amount of physical space allocated for a file.

@@ -1,4 +1,5 @@
 #![allow(unstable_name_collisions)]
+#![allow(deprecated)]
 
 #[cfg(all(feature = "legacy", feature = "current"))]
 compile_error!("select exactly one compatibility subject");

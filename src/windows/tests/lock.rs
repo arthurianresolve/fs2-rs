@@ -1,12 +1,19 @@
 use std::fs;
 
+use std::fs::File;
+use std::os::windows::fs::OpenOptionsExt;
 use std::os::windows::io::AsRawHandle;
+use std::sync::mpsc;
+use std::thread;
+use std::time::Duration;
 
 use windows_sys::Win32::Foundation::{GetHandleInformation, HANDLE_FLAG_INHERIT};
+use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OVERLAPPED;
 
 use crate::{FileExt, lock_contended_error};
 use tempfile::tempdir;
 #[test]
+#[allow(deprecated)]
 fn duplicate_new_handle() {
     let tempdir = tempdir().unwrap();
     let path = tempdir.path().join("fs2");
@@ -21,6 +28,7 @@ fn duplicate_new_handle() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn duplicate_preserves_legacy_handle_inheritance() {
     let tempdir = tempdir().unwrap();
     let file = fs::OpenOptions::new()
@@ -63,6 +71,7 @@ fn try_clone_is_not_inheritable() {
 
 /// A duplicated file handle does not have access to the original handle's locks.
 #[test]
+#[allow(deprecated)]
 fn lock_duplicate_handle_independence() {
     let tempdir = tempdir().unwrap();
     let path = tempdir.path().join("fs2");
@@ -85,6 +94,65 @@ fn lock_duplicate_handle_independence() {
     // Once the original file handle is unlocked, the duplicate handle can proceed with a lock.
     file1.fs2_unlock().unwrap();
     file2.fs2_lock_exclusive().unwrap();
+}
+
+#[test]
+fn overlapped_exclusive_lock_waits_for_shared_lock() {
+    let tempdir = tempdir().unwrap();
+    let path = tempdir.path().join("fs2");
+    let file1 = open_overlapped_file(&path);
+    let file2 = open_overlapped_file(&path);
+
+    file1.fs2_lock_shared().unwrap();
+    let (locked_tx, locked_rx) = mpsc::channel();
+    let contender = thread::spawn(move || {
+        file2.fs2_lock_exclusive().unwrap();
+        locked_tx.send(()).unwrap();
+        file2.fs2_unlock().unwrap();
+    });
+
+    assert!(locked_rx.recv_timeout(Duration::from_millis(100)).is_err());
+    file1.fs2_unlock().unwrap();
+    locked_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    contender.join().unwrap();
+}
+
+#[test]
+fn overlapped_shared_lock_waits_for_exclusive_lock() {
+    let tempdir = tempdir().unwrap();
+    let path = tempdir.path().join("fs2");
+    let file1 = open_overlapped_file(&path);
+    let file2 = open_overlapped_file(&path);
+
+    file1.fs2_lock_exclusive().unwrap();
+    let (locked_tx, locked_rx) = mpsc::channel();
+    let contender = thread::spawn(move || {
+        file2.fs2_lock_shared().unwrap();
+        locked_tx.send(()).unwrap();
+        file2.fs2_unlock().unwrap();
+    });
+
+    assert!(locked_rx.recv_timeout(Duration::from_millis(100)).is_err());
+    file1.fs2_unlock().unwrap();
+    locked_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    contender.join().unwrap();
+}
+
+#[test]
+fn overlapped_try_locks_report_contention() {
+    let tempdir = tempdir().unwrap();
+    let path = tempdir.path().join("fs2");
+    let exclusive = open_overlapped_file(&path);
+    let contender = open_overlapped_file(&path);
+
+    exclusive.fs2_lock_exclusive().unwrap();
+    for error in [
+        contender.fs2_try_lock_shared().unwrap_err(),
+        contender.fs2_try_lock_exclusive().unwrap_err(),
+    ] {
+        assert_eq!(error.raw_os_error(), lock_contended_error().raw_os_error());
+    }
+    exclusive.fs2_unlock().unwrap();
 }
 
 /// A file handle may not be exclusively locked multiple times, or exclusively locked and then
@@ -193,6 +261,7 @@ fn lock_layering_cleanup() {
 /// A file handle's locks will not be released until the original handle and all of its
 /// duplicates have been closed. This on really smells like a bug in Windows.
 #[test]
+#[allow(deprecated)]
 fn lock_duplicate_cleanup() {
     let tempdir = tempdir().unwrap();
     let path = tempdir.path().join("fs2");
@@ -214,4 +283,15 @@ fn lock_duplicate_cleanup() {
         file2.fs2_try_lock_exclusive().unwrap_err().raw_os_error(),
         lock_contended_error().raw_os_error()
     );
+}
+
+fn open_overlapped_file(path: &std::path::Path) -> File {
+    fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .custom_flags(FILE_FLAG_OVERLAPPED)
+        .open(path)
+        .unwrap()
 }

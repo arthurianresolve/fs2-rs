@@ -43,9 +43,12 @@ fn macos_allocate_space_covers_native_control_flow() {
         .unwrap();
 
     let flags = RefCell::new(Vec::new());
+    let bytesalloc = RefCell::new(Vec::new());
     let mut results = [-1, 0, -1, -1].into_iter();
-    let mut preallocate = |_: &File, fstore: &libc::fstore_t| -> libc::c_int {
+    let mut preallocate = |_: &File, fstore: &mut libc::fstore_t| -> libc::c_int {
         flags.borrow_mut().push(fstore.fst_flags);
+        bytesalloc.borrow_mut().push(fstore.fst_bytesalloc);
+        fstore.fst_bytesalloc = fstore.fst_length as _;
         results.next().unwrap()
     };
 
@@ -54,6 +57,7 @@ fn macos_allocate_space_covers_native_control_flow() {
         flags.borrow().as_slice(),
         &[libc::F_ALLOCATECONTIG, libc::F_ALLOCATEALL]
     );
+    assert_eq!(bytesalloc.borrow().as_slice(), &[0, 4096]);
 
     let error = super::allocate_space_with(&file, 4096, &mut preallocate).unwrap_err();
     assert!(error.raw_os_error().is_some());
@@ -66,6 +70,7 @@ fn macos_allocate_space_covers_native_control_flow() {
             libc::F_ALLOCATEALL,
         ]
     );
+    assert_eq!(bytesalloc.borrow().as_slice(), &[0, 4096, 0, 4096]);
 
     super::allocate_space_with(&file, 0, &mut preallocate).unwrap();
 

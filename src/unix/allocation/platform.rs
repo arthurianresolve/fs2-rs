@@ -75,7 +75,7 @@ cfg_if! {
             fn allocate_space_with_state(
                 state: AllocationState,
                 len: u64,
-                mut preallocate: impl FnMut(&libc::fstore_t) -> libc::c_int,
+                mut preallocate: impl FnMut(&mut libc::fstore_t) -> libc::c_int,
             ) -> Result<()> {
                 if len <= state.allocated_size {
                     return Ok(());
@@ -92,10 +92,10 @@ cfg_if! {
                     fst_bytesalloc: 0,
                 };
 
-                let mut ret = preallocate(&fstore);
+                let mut ret = preallocate(&mut fstore);
                 if ret == -1 {
                     fstore.fst_flags = libc::F_ALLOCATEALL;
-                    ret = preallocate(&fstore);
+                    ret = preallocate(&mut fstore);
                 }
                 if ret == -1 {
                     Err(Error::last_os_error())
@@ -111,7 +111,7 @@ cfg_if! {
                 preallocate: &mut F,
             ) -> Result<()>
             where
-                F: FnMut(&File, &libc::fstore_t) -> libc::c_int,
+                F: FnMut(&File, &mut libc::fstore_t) -> libc::c_int,
             {
                 use std::os::unix::fs::MetadataExt;
 
@@ -124,9 +124,10 @@ cfg_if! {
             }
 
             #[inline(always)]
-            unsafe fn preallocate(file: &File, fstore: &libc::fstore_t) -> libc::c_int {
-                // SAFETY: `file` owns a valid descriptor and `fstore` is a valid fstore structure.
-                unsafe { libc::fcntl(file.as_raw_fd(), libc::F_PREALLOCATE, fstore) }
+            unsafe fn preallocate(file: &File, fstore: &mut libc::fstore_t) -> libc::c_int {
+                // SAFETY: `file` owns a valid descriptor and `fstore` is an exclusive,
+                // correctly sized fstore structure for the duration of this call.
+                unsafe { libc::fcntl(file.as_raw_fd(), libc::F_PREALLOCATE, fstore as *mut libc::fstore_t) }
             }
         }
     } else {

@@ -6,6 +6,7 @@ use tempfile::tempdir;
 use fs2::{FileExt, allocation_granularity};
 
 /// Tests file duplication.
+#[allow(deprecated)]
 #[test]
 fn duplicate() {
     let tempdir = tempdir().unwrap();
@@ -212,6 +213,7 @@ fn unix_lock_is_replaced_only_when_expected() {
 }
 
 #[cfg(unix)]
+#[allow(deprecated)]
 #[test]
 fn unix_lock_duplicate_descriptor_contract() {
     let tempdir = tempdir().unwrap();

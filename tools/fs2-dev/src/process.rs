@@ -17,6 +17,8 @@ use containment::ProcessContainment;
 const DEFAULT_PROCESS_TIMEOUT: Duration = Duration::from_secs(3_600);
 const MAX_PROCESS_TIMEOUT_SECONDS: u64 = 86_400;
 const TERMINATION_REAP_TIMEOUT: Duration = Duration::from_secs(5);
+#[cfg(unix)]
+const PROCESS_GROUP_EXIT_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
 pub(crate) fn cargo() -> Command {
     Command::new(std::env::var_os("CARGO").unwrap_or_else(|| OsString::from("cargo")))
@@ -225,7 +227,16 @@ impl ProcessRecord {
     }
 
     pub(crate) fn may_still_be_running(&self) -> bool {
-        matches!(self.outcome, ProcessOutcome::TimedOut { reaped: false, .. })
+        matches!(
+            self.outcome,
+            ProcessOutcome::TimedOut { reaped: false, .. }
+                | ProcessOutcome::TimedOut {
+                    kill_error: Some(_),
+                    ..
+                }
+                | ProcessOutcome::ContainmentFailed { .. }
+                | ProcessOutcome::RunnerFailed { .. }
+        )
     }
 
     pub(crate) fn skipped(
@@ -257,6 +268,11 @@ struct Execution {
     duration_ms: u128,
     timeout_ms: u128,
     containment: &'static str,
+}
+
+enum ChildObservation {
+    Exited(Option<ExitStatus>),
+    TimedOut,
 }
 
 fn execute(command: &mut Command, timeout: Duration) -> Execution {
@@ -303,15 +319,44 @@ fn execute(command: &mut Command, timeout: Duration) -> Execution {
             containment: ProcessContainment::METHOD,
         };
     }
-    match child.wait_timeout(timeout) {
-        Ok(Some(status)) => Execution {
-            outcome: status_outcome(status),
-            status: Some(status),
-            duration_ms: started.elapsed().as_millis(),
-            timeout_ms: timeout.as_millis(),
-            containment: ProcessContainment::METHOD,
-        },
-        Ok(None) => {
+    match observe_child_exit(&mut child, timeout) {
+        Ok(ChildObservation::Exited(observed_status)) => {
+            let (status, cleanup_error) =
+                complete_observed_exit(&containment, &mut child, observed_status);
+            let Some(status) = status else {
+                return Execution {
+                    outcome: ProcessOutcome::ContainmentFailed {
+                        error: cleanup_error.unwrap_or_else(|| {
+                            "direct child status was unavailable after observed exit".to_owned()
+                        }),
+                    },
+                    status: None,
+                    duration_ms: started.elapsed().as_millis(),
+                    timeout_ms: timeout.as_millis(),
+                    containment: ProcessContainment::METHOD,
+                };
+            };
+            let outcome = status_outcome(status);
+            if let Some(error) = cleanup_error {
+                return Execution {
+                    outcome: ProcessOutcome::ContainmentFailed {
+                        error: format!("{}; cleanup failed: {error}", outcome.description()),
+                    },
+                    status: Some(status),
+                    duration_ms: started.elapsed().as_millis(),
+                    timeout_ms: timeout.as_millis(),
+                    containment: ProcessContainment::METHOD,
+                };
+            }
+            Execution {
+                outcome,
+                status: Some(status),
+                duration_ms: started.elapsed().as_millis(),
+                timeout_ms: timeout.as_millis(),
+                containment: ProcessContainment::METHOD,
+            }
+        }
+        Ok(ChildObservation::TimedOut) => {
             let (status, kill_error) = terminate_and_reap(&containment, &mut child);
             Execution {
                 outcome: ProcessOutcome::TimedOut {
@@ -342,11 +387,217 @@ fn execute(command: &mut Command, timeout: Duration) -> Execution {
     }
 }
 
+#[cfg(unix)]
+fn observe_child_exit(
+    child: &mut std::process::Child,
+    timeout: Duration,
+) -> std::io::Result<ChildObservation> {
+    waitid_observe_child_exit(child, timeout)
+}
+
+#[cfg(not(unix))]
+fn observe_child_exit(
+    child: &mut std::process::Child,
+    timeout: Duration,
+) -> std::io::Result<ChildObservation> {
+    child.wait_timeout(timeout).map(|status| match status {
+        Some(status) => ChildObservation::Exited(Some(status)),
+        None => ChildObservation::TimedOut,
+    })
+}
+
+#[cfg(all(
+    unix,
+    any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "illumos",
+        target_os = "ios",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "netbsd",
+        target_os = "tvos",
+        target_os = "visionos",
+        target_os = "watchos"
+    )
+))]
+fn waitid_observe_child_exit(
+    child: &std::process::Child,
+    timeout: Duration,
+) -> std::io::Result<ChildObservation> {
+    let pid = process_group_id(child)?;
+    let started = Instant::now();
+    loop {
+        let mut information = std::mem::MaybeUninit::<libc::siginfo_t>::zeroed();
+        let result = unsafe {
+            // SAFETY: `information` is writable output storage. WNOWAIT keeps
+            // the direct child waitable so its PID/PGID cannot be reused before
+            // group termination and the later `Child::wait` reap.
+            libc::waitid(
+                libc::P_PID,
+                pid as libc::id_t,
+                information.as_mut_ptr(),
+                libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+            )
+        };
+        if result != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        let information = unsafe {
+            // SAFETY: waitid returned success and initialized siginfo_t.
+            information.assume_init()
+        };
+        if unsafe { information.si_pid() } != 0 {
+            return Ok(ChildObservation::Exited(None));
+        }
+
+        let elapsed = started.elapsed();
+        if elapsed >= timeout {
+            return Ok(ChildObservation::TimedOut);
+        }
+        std::thread::sleep(PROCESS_GROUP_EXIT_POLL_INTERVAL.min(timeout - elapsed));
+    }
+}
+
+#[cfg(all(
+    unix,
+    not(any(
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "illumos",
+        target_os = "ios",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "netbsd",
+        target_os = "tvos",
+        target_os = "visionos",
+        target_os = "watchos"
+    ))
+))]
+fn waitid_observe_child_exit(
+    _child: &std::process::Child,
+    _timeout: Duration,
+) -> std::io::Result<ChildObservation> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "this Unix target lacks a supported non-reaping child observation primitive",
+    ))
+}
+
+#[cfg(unix)]
+fn complete_observed_exit(
+    containment: &ProcessContainment,
+    child: &mut std::process::Child,
+    observed_status: Option<ExitStatus>,
+) -> (Option<ExitStatus>, Option<String>) {
+    complete_observed_exit_with(containment, child, observed_status, |containment, child| {
+        containment.terminate(child)
+    })
+}
+
+#[cfg(unix)]
+fn complete_observed_exit_with(
+    containment: &ProcessContainment,
+    child: &mut std::process::Child,
+    observed_status: Option<ExitStatus>,
+    terminate: impl FnOnce(&ProcessContainment, &mut std::process::Child) -> std::io::Result<()>,
+) -> (Option<ExitStatus>, Option<String>) {
+    debug_assert!(observed_status.is_none());
+    let mut errors = Vec::new();
+    let process_group = process_group_id(child);
+    if let Err(error) = terminate(containment, child) {
+        errors.push(format!("containment termination failed: {error}"));
+    }
+    let status = match child.wait() {
+        Ok(status) => Some(status),
+        Err(error) => {
+            errors.push(format!("unable to reap observed direct child: {error}"));
+            None
+        }
+    };
+    match process_group {
+        Ok(process_group) => {
+            if let Err(error) = wait_for_process_group_exit(process_group, TERMINATION_REAP_TIMEOUT)
+            {
+                errors.push(format!(
+                    "process-group cleanup could not be verified: {error}"
+                ));
+            }
+        }
+        Err(error) => errors.push(format!(
+            "process-group cleanup could not be verified: {error}"
+        )),
+    }
+    let error = (!errors.is_empty()).then(|| errors.join("; "));
+    (status, error)
+}
+
+#[cfg(not(unix))]
+fn complete_observed_exit(
+    _containment: &ProcessContainment,
+    _child: &mut std::process::Child,
+    observed_status: Option<ExitStatus>,
+) -> (Option<ExitStatus>, Option<String>) {
+    (observed_status, None)
+}
+
+#[cfg(unix)]
+fn process_group_id(child: &std::process::Child) -> std::io::Result<i32> {
+    i32::try_from(child.id()).map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "child process id is too large",
+        )
+    })
+}
+
+#[cfg(unix)]
+fn wait_for_process_group_exit(process_group: i32, timeout: Duration) -> std::io::Result<()> {
+    let started = Instant::now();
+    loop {
+        // SAFETY: signal zero performs an existence/permission check only. The
+        // negative ID targets the dedicated process group configured at spawn.
+        let result = unsafe { libc::kill(-process_group, 0) };
+        if result != 0 {
+            let error = std::io::Error::last_os_error();
+            return match error.raw_os_error() {
+                Some(libc::ESRCH) => Ok(()),
+                Some(libc::EPERM) => Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    format!("cannot verify that process group {process_group} exited: {error}"),
+                )),
+                _ => Err(std::io::Error::new(
+                    error.kind(),
+                    format!("unable to query process group {process_group}: {error}"),
+                )),
+            };
+        }
+
+        let elapsed = started.elapsed();
+        if elapsed >= timeout {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                format!(
+                    "process group {process_group} still exists after {} ms",
+                    timeout.as_millis()
+                ),
+            ));
+        }
+
+        // A killed descendant remains observable while it is a zombie. Waiting
+        // for ESRCH also requires its reaper to remove that final group member;
+        // a slow or non-cooperating external subreaper therefore fails closed.
+        std::thread::sleep(PROCESS_GROUP_EXIT_POLL_INTERVAL.min(timeout - elapsed));
+    }
+}
+
 fn terminate_and_reap(
     containment: &ProcessContainment,
     child: &mut std::process::Child,
 ) -> (Option<ExitStatus>, Option<String>) {
     let mut errors = Vec::new();
+    #[cfg(unix)]
+    let process_group = process_group_id(child);
     if let Err(error) = containment.terminate(child) {
         errors.push(format!("containment termination failed: {error}"));
         if let Err(error) = child.kill() {
@@ -377,6 +628,20 @@ fn terminate_and_reap(
             None
         }
     };
+    #[cfg(unix)]
+    match process_group {
+        Ok(process_group) => {
+            if let Err(error) = wait_for_process_group_exit(process_group, TERMINATION_REAP_TIMEOUT)
+            {
+                errors.push(format!(
+                    "process-group cleanup could not be verified: {error}"
+                ));
+            }
+        }
+        Err(error) => errors.push(format!(
+            "process-group cleanup could not be verified: {error}"
+        )),
+    }
     let error = (!errors.is_empty()).then(|| errors.join("; "));
     (status, error)
 }
@@ -556,6 +821,28 @@ pub(crate) fn display_os(value: &OsStr) -> String {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
+    fn read_process_identities(path: &Path) -> (i32, i32) {
+        let identities = fs::read_to_string(path).unwrap();
+        let mut identities = identities.split_ascii_whitespace();
+        let descendant_pid = identities.next().unwrap().parse::<i32>().unwrap();
+        let process_group = identities.next().unwrap().parse::<i32>().unwrap();
+        assert!(identities.next().is_none());
+        (descendant_pid, process_group)
+    }
+
+    #[cfg(unix)]
+    fn assert_process_group_absent(descendant_pid: i32, process_group: i32) {
+        for signal_target in [descendant_pid, -process_group] {
+            // SAFETY: signal zero performs an existence/permission check only.
+            assert_eq!(unsafe { libc::kill(signal_target, 0) }, -1);
+            assert_eq!(
+                std::io::Error::last_os_error().raw_os_error(),
+                Some(libc::ESRCH)
+            );
+        }
+    }
+
     #[test]
     fn skipped_processes_are_not_native_exits() {
         let mut command = Command::new("cargo");
@@ -604,5 +891,120 @@ mod tests {
         let execution = execute(&mut command, Duration::from_millis(20));
         assert!(matches!(execution.outcome, ProcessOutcome::TimedOut { .. }));
         assert!(execution.status.is_some());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn successful_processes_without_descendants_still_succeed() {
+        let mut command = Command::new("sh");
+        command.args(["-c", "exit 0"]);
+
+        let execution = execute(&mut command, Duration::from_secs(5));
+        assert!(matches!(
+            execution.outcome,
+            ProcessOutcome::Exited { code: 0 }
+        ));
+        assert!(execution.status.is_some());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unsuccessful_processes_preserve_exit_status_after_descendant_cleanup() {
+        let temporary = tempfile::tempdir().unwrap();
+        let identities = temporary.path().join("process-identities");
+        let identities_argument = identities.to_str().unwrap();
+        let mut command = Command::new("sh");
+        command.args([
+            "-c",
+            "sleep 30 & descendant=$!; printf '%s %s\\n' \"$descendant\" \"$$\" > \"$1\"; exit 7",
+            "sh",
+            identities_argument,
+        ]);
+
+        let execution = execute(&mut command, Duration::from_secs(5));
+        assert!(matches!(
+            execution.outcome,
+            ProcessOutcome::Exited { code: 7 }
+        ));
+        assert_eq!(execution.status.and_then(|status| status.code()), Some(7));
+        let (descendant_pid, process_group) = read_process_identities(&identities);
+        assert_process_group_absent(descendant_pid, process_group);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn successful_processes_return_after_same_group_descendants_exit() {
+        let temporary = tempfile::tempdir().unwrap();
+        let identities = temporary.path().join("process-identities");
+        let identities_argument = identities.to_str().unwrap();
+        let mut command = Command::new("sh");
+        command.args([
+            "-c",
+            "sleep 30 & descendant=$!; printf '%s %s\\n' \"$descendant\" \"$$\" > \"$1\"; exit 0",
+            "sh",
+            identities_argument,
+        ]);
+
+        let execution = execute(&mut command, Duration::from_secs(5));
+        assert!(matches!(
+            execution.outcome,
+            ProcessOutcome::Exited { code: 0 }
+        ));
+        let (descendant_pid, process_group) = read_process_identities(&identities);
+        assert_process_group_absent(descendant_pid, process_group);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn timed_out_processes_return_after_same_group_descendants_exit() {
+        let temporary = tempfile::tempdir().unwrap();
+        let identities = temporary.path().join("process-identities");
+        let identities_argument = identities.to_str().unwrap();
+        let mut command = Command::new("sh");
+        command.args([
+            "-c",
+            "sleep 30 & descendant=$!; printf '%s %s\\n' \"$descendant\" \"$$\" > \"$1\"; wait",
+            "sh",
+            identities_argument,
+        ]);
+
+        let execution = execute(&mut command, Duration::from_millis(200));
+        assert!(matches!(
+            execution.outcome,
+            ProcessOutcome::TimedOut {
+                reaped: true,
+                kill_error: None,
+                ..
+            }
+        ));
+        assert!(execution.status.is_some());
+        let (descendant_pid, process_group) = read_process_identities(&identities);
+        assert_process_group_absent(descendant_pid, process_group);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cleanup_failures_preserve_observed_direct_child_status() {
+        let mut command = Command::new("sh");
+        command.args(["-c", "exit 9"]);
+        let mut containment = ProcessContainment::configure(&mut command).unwrap();
+        let mut child = command.spawn().unwrap();
+        containment.attach(&child).unwrap();
+        assert!(matches!(
+            observe_child_exit(&mut child, Duration::from_secs(5)).unwrap(),
+            ChildObservation::Exited(None)
+        ));
+
+        let (status, cleanup_error) =
+            complete_observed_exit_with(&containment, &mut child, None, |_containment, _child| {
+                Err(std::io::Error::other("injected cleanup failure"))
+            });
+
+        assert_eq!(status.and_then(|status| status.code()), Some(9));
+        assert!(
+            cleanup_error
+                .as_deref()
+                .is_some_and(|error| error.contains("injected cleanup failure"))
+        );
     }
 }
