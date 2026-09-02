@@ -6,7 +6,7 @@ use tempfile::NamedTempFile;
 
 use crate::Result;
 
-pub(crate) const SCHEMA_VERSION: u64 = 8;
+pub(crate) const SCHEMA_VERSION: u64 = 9;
 
 #[derive(Clone, Copy, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -18,11 +18,37 @@ pub(crate) enum ReportKind {
 }
 
 #[derive(Serialize)]
+struct ExecutionTrust {
+    selected_code_acknowledgement: &'static str,
+    authority: &'static str,
+    sandbox: &'static str,
+    strict_scope: &'static str,
+}
+
+impl ExecutionTrust {
+    const fn for_kind(report_kind: ReportKind) -> Self {
+        let selected_code_acknowledgement = match report_kind {
+            ReportKind::Lock => "not-applicable-current-repository",
+            ReportKind::CrossCrate | ReportKind::RefToRef | ReportKind::Stats => {
+                "explicitly-acknowledged"
+            }
+        };
+        Self {
+            selected_code_acknowledgement,
+            authority: "ambient-user",
+            sandbox: "none",
+            strict_scope: "provenance-and-statistical-rigor-for-trusted-subjects",
+        }
+    }
+}
+
+#[derive(Serialize)]
 pub(crate) struct ReportEnvelope<T> {
     schema_version: u64,
     report_kind: ReportKind,
     status: &'static str,
     valid: bool,
+    execution_trust: ExecutionTrust,
     #[serde(flatten)]
     content: T,
 }
@@ -39,6 +65,7 @@ impl<T> ReportEnvelope<T> {
             report_kind,
             status,
             valid,
+            execution_trust: ExecutionTrust::for_kind(report_kind),
             content,
         }
     }
@@ -121,14 +148,20 @@ mod tests {
             serde_json::json!({ "run": 1 }),
         ))
         .unwrap();
-        assert_eq!(SCHEMA_VERSION, 8);
+        assert_eq!(SCHEMA_VERSION, 9);
         assert_eq!(
             report,
             serde_json::json!({
-                "schema_version": 8,
+                "schema_version": 9,
                 "report_kind": "lock",
                 "status": "completed",
                 "valid": true,
+                "execution_trust": {
+                    "selected_code_acknowledgement": "not-applicable-current-repository",
+                    "authority": "ambient-user",
+                    "sandbox": "none",
+                    "strict_scope": "provenance-and-statistical-rigor-for-trusted-subjects"
+                },
                 "run": 1
             })
         );
@@ -140,11 +173,15 @@ mod tests {
             serde_json::json!({ "error": "setup failed" }),
         ))
         .unwrap();
-        assert_eq!(invalid["schema_version"], 8);
+        assert_eq!(invalid["schema_version"], 9);
         assert_eq!(invalid["report_kind"], "stats");
         assert_eq!(invalid["status"], "invalid-execution");
         assert_eq!(invalid["valid"], false);
         assert_eq!(invalid["error"], "setup failed");
+        assert_eq!(
+            invalid["execution_trust"]["selected_code_acknowledgement"],
+            "explicitly-acknowledged"
+        );
 
         let mut command = std::process::Command::new("cargo");
         command.current_dir("repository").arg("build");

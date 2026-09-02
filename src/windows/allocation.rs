@@ -53,8 +53,11 @@ pub(crate) fn allocation_state_result(
 
 pub(crate) fn allocate_space(file: &File, _state: AllocationState, len: u64) -> Result<()> {
     // FileAllocationInfo may reduce EOF when AllocationSize is below the
-    // current logical length. Refresh EOF at the destructive sink instead of
-    // relying on the earlier allocation-policy snapshot.
+    // current logical length. Under FileExt::allocate's documented exclusive
+    // size-ownership contract, refresh EOF at the destructive sink instead of
+    // relying on the earlier allocation-policy snapshot. Windows exposes no
+    // atomic max-allocation primitive, so this refresh is not concurrency
+    // control for non-cooperating resizers.
     let live_state = allocation_state(file)?;
     let len = i64::try_from(allocation_target(live_state, len))
         .map_err(|_| Error::new(ErrorKind::InvalidInput, "allocation length is too large"))?;

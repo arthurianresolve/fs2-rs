@@ -43,6 +43,8 @@ fn allocate_with_state(file: &File, len: u64, state: Result<AllocationState>) ->
 
 fn extend_file_length_after_snapshot(file: &File, len: u64) -> Result<()> {
     if file.metadata()?.len() < len {
+        // FileExt::allocate requires exclusive ownership of logical-length
+        // changes because set_len is exact, not an atomic max-length operation.
         file.set_len(len)
     } else {
         Ok(())

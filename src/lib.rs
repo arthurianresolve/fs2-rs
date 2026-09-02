@@ -82,6 +82,14 @@ pub trait FileExt {
     /// are guaranteed not to fail because of lack of disk space.
     /// On platforms without a physical reservation primitive, this returns
     /// [`std::io::ErrorKind::Unsupported`] when additional space is needed.
+    ///
+    /// # Concurrency
+    ///
+    /// The caller must exclusively own changes to the file's logical length
+    /// while this method runs. Some platform implementations use an exact-size
+    /// operation to extend the file; a concurrent, non-cooperating resize can
+    /// otherwise be overwritten. Advisory locks provide this exclusion only
+    /// when every participant follows the same locking protocol.
     fn allocate(&self, len: u64) -> Result<()>;
 
     /// Locks the file for shared usage, blocking if the file is currently

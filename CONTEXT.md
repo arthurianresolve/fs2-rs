@@ -8,7 +8,10 @@ and length postcondition, and the allocation module owns the public allocated
 size projection. Platform adapters provide the current allocation state and
 reservation primitive through the allocation seam. A platform without a
 reservation primitive must return `Unsupported` rather than claiming the
-physical-space guarantee.
+physical-space guarantee. The caller owns exclusive logical-length changes for
+the duration of `FileExt::allocate`; exact-size platform operations cannot
+preserve a concurrent, non-cooperating resize, and advisory locks are effective
+only when all participants follow the same protocol.
 
 ## File locks
 
@@ -69,6 +72,13 @@ and carry explicit schema versions. One native command runner captures stdout,
 stderr, duration, working directory, command-local environment, and a typed
 process outcome. Tooling dependencies do not enter the published package or
 production dependency graph.
+
+Ref, cross-crate, and paired-stats subjects are trusted executable input. The
+tool requires an explicit `--trust-selected-code` acknowledgement before it
+builds them, but it does not sandbox their filesystem, environment, credential,
+process, or network access. Process containment provides lifecycle cleanup
+only. Strict evidence means provenance and statistical rigor under this trusted
+subject assumption, not adversarial authenticity or hostile-code isolation.
 
 Performance comparisons independently stage both subjects and their target
 directories, use identical harness and lockfile inputs, and retain typed process

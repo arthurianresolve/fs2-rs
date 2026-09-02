@@ -25,6 +25,10 @@ On Unix and Windows, `FileExt::duplicate` retains the original crate's
 inheritable duplicate semantics. Use `File::try_clone` when the duplicate must
 not be inherited by a child process.
 
+`FileExt::allocate` may use an exact-size platform operation. Callers must
+exclusively own file-length changes while it runs; advisory locks provide that
+exclusion only when every participant follows the same protocol.
+
 ## Compatibility
 
 The v0.4 `FileExt` methods and their behavior remain available. Rust 1.97 and
@@ -65,10 +69,10 @@ nightly `build-std`; runtime tests require a target-specific emulator and
 uClibc sysroot.
 
 The target evidence and allocation capability claims are recorded in the
-repository-only `support-matrix.json` registry.
-CI validates the matrix and generates its native and cross-target job matrices
-from the registry, then runs native runtime tests and compile-checks the listed
-cross targets. Compile-only evidence does not imply runtime support.
+repository-only `support-matrix.json` registry. CI uses literal native and
+cross-target job matrices, and validation rejects drift between those entries
+and the registry before runtime tests or compile-checks run. Compile-only
+evidence does not imply runtime support.
 
 ## Benchmarking
 
@@ -90,6 +94,13 @@ preparation without caching counter values. The `stats_snapshot` and
 queries.
 
 Repository operations are implemented by the unpublished Rust `fs2-dev` tool:
+
+> [!WARNING]
+> `bench refs`, `bench crates`, and `bench stats` compile and execute the
+> selected revisions or checkouts with the current user's ambient filesystem,
+> environment, credential, process, and network authority. They are not
+> sandboxed and require `--trust-selected-code`. Strict reports establish
+> provenance and statistical rigor only for trusted subjects.
 
 ```text
 cargo xtask matrix

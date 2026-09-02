@@ -46,8 +46,10 @@ pub(crate) fn lock_error() -> Error {
 
 fn lock_file(file: &File, flags: u32) -> Result<()> {
     let event = Event::new()?;
-    let mut overlapped = OVERLAPPED::default();
-    overlapped.hEvent = event.0;
+    let mut overlapped = OVERLAPPED {
+        hEvent: event.0,
+        ..OVERLAPPED::default()
+    };
     let handle = file.as_raw_handle();
     let ret = unsafe {
         // SAFETY: `file` owns a valid handle and `overlapped` is a valid zeroed structure.

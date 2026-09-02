@@ -9,7 +9,7 @@ use crate::process;
 use crate::{Result, invalid_data, lower_hex};
 
 const EXPECTED_CONSUMER_SHA256: &str =
-    "3f3b5ea95f12828437a8e851baad8cc58eee3a6206f5957748248195f6ceab29";
+    "a04871a9a4c170cc8170f582a67f0fa0ab350c1a4afc014d21812fd9165eb8c7";
 const LEGACY_CHECKSUM: &str = "9564fc758e15025b46aa6643b1b77d047d1a56a1aea6e01002ac0c7026876213";
 const SUBJECTS: [&str; 2] = ["legacy", "current"];
 const REQUIRED_EDITIONS: [&str; 4] = ["2015", "2018", "2021", "2024"];
