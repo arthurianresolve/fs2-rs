@@ -560,27 +560,38 @@ fn process_group_id(child: &std::process::Child) -> std::io::Result<i32> {
 #[cfg(unix)]
 fn wait_for_process_group_exit(process_group: i32, timeout: Duration) -> std::io::Result<()> {
     let started = Instant::now();
+    let mut permission_error = None;
     loop {
         // SAFETY: signal zero performs an existence/permission check only. The
         // negative ID targets the dedicated process group configured at spawn.
         let result = unsafe { libc::kill(-process_group, 0) };
         if result != 0 {
             let error = std::io::Error::last_os_error();
-            return match error.raw_os_error() {
-                Some(libc::ESRCH) => Ok(()),
-                Some(libc::EPERM) => Err(std::io::Error::new(
-                    std::io::ErrorKind::PermissionDenied,
-                    format!("cannot verify that process group {process_group} exited: {error}"),
-                )),
-                _ => Err(std::io::Error::new(
+            match error.raw_os_error() {
+                Some(libc::ESRCH) => return Ok(()),
+                // Darwin reports EPERM when any group member cannot be probed.
+                // During teardown that can be transient, so use the existing
+                // bounded grace period rather than failing on the first probe.
+                Some(libc::EPERM) => permission_error = Some(error),
+                _ => {
+                    return Err(std::io::Error::new(
                     error.kind(),
                     format!("unable to query process group {process_group}: {error}"),
-                )),
-            };
+                    ));
+                }
+            }
+        } else {
+            permission_error = None;
         }
 
         let elapsed = started.elapsed();
         if elapsed >= timeout {
+            if let Some(error) = permission_error {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    format!("cannot verify that process group {process_group} exited: {error}"),
+                ));
+            }
             return Err(std::io::Error::new(
                 std::io::ErrorKind::TimedOut,
                 format!(
