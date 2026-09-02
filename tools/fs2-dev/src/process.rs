@@ -505,9 +505,7 @@ fn complete_observed_exit_with(
     debug_assert!(observed_status.is_none());
     let mut errors = Vec::new();
     let process_group = process_group_id(child);
-    if let Err(error) = terminate(containment, child) {
-        errors.push(format!("containment termination failed: {error}"));
-    }
+    let termination_error = terminate(containment, child).err();
     let status = match child.wait() {
         Ok(status) => Some(status),
         Err(error) => {
@@ -519,14 +517,22 @@ fn complete_observed_exit_with(
         Ok(process_group) => {
             if let Err(error) = wait_for_process_group_exit(process_group, TERMINATION_REAP_TIMEOUT)
             {
+                if let Some(error) = termination_error {
+                    errors.push(format!("containment termination failed: {error}"));
+                }
                 errors.push(format!(
                     "process-group cleanup could not be verified: {error}"
                 ));
             }
         }
-        Err(error) => errors.push(format!(
-            "process-group cleanup could not be verified: {error}"
-        )),
+        Err(error) => {
+            if let Some(error) = termination_error {
+                errors.push(format!("containment termination failed: {error}"));
+            }
+            errors.push(format!(
+                "process-group cleanup could not be verified: {error}"
+            ));
+        }
     }
     let error = (!errors.is_empty()).then(|| errors.join("; "));
     (status, error)
@@ -984,7 +990,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn cleanup_failures_preserve_observed_direct_child_status() {
+    fn verified_group_exit_overrides_a_termination_race() {
         let mut command = Command::new("sh");
         command.args(["-c", "exit 9"]);
         let mut containment = ProcessContainment::configure(&mut command).unwrap();
@@ -1001,10 +1007,6 @@ mod tests {
             });
 
         assert_eq!(status.and_then(|status| status.code()), Some(9));
-        assert!(
-            cleanup_error
-                .as_deref()
-                .is_some_and(|error| error.contains("injected cleanup failure"))
-        );
+        assert!(cleanup_error.is_none());
     }
 }
