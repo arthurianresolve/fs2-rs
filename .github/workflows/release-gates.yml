@@ -69,10 +69,12 @@ jobs:
       - name: Install MSRV
         run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
       - name: List package contents
-        run: cargo package --locked --list | tee package-files.txt
+        run: |
+          cargo package --locked --list > "$RUNNER_TEMP/package-files.txt"
+          cat "$RUNNER_TEMP/package-files.txt"
       - name: Reject repository-only files
         run: |
-          if grep -E '^(benchmarks|compatibility|tools|\.cargo|\.github)/|^(deny\.toml|support-matrix\.json|CONTEXT\.md)$' package-files.txt; then
+          if grep -E '^(benchmarks|compatibility|tools|\.cargo|\.github)/|^(deny\.toml|support-matrix\.json|CONTEXT\.md)$' "$RUNNER_TEMP/package-files.txt"; then
             echo "repository-only files entered the fs2 package" >&2
             exit 1
           fi

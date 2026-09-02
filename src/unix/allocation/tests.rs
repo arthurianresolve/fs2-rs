@@ -8,7 +8,9 @@ use std::io::ErrorKind;
 #[cfg(target_os = "macos")]
 use std::os::unix::io::AsRawFd;
 
-use super::{blocks_to_bytes, i64_to_u64};
+use super::blocks_to_bytes;
+#[cfg(all(target_os = "linux", target_pointer_width = "64"))]
+use super::i64_to_u64;
 #[cfg(target_os = "macos")]
 use tempfile::tempdir;
 
@@ -23,6 +25,7 @@ fn checks_block_to_byte_conversion() {
     );
 }
 
+#[cfg(all(target_os = "linux", target_pointer_width = "64"))]
 #[test]
 fn rejects_negative_native_sizes() {
     assert_eq!(i64_to_u64(0, "negative value").unwrap(), 0);
