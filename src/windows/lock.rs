@@ -26,6 +26,14 @@ pub(crate) fn lock_exclusive(file: &File, nonblocking: bool) -> Result<()> {
     if nonblocking {
         return try_lock_exclusive(file);
     }
+
+    // LockFile completes synchronously and avoids creating OVERLAPPED state on
+    // the common uncontended path. Any failure falls through to LockFileEx so
+    // blocking, contention, and final error behavior remain unchanged.
+    if try_lock_exclusive(file).is_ok() {
+        return Ok(());
+    }
+
     lock_file(file, LOCKFILE_EXCLUSIVE_LOCK)
 }
 
