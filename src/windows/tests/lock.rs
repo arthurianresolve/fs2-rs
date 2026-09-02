@@ -139,6 +139,15 @@ fn overlapped_shared_lock_waits_for_exclusive_lock() {
 }
 
 #[test]
+fn overlapped_try_exclusive_lock_succeeds_when_uncontended() {
+    let tempdir = tempdir().unwrap();
+    let file = open_overlapped_file(&tempdir.path().join("fs2"));
+
+    file.fs2_try_lock_exclusive().unwrap();
+    file.fs2_unlock().unwrap();
+}
+
+#[test]
 fn overlapped_try_locks_report_contention() {
     let tempdir = tempdir().unwrap();
     let path = tempdir.path().join("fs2");

@@ -4,7 +4,7 @@ use std::os::windows::io::AsRawHandle;
 
 use windows_sys::Win32::Foundation::{CloseHandle, ERROR_IO_PENDING, ERROR_LOCK_VIOLATION, HANDLE};
 use windows_sys::Win32::Storage::FileSystem::{
-    LOCKFILE_EXCLUSIVE_LOCK, LOCKFILE_FAIL_IMMEDIATELY, LockFileEx, UnlockFile,
+    LOCKFILE_EXCLUSIVE_LOCK, LOCKFILE_FAIL_IMMEDIATELY, LockFile, LockFileEx, UnlockFile,
 };
 use windows_sys::Win32::System::IO::{GetOverlappedResult, OVERLAPPED};
 use windows_sys::Win32::System::Threading::CreateEventW;
@@ -23,13 +23,21 @@ pub(crate) fn lock_shared(file: &File, nonblocking: bool) -> Result<()> {
 
 #[inline(always)]
 pub(crate) fn lock_exclusive(file: &File, nonblocking: bool) -> Result<()> {
-    let flags = LOCKFILE_EXCLUSIVE_LOCK
-        | if nonblocking {
-            LOCKFILE_FAIL_IMMEDIATELY
-        } else {
-            0
-        };
-    lock_file(file, flags)
+    if nonblocking {
+        return try_lock_exclusive(file);
+    }
+    lock_file(file, LOCKFILE_EXCLUSIVE_LOCK)
+}
+
+fn try_lock_exclusive(file: &File) -> Result<()> {
+    // LockFile is the synchronous, nonblocking exclusive API. It avoids allocating an
+    // event and keeps OVERLAPPED state out of this immediate path.
+    let ret = unsafe {
+        // SAFETY: The file handle remains valid for the duration of the call, and the
+        // offset and length describe the same byte range used by lock_file.
+        LockFile(file.as_raw_handle(), 0, 0, u32::MAX, u32::MAX)
+    };
+    win32_bool_result(ret)
 }
 
 pub(crate) fn unlock(file: &File) -> Result<()> {
