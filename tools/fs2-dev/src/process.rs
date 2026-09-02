@@ -575,8 +575,8 @@ fn wait_for_process_group_exit(process_group: i32, timeout: Duration) -> std::io
                 Some(libc::EPERM) => permission_error = Some(error),
                 _ => {
                     return Err(std::io::Error::new(
-                    error.kind(),
-                    format!("unable to query process group {process_group}: {error}"),
+                        error.kind(),
+                        format!("unable to query process group {process_group}: {error}"),
                     ));
                 }
             }
