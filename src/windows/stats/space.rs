@@ -171,27 +171,29 @@ pub(crate) fn direct_space(path: &[u16], kind: SpaceKind) -> DirectSpace {
         return DirectSpace::Unavailable;
     }
     let mut caller_available = 0;
+    let mut caller_total = 0;
     let mut actual_free = 0;
     let ret = unsafe {
         // SAFETY: `path` is null-terminated and both output pointers are valid.
         GetDiskFreeSpaceExW(
             path.as_ptr(),
             &mut caller_available,
-            std::ptr::null_mut(),
+            &mut caller_total,
             &mut actual_free,
         )
     };
-    direct_space_result(ret, caller_available, actual_free, kind)
+    direct_space_result(ret, caller_available, caller_total, actual_free, kind)
 }
 
 #[inline(always)]
-fn direct_space_result(
+pub(crate) fn direct_space_result(
     result: i32,
     caller_available: u64,
+    caller_total: u64,
     actual_free: u64,
     kind: SpaceKind,
 ) -> DirectSpace {
-    if result == 0 || caller_available > actual_free {
+    if result == 0 || caller_available > caller_total || caller_available > actual_free {
         DirectSpace::Unavailable
     } else {
         match kind {
@@ -302,6 +304,12 @@ pub(crate) fn handle_space_from_info(
     let Ok(caller_units) = u64::try_from(info.CallerAvailableAllocationUnits) else {
         return DirectSpace::Unavailable;
     };
+    let Ok(total_units) = u64::try_from(info.TotalAllocationUnits) else {
+        return DirectSpace::Unavailable;
+    };
+    if caller_units > total_units || caller_units > actual_units {
+        return DirectSpace::Unavailable;
+    }
     let Some(actual_free) = checked_disk_space(granularity, actual_units) else {
         return DirectSpace::Unavailable;
     };

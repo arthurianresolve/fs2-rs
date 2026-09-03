@@ -152,6 +152,12 @@ fn accepts_quota_limited_legacy_total_space() {
 
 #[cfg(windows)]
 #[test]
+fn rejects_legacy_available_space_above_caller_total() {
+    assert!(FsStats::from_counters(legacy_counters(4096, 50_000, 45_000, 40_000)).is_err());
+}
+
+#[cfg(windows)]
+#[test]
 fn rejects_invalid_legacy_available_space() {
     let error = FsStats::from_counters(legacy_counters(4096, 10_000, 20_000, 30_000)).unwrap_err();
     assert_eq!(error.kind(), ErrorKind::InvalidData);

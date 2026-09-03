@@ -119,3 +119,22 @@ an explicitly exploratory operation, or a later inheritance-capable spawn.
 - External GitHub organization settings, branch protection, secrets, runner
   hardening, caches, and artifact visibility are outside repository-source
   verification.
+
+### Unix benchmark path authority
+
+The benchmark tooling treats mutable workspaces and evidence publication as
+security boundaries. Unix ancestry is retained by descriptor and rejected when
+ownership or mode permits lower-trust namespace replacement. Protected symlinks
+are resolved only after their namespace edge is secured, and the target ancestry
+is validated independently. Sticky shared directories may be ancestors, but the
+final mutable workspace, staging directory, and publication parent must be
+private.
+
+Strict Linux paths are limited to recognized direct local filesystems; unknown,
+network, userspace, and layered filesystems fail closed because reported mode
+bits may not prove enforcement. Linux 9p/WSL DrvFs is therefore rejected. On
+macOS, only recognized local filesystems without extended ACL entries are
+accepted. Other Unix platforms fail closed until an equivalent authority check
+is implemented. These are evidence constraints, not claims that every rejected
+path is exposed. Use native Linux storage inside WSL or run the tooling natively
+on Windows.

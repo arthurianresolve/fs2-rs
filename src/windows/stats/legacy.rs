@@ -113,7 +113,7 @@ pub(crate) fn byte_space_result(
     actual_free: u64,
 ) -> Result<ByteSpace> {
     win32_bool_result(result)?;
-    if caller_available > actual_free {
+    if caller_available > caller_total || caller_available > actual_free {
         return Err(byte_space_domain_error());
     }
     Ok(ByteSpace {

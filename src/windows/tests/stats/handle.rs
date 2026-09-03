@@ -3,11 +3,11 @@ use super::*;
 #[test]
 fn maps_handle_query_results_before_projecting_counters() {
     let info = FILE_FS_FULL_SIZE_INFORMATION {
+        TotalAllocationUnits: 10,
         ActualAvailableAllocationUnits: 8,
         CallerAvailableAllocationUnits: 6,
         SectorsPerAllocationUnit: 2,
         BytesPerSector: 512,
-        ..Default::default()
     };
 
     assert_eq!(
@@ -109,11 +109,11 @@ fn handle_space_attributes_only_accept_online_regular_files() {
 #[test]
 fn handle_space_projects_valid_file_counters() {
     let info = FILE_FS_FULL_SIZE_INFORMATION {
+        TotalAllocationUnits: i64::MAX,
         ActualAvailableAllocationUnits: 8,
         CallerAvailableAllocationUnits: 6,
         SectorsPerAllocationUnit: 2,
         BytesPerSector: 512,
-        ..Default::default()
     };
 
     assert_eq!(
@@ -133,11 +133,11 @@ fn handle_space_projects_valid_file_counters() {
 #[test]
 fn handle_space_rejects_invalid_file_counters() {
     let valid = FILE_FS_FULL_SIZE_INFORMATION {
+        TotalAllocationUnits: i64::MAX,
         ActualAvailableAllocationUnits: 8,
         CallerAvailableAllocationUnits: 6,
         SectorsPerAllocationUnit: 2,
         BytesPerSector: 512,
-        ..Default::default()
     };
     let invalid = [
         FILE_FS_FULL_SIZE_INFORMATION {
@@ -145,6 +145,7 @@ fn handle_space_rejects_invalid_file_counters() {
             ..valid
         },
         FILE_FS_FULL_SIZE_INFORMATION {
+            TotalAllocationUnits: i64::MAX,
             ActualAvailableAllocationUnits: -1,
             ..valid
         },
@@ -153,16 +154,19 @@ fn handle_space_rejects_invalid_file_counters() {
             ..valid
         },
         FILE_FS_FULL_SIZE_INFORMATION {
+            TotalAllocationUnits: i64::MAX,
             ActualAvailableAllocationUnits: 5,
             CallerAvailableAllocationUnits: 6,
             ..valid
         },
         FILE_FS_FULL_SIZE_INFORMATION {
+            TotalAllocationUnits: i64::MAX,
             ActualAvailableAllocationUnits: i64::MAX,
             CallerAvailableAllocationUnits: i64::MAX,
             ..valid
         },
         FILE_FS_FULL_SIZE_INFORMATION {
+            TotalAllocationUnits: i64::MAX,
             ActualAvailableAllocationUnits: 1,
             CallerAvailableAllocationUnits: i64::MAX,
             ..valid
@@ -175,4 +179,31 @@ fn handle_space_rejects_invalid_file_counters() {
             DirectSpace::Unavailable
         );
     }
+}
+
+#[test]
+fn rejects_handle_available_units_above_total_units() {
+    let caller_above_total = FILE_FS_FULL_SIZE_INFORMATION {
+        TotalAllocationUnits: 5,
+        ActualAvailableAllocationUnits: 8,
+        CallerAvailableAllocationUnits: 6,
+        SectorsPerAllocationUnit: 2,
+        BytesPerSector: 512,
+    };
+    assert_eq!(
+        handle_space_from_info(caller_above_total, SpaceKind::Available),
+        DirectSpace::Unavailable,
+    );
+
+    let negative_total = FILE_FS_FULL_SIZE_INFORMATION {
+        TotalAllocationUnits: -1,
+        ActualAvailableAllocationUnits: 8,
+        CallerAvailableAllocationUnits: 6,
+        SectorsPerAllocationUnit: 2,
+        BytesPerSector: 512,
+    };
+    assert_eq!(
+        handle_space_from_info(negative_total, SpaceKind::Available),
+        DirectSpace::Unavailable,
+    );
 }

@@ -106,6 +106,11 @@ pub(super) fn validate_windows_counters(
             "filesystem available space exceeds free space",
         ));
     }
+    if counters.available_space > counters.total_space {
+        return Err(invalid_stats(
+            "filesystem available space exceeds total space",
+        ));
+    }
     if counters.source == WindowsCounterSource::Modern && counters.free_space > counters.total_space
     {
         return Err(invalid_stats("filesystem free space exceeds total space"));

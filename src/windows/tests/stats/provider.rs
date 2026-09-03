@@ -50,6 +50,17 @@ fn maps_native_result_seams_without_faulting_the_os() {
 
     assert!(byte_space_result(0, 1, 2, 3).is_err());
     assert!(byte_space_result(1, 4, 2, 3).is_err());
+    assert!(byte_space_result(1, 3, 2, 4).is_err());
+    assert_eq!(
+        crate::windows::stats::test_support::direct_space_result(
+            1,
+            3,
+            2,
+            4,
+            crate::stats::SpaceKind::Available,
+        ),
+        crate::windows::stats::test_support::DirectSpace::Unavailable,
+    );
     let bytes = byte_space_result(1, 1, 2, 3).unwrap();
     assert_eq!(bytes.actual_free, 3);
     assert_eq!(bytes.caller_available, 1);
