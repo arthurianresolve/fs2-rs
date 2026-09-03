@@ -3,7 +3,7 @@
 `fs2` provides cross-platform file locking, allocation, duplication, and
 filesystem statistics. Version 1.0 preserves the public fs2 0.4 API while
 retaining the correctness and safety fixes developed in this maintained fork.
-It uses Rust 2024 and requires Rust 1.88 or newer.
+It uses Rust 2024 and requires Rust 1.88.0 or newer.
 
 The original implementation is from
 [danburkert/fs2-rs](https://github.com/danburkert/fs2-rs). This maintained fork
@@ -65,7 +65,7 @@ caller-visible total or actual free space. Valid quota behavior remains
 supported: physical free space may exceed a caller-visible, quota-limited total.
 
 The CI matrix continuously tests the native `x86_64` targets on Linux, macOS,
-and Windows with Rust 1.88 and stable. The historical 32-bit and GNU
+and Windows with Rust 1.88.0 and stable. The historical 32-bit and GNU
 Windows targets are not currently covered by the native test matrix. The
 `armv7-unknown-linux-uclibceabihf` target is compile-checked separately with
 nightly `build-std`; runtime tests require a target-specific emulator and

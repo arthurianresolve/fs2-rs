@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented in this file.
 
-## 1.0.0 - Unreleased
+## 1.0.0 - 2026-09-03
 
 ### Compatibility
 
@@ -25,7 +25,7 @@ All notable changes to this project are documented in this file.
 
 - Deprecates `FileExt::duplicate` in favor of `File::try_clone` while retaining
   the inheritable fs2 0.4 runtime behavior for compatibility.
-- Moves to Rust 2024 with Rust 1.88 as the minimum supported Rust version.
+- Moves to Rust 2024 with Rust 1.88.0 as the minimum supported Rust version.
 - Replaces legacy Windows bindings with focused `windows-sys` features and
   keeps Unix and Windows implementations in responsibility-specific modules.
 - Makes strict Unix benchmark workspaces, staging, and publication fail closed

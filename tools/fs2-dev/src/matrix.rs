@@ -603,7 +603,7 @@ mod tests {
     #[test]
     fn repository_registry_and_workflow_agree() {
         let registry = repository_registry();
-        validate_registry(&registry, "1.88").unwrap();
+        validate_registry(&registry, "1.88.0").unwrap();
         let workflow =
             load_workflow(&crate::repository_root().join(".github/workflows/ci.yml")).unwrap();
         validate_workflow(&registry, &workflow).unwrap();
@@ -617,9 +617,9 @@ mod tests {
     fn rejects_duplicate_or_unapproved_targets() {
         let mut registry = repository_registry();
         registry.targets[1].target = registry.targets[0].target.clone();
-        assert!(validate_registry(&registry, "1.88").is_err());
+        assert!(validate_registry(&registry, "1.88.0").is_err());
         registry.targets[1].target = "$(echo injected)".to_owned();
-        assert!(validate_registry(&registry, "1.88").is_err());
+        assert!(validate_registry(&registry, "1.88.0").is_err());
     }
 
     #[test]
