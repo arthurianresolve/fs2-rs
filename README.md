@@ -60,6 +60,9 @@ adapters in this repository. Unix support uses
 On Windows, filesystem snapshots report physical total capacity when the
 modern disk-space provider is available. On systems that require the legacy
 fallback, the reported total may be limited by the calling user's disk quota.
+All providers reject inconsistent results where caller-available space exceeds
+caller-visible total or actual free space. Valid quota behavior remains
+supported: physical free space may exceed a caller-visible, quota-limited total.
 
 The CI matrix continuously tests the native `x86_64` targets on Linux, macOS,
 and Windows with Rust 1.88 and stable. The historical 32-bit and GNU
@@ -102,6 +105,14 @@ Repository operations are implemented by the unpublished Rust `fs2-dev` tool:
 > sandboxed and require `--trust-selected-code`. Strict reports establish
 > provenance and statistical rigor only for trusted subjects.
 
+On Unix, strict benchmark operations also require provable directory authority
+for workspaces, staging, and publication. Linux accepts recognized direct local
+filesystems; DrvFS/9p, FUSE, CIFS, OverlayFS, network, and unknown filesystems
+fail closed. macOS accepts recognized local filesystems without extended ACLs,
+and other Unix platforms fail closed until they have an equivalent authority
+check. Use storage inside the WSL Linux filesystem rather than `/mnt/c`, and
+publish into a private directory rather than a shared sticky directory.
+
 ```text
 cargo xtask matrix
 cargo xtask compatibility
@@ -127,6 +138,11 @@ distribution-free one-sided 95% median bounds and reject any affected workload
 whose upper candidate-to-baseline ratio exceeds `1.02`. Windows filesystem-stat
 comparisons additionally use same-process alternating calls and an A/A control
 to detect host and fixture-order drift.
+
+The checked-in [comparative benchmark report](benchmark-report.md) distinguishes
+the exact measured candidate from the current dev reference. Rows whose
+implementation changed after measurement are explicitly excluded from
+exact-SHA performance claims until rerun.
 
 ## Development validation
 

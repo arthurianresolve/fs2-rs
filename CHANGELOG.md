@@ -28,6 +28,9 @@ All notable changes to this project are documented in this file.
 - Moves to Rust 2024 with Rust 1.88 as the minimum supported Rust version.
 - Replaces legacy Windows bindings with focused `windows-sys` features and
   keeps Unix and Windows implementations in responsibility-specific modules.
+- Makes strict Unix benchmark workspaces, staging, and publication fail closed
+  when ownership, rename protection, filesystem authority, or ACL state cannot
+  be established.
 - Excludes repository tooling, benchmarks, policies, compatibility fixtures,
   and CI metadata from the published crate.
 
@@ -36,3 +39,9 @@ All notable changes to this project are documented in this file.
 - Preserves verified allocation, locking, path, filesystem-counter, provider
   fallback, duplicated-handle, and cross-platform error-handling fixes from the
   accepted v0.7 development line.
+- Prevents lower-trust Unix namespace replacement around benchmark workspaces,
+  private staging, and evidence publication while retaining no-replace output
+  publication.
+- Rejects malformed Windows provider results where caller-available space
+  exceeds caller-visible total or actual free space, while preserving valid
+  quota-limited totals.

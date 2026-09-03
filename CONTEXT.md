@@ -39,7 +39,11 @@ volume-root resolution. On Windows, modern snapshots report physical total
 space while the legacy fallback may report a quota-limited total for the calling
 user; scalar queries preserve the physical-free and caller-available domains and
 fall back to the canonical provider when an optimized query is unavailable or
-invalid. Platform adapters construct private raw counters through
+invalid. Every Windows provider requires caller-available space to be no greater
+than caller-visible total or actual free space. The modern provider additionally
+requires physical free space to be no greater than physical total space; the
+legacy provider may report physical free space above a quota-limited
+caller-visible total. Platform adapters construct private raw counters through
 source-specific constructors; the stats module alone owns their representation,
 projection, conversion, and validation. Windows provider attempts use one typed
 internal outcome for values and classified fallbacks; the modern provider owns
@@ -72,6 +76,13 @@ and carry explicit schema versions. One native command runner captures stdout,
 stderr, duration, working directory, command-local environment, and a typed
 process outcome. Tooling dependencies do not enter the published package or
 production dependency graph.
+
+Mutable benchmark paths are security boundaries. Unix tooling traverses them
+without following untrusted links, retains directory descriptors, validates
+ownership and rename protection, and requires private final staging and
+publication directories. Strict Linux operations accept only recognized direct
+local filesystems; macOS additionally rejects extended ACLs. Unrecognized,
+network, userspace, layered, or otherwise unsupported Unix storage fails closed.
 
 Ref, cross-crate, and paired-stats subjects are trusted executable input. The
 tool requires an explicit `--trust-selected-code` acknowledgement before it

@@ -63,8 +63,10 @@ is not a sandbox.
   while compatibility behavior is retained.
 - Advisory locks must not be represented as authorization or mandatory
   isolation.
-- Filesystem statistics must reject invalid native domains and arithmetic
-  overflow.
+- Filesystem statistics must reject arithmetic overflow and invalid native
+  domains. Caller-available space must not exceed caller-visible total or actual
+  free space. Modern physical free space must not exceed physical total; legacy
+  physical free space may exceed a quota-limited caller-visible total.
 - Mutable or selected source must not reach ambient-authority execution without
   the required trust acknowledgement.
 - Strict benchmark executables and evidence must resist lower-trust filesystem
@@ -78,6 +80,8 @@ Reportable issues include:
 
 - memory unsafety, invalid handle ownership, or unintended capability transfer;
 - data corruption or truncation while documented API requirements are met;
+- acceptance or projection of inconsistent filesystem-counter relationships
+  that can misstate caller-available or physical capacity;
 - bypass of selected-code trust acknowledgement;
 - executable or evidence substitution by a lower-trust local identity;
 - path, symlink, junction, or reparse-point attacks crossing an intended
@@ -113,12 +117,23 @@ an explicitly exploratory operation, or a later inheritance-capable spawn.
   or clear legacy duplicates before spawning less-trusted children.
 - Benchmark subjects that are not fully trusted should run under a separate
   low-privilege account, container, or disposable virtual machine.
-- Strict benchmark operation must not assume that a configured Windows target
-  directory is private; cross-user writable execution or staging remains a
-  security concern until enforced or rejected.
+- Historical benchmark measurements are performance evidence only. They do not
+  prove security-control effectiveness or cover implementations changed after
+  the measured commit.
 - External GitHub organization settings, branch protection, secrets, runner
   hardening, caches, and artifact visibility are outside repository-source
   verification.
+
+### Windows benchmark path authority
+
+The benchmark tooling retains directory handles and rejects link or reparse
+traversal around mutable workspaces, private staging, and evidence publication.
+Private workspace and staging directories must be owned by the current user and
+use a protected DACL limited to that user and SYSTEM. Publication validates its
+ancestry and retains no-replace destination semantics.
+
+These controls protect benchmark staging and publication namespaces. They do
+not sandbox selected code or reduce its ambient authority.
 
 ### Unix benchmark path authority
 
