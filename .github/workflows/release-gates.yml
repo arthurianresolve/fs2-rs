@@ -25,6 +25,7 @@ jobs:
         rust: ["1.88.0", "1.98.1"]
     env:
       RUSTUP_TOOLCHAIN: ${{ matrix.rust }}
+      RUSTUP_DIST_SERVER: ${{ matrix.rust == '1.98.1' && 'https://dev-static.rust-lang.org' || 'https://static.rust-lang.org' }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -86,6 +87,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RUSTUP_TOOLCHAIN: "1.98.1"
+      RUSTUP_DIST_SERVER: "https://dev-static.rust-lang.org"
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
