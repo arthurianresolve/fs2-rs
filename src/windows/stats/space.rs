@@ -19,8 +19,9 @@ use windows_sys::Win32::Foundation::{
 use windows_sys::Win32::Storage::FileSystem::{
     FILE_ATTRIBUTE_DEVICE, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_OFFLINE,
     FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS, FILE_ATTRIBUTE_RECALL_ON_OPEN,
-    FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_NO_RECALL, FILE_SHARE_DELETE, FILE_SHARE_READ,
-    FILE_SHARE_WRITE, GetDiskFreeSpaceExW, GetFileAttributesW, INVALID_FILE_ATTRIBUTES,
+    FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_NO_RECALL,
+    FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, GetDiskFreeSpaceExW, GetFileAttributesW,
+    INVALID_FILE_ATTRIBUTES,
 };
 use windows_sys::Win32::System::IO::IO_STATUS_BLOCK;
 
@@ -49,7 +50,6 @@ const ERROR_INVALID_PARAMETER_I32: i32 = ERROR_INVALID_PARAMETER as i32;
 const ERROR_PATH_NOT_FOUND_I32: i32 = ERROR_PATH_NOT_FOUND as i32;
 
 const UNSUITABLE_HANDLE_SPACE_ATTRIBUTES: u32 = FILE_ATTRIBUTE_DEVICE
-    | FILE_ATTRIBUTE_DIRECTORY
     | FILE_ATTRIBUTE_OFFLINE
     | FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS
     | FILE_ATTRIBUTE_RECALL_ON_OPEN;
@@ -205,7 +205,10 @@ pub(crate) fn direct_space_result(
 }
 
 pub(crate) fn handle_space(path: &[u16], os_path: &OsStr, kind: SpaceKind) -> DirectSpace {
-    if matches!(kind, SpaceKind::Total | SpaceKind::AllocationGranularity) {
+    if matches!(kind, SpaceKind::Total)
+        || matches!(kind, SpaceKind::AllocationGranularity)
+            && !allocation_handle_path_eligible(path, os_path)
+    {
         return DirectSpace::Unavailable;
     }
 
@@ -213,7 +216,7 @@ pub(crate) fn handle_space(path: &[u16], os_path: &OsStr, kind: SpaceKind) -> Di
         // SAFETY: `path` is null-terminated for the duration of the call.
         GetFileAttributesW(path.as_ptr())
     };
-    if !handle_space_attributes_eligible(attributes) {
+    if !handle_space_attributes_eligible(attributes, kind) {
         return DirectSpace::Unavailable;
     }
 
@@ -236,6 +239,22 @@ pub(crate) fn handle_space(path: &[u16], os_path: &OsStr, kind: SpaceKind) -> Di
         )
     };
     handle_space_query_result(result, info, kind)
+}
+
+fn allocation_handle_path_eligible(path: &[u16], os_path: &OsStr) -> bool {
+    Path::new(os_path).is_absolute()
+        && (drive_path_below_root(path, 0)
+            || path.starts_with(&[
+                u16::from(b'\\'),
+                u16::from(b'\\'),
+                u16::from(b'?'),
+                u16::from(b'\\'),
+            ]) && drive_path_below_root(path, 4))
+}
+
+fn drive_path_below_root(path: &[u16], offset: usize) -> bool {
+    path.len() > offset + 4
+        && valid_drive_root_components(path[offset], path[offset + 1], path[offset + 2], 0)
 }
 
 fn handle_space_handle(path: &OsStr) -> Option<std::fs::File> {
@@ -277,9 +296,14 @@ pub(crate) fn handle_space_query_result(
     }
 }
 
-pub(crate) fn handle_space_attributes_eligible(attributes: u32) -> bool {
+pub(crate) fn handle_space_attributes_eligible(attributes: u32, kind: SpaceKind) -> bool {
     let valid_attributes = attributes != INVALID_FILE_ATTRIBUTES;
-    let suitable_attributes = attributes & UNSUITABLE_HANDLE_SPACE_ATTRIBUTES == 0;
+    let kind_specific_attributes = match kind {
+        SpaceKind::AllocationGranularity => FILE_ATTRIBUTE_REPARSE_POINT,
+        SpaceKind::Free | SpaceKind::Available | SpaceKind::Total => FILE_ATTRIBUTE_DIRECTORY,
+    };
+    let suitable_attributes =
+        attributes & (UNSUITABLE_HANDLE_SPACE_ATTRIBUTES | kind_specific_attributes) == 0;
     handle_space_attributes_decision(valid_attributes, suitable_attributes)
 }
 
@@ -325,7 +349,8 @@ pub(crate) fn handle_space_from_info(
     match kind {
         SpaceKind::Free => DirectSpace::Hit(actual_free),
         SpaceKind::Available => DirectSpace::Hit(caller_available),
-        SpaceKind::Total | SpaceKind::AllocationGranularity => DirectSpace::Unavailable,
+        SpaceKind::AllocationGranularity => DirectSpace::Hit(granularity),
+        SpaceKind::Total => DirectSpace::Unavailable,
     }
 }
 

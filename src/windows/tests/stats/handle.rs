@@ -60,7 +60,7 @@ fn direct_file_space_defers_to_an_alternate_provider() {
 }
 
 #[test]
-fn handle_space_only_resolves_online_files() {
+fn handle_space_resolves_online_files_and_absolute_directories() {
     let tempdir = tempdir().unwrap();
     let file = tempdir.path().join("fs2");
     fs::write(&file, []).unwrap();
@@ -79,6 +79,10 @@ fn handle_space_only_resolves_online_files() {
         handle_space(&path, os_path, SpaceKind::Total),
         DirectSpace::Unavailable
     );
+    assert!(matches!(
+        handle_space(&path, os_path, SpaceKind::AllocationGranularity),
+        DirectSpace::Hit(_)
+    ));
     let tempdir_path = tempdir.path().to_path_buf();
     let tempdir_path_wide = wide_path(&tempdir_path).unwrap();
     assert_eq!(
@@ -89,20 +93,82 @@ fn handle_space_only_resolves_online_files() {
         ),
         DirectSpace::Unavailable
     );
+    let DirectSpace::Hit(handle_granularity) = handle_space(
+        &tempdir_path_wide,
+        tempdir_path.as_os_str(),
+        SpaceKind::AllocationGranularity,
+    ) else {
+        panic!("absolute directory allocation granularity unexpectedly required fallback");
+    };
+    assert_eq!(
+        space(&tempdir_path, SpaceKind::AllocationGranularity).unwrap(),
+        handle_granularity
+    );
+
+    let canonical_tempdir = tempdir_path.canonicalize().unwrap();
+    let DirectSpace::Hit(canonical_granularity) = handle_space(
+        &wide_path(&canonical_tempdir).unwrap(),
+        canonical_tempdir.as_os_str(),
+        SpaceKind::AllocationGranularity,
+    ) else {
+        panic!("verbatim local directory unexpectedly required fallback");
+    };
+    assert_eq!(canonical_granularity, handle_granularity);
+
+    let drive_root = tempdir_path.ancestors().last().unwrap().to_path_buf();
+    let canonical_drive_root = drive_root.canonicalize().unwrap();
+    for path in [
+        Path::new("."),
+        drive_root.as_path(),
+        canonical_drive_root.as_path(),
+    ] {
+        assert_eq!(
+            handle_space(
+                &wide_path(path).unwrap(),
+                path.as_os_str(),
+                SpaceKind::AllocationGranularity,
+            ),
+            DirectSpace::Unavailable
+        );
+    }
 }
 
 #[test]
-fn handle_space_attributes_only_accept_online_regular_files() {
-    assert!(handle_space_attributes_eligible(FILE_ATTRIBUTE_ARCHIVE));
+fn handle_space_attributes_preserve_existing_routes() {
+    assert!(handle_space_attributes_eligible(
+        FILE_ATTRIBUTE_ARCHIVE,
+        SpaceKind::Free
+    ));
+    assert!(handle_space_attributes_eligible(
+        FILE_ATTRIBUTE_ARCHIVE,
+        SpaceKind::AllocationGranularity
+    ));
+    assert!(!handle_space_attributes_eligible(
+        FILE_ATTRIBUTE_DIRECTORY,
+        SpaceKind::Free
+    ));
+    assert!(handle_space_attributes_eligible(
+        FILE_ATTRIBUTE_DIRECTORY,
+        SpaceKind::AllocationGranularity
+    ));
+    assert!(handle_space_attributes_eligible(
+        FILE_ATTRIBUTE_REPARSE_POINT,
+        SpaceKind::Free
+    ));
+    assert!(!handle_space_attributes_eligible(
+        FILE_ATTRIBUTE_REPARSE_POINT,
+        SpaceKind::AllocationGranularity
+    ));
     for attributes in [
         INVALID_FILE_ATTRIBUTES,
         FILE_ATTRIBUTE_DEVICE,
-        FILE_ATTRIBUTE_DIRECTORY,
         FILE_ATTRIBUTE_OFFLINE,
         FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS,
         FILE_ATTRIBUTE_RECALL_ON_OPEN,
     ] {
-        assert!(!handle_space_attributes_eligible(attributes));
+        for kind in [SpaceKind::Free, SpaceKind::AllocationGranularity] {
+            assert!(!handle_space_attributes_eligible(attributes, kind));
+        }
     }
 }
 
@@ -127,6 +193,10 @@ fn handle_space_projects_valid_file_counters() {
     assert_eq!(
         handle_space_from_info(info, SpaceKind::Total),
         DirectSpace::Unavailable
+    );
+    assert_eq!(
+        handle_space_from_info(info, SpaceKind::AllocationGranularity),
+        DirectSpace::Hit(1024)
     );
 }
 
@@ -174,10 +244,9 @@ fn handle_space_rejects_invalid_file_counters() {
     ];
 
     for info in invalid {
-        assert_eq!(
-            handle_space_from_info(info, SpaceKind::Free),
-            DirectSpace::Unavailable
-        );
+        for kind in [SpaceKind::Free, SpaceKind::AllocationGranularity] {
+            assert_eq!(handle_space_from_info(info, kind), DirectSpace::Unavailable);
+        }
     }
 }
 

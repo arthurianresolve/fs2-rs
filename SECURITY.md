@@ -139,6 +139,11 @@ immediate publication parent to use the same private DACL, and retains
 no-replace destination semantics. Command-capture files are created randomly
 after directory hardening and consumed through retained handles rather than
 being reopened by pathname; the no-delete-share directory handle remains live.
+The statistics runner accepts an explicit `--output-root` when the source
+checkout cannot itself serve as that protected publication root. A missing root
+is created with the platform's private-directory policy; an existing root must
+already satisfy it. The requested output must remain beneath the selected root,
+and the same ancestry, DACL, and no-replace checks continue to apply.
 
 These controls protect benchmark staging and publication namespaces. They do
 not sandbox selected code or reduce its ambient authority.
