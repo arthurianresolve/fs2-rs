@@ -41,9 +41,41 @@ fn rejects_invalid_modern_snapshot_stats() {
 }
 
 #[test]
+fn rejects_modern_provider_specific_domain_violations() {
+    for info in [
+        DISK_SPACE_INFORMATION {
+            ActualAvailableAllocationUnits: 8,
+            ActualTotalAllocationUnits: 10,
+            CallerTotalAllocationUnits: 5,
+            CallerAvailableAllocationUnits: 6,
+            SectorsPerAllocationUnit: 2,
+            BytesPerSector: 512,
+            ..Default::default()
+        },
+        DISK_SPACE_INFORMATION {
+            ActualAvailableAllocationUnits: 11,
+            ActualTotalAllocationUnits: 10,
+            CallerTotalAllocationUnits: 6,
+            CallerAvailableAllocationUnits: 6,
+            SectorsPerAllocationUnit: 2,
+            BytesPerSector: 512,
+            ..Default::default()
+        },
+    ] {
+        assert_eq!(
+            counters_from_disk_space_information(info)
+                .unwrap_err()
+                .kind(),
+            ErrorKind::InvalidData
+        );
+    }
+}
+
+#[test]
 fn rejects_modern_disk_space_overflow() {
     let info = DISK_SPACE_INFORMATION {
         ActualAvailableAllocationUnits: u64::MAX,
+        ActualTotalAllocationUnits: u64::MAX,
         CallerTotalAllocationUnits: u64::MAX,
         CallerAvailableAllocationUnits: u64::MAX,
         SectorsPerAllocationUnit: 8,
@@ -63,6 +95,7 @@ fn rejects_modern_disk_space_overflow() {
 fn rejects_modern_total_space_overflow_after_valid_free_counters() {
     let info = DISK_SPACE_INFORMATION {
         ActualAvailableAllocationUnits: 1,
+        CallerTotalAllocationUnits: 1,
         CallerAvailableAllocationUnits: 1,
         ActualTotalAllocationUnits: u64::MAX,
         SectorsPerAllocationUnit: 8,
@@ -82,6 +115,7 @@ fn rejects_modern_total_space_overflow_after_valid_free_counters() {
 fn rejects_modern_available_space_overflow_after_valid_free_counters() {
     let info = DISK_SPACE_INFORMATION {
         ActualAvailableAllocationUnits: 1,
+        CallerTotalAllocationUnits: u64::MAX,
         CallerAvailableAllocationUnits: u64::MAX,
         ActualTotalAllocationUnits: 1,
         SectorsPerAllocationUnit: 8,

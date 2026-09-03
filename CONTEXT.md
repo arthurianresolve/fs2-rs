@@ -95,8 +95,10 @@ Performance comparisons independently stage both subjects and their target
 directories, use identical harness and lockfile inputs, and retain typed process
 outcomes, estimates, dispersion, outliers, disk state, and artifact paths. Every
 fresh subject process performs and records one explicit priming invocation
-before Criterion warm-up and timed work. A separate single-execution process
-records cold-start evidence. Neither source enters runtime statistics.
+before warm-up and timed work. Criterion comparisons use a separate
+single-execution process for cold-start evidence; paired lock and statistics
+harnesses record the prime observation inside their combined process. None of
+these observations enter runtime statistics.
 
 General ref comparisons use at least eight A-B-B-A blocks and reject blocks
 whose directional-pair spread exceeds 20%. Each accepted block contributes one

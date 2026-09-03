@@ -55,6 +55,11 @@ pub(super) fn validate_unix_counters(
     if counters.free_blocks > counters.total_blocks {
         return Err(invalid_stats("filesystem free space exceeds total space"));
     }
+    if counters.available_blocks > counters.free_blocks {
+        return Err(invalid_stats(
+            "filesystem available space exceeds free space",
+        ));
+    }
     if counters.available_blocks > counters.total_blocks {
         return Err(invalid_stats(
             "filesystem available space exceeds total space",

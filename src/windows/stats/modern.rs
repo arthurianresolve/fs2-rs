@@ -112,6 +112,18 @@ pub(crate) fn modern_statvfs_unavailable(result: windows_sys::core::HRESULT) -> 
 pub(crate) fn counters_from_disk_space_information(
     info: DISK_SPACE_INFORMATION,
 ) -> Result<FilesystemCounters> {
+    if info.CallerAvailableAllocationUnits > info.CallerTotalAllocationUnits {
+        return Err(Error::new(
+            ErrorKind::InvalidData,
+            "filesystem caller-available space exceeds caller-visible total",
+        ));
+    }
+    if info.ActualAvailableAllocationUnits > info.ActualTotalAllocationUnits {
+        return Err(Error::new(
+            ErrorKind::InvalidData,
+            "filesystem free space exceeds physical total",
+        ));
+    }
     let allocation_granularity =
         u64::from(info.SectorsPerAllocationUnit) * u64::from(info.BytesPerSector);
 

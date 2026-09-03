@@ -54,7 +54,9 @@ pub(crate) use allocation::AllocationState;
 /// platform-specific behavior. File locks are implemented with
 /// [`flock(2)`](http://man7.org/linux/man-pages/man2/flock.2.html) on Unix and
 /// [`LockFileEx`](https://learn.microsoft.com/windows/win32/api/fileapi/nf-fileapi-lockfileex)
-/// on Windows.
+/// on Windows. Solaris uses process-associated `fcntl` record locks: they
+/// coordinate separate processes, but independent handles in one process do
+/// not provide the handle-scoped contention and close behavior of `flock`.
 pub trait FileExt {
     /// Returns a duplicate instance of the file.
     ///

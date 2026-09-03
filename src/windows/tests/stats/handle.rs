@@ -182,10 +182,30 @@ fn handle_space_rejects_invalid_file_counters() {
 }
 
 #[test]
+fn handle_space_accepts_physical_free_above_quota_limited_total() {
+    let info = FILE_FS_FULL_SIZE_INFORMATION {
+        TotalAllocationUnits: 5,
+        ActualAvailableAllocationUnits: 6,
+        CallerAvailableAllocationUnits: 4,
+        SectorsPerAllocationUnit: 2,
+        BytesPerSector: 512,
+    };
+
+    assert_eq!(
+        handle_space_from_info(info, SpaceKind::Free),
+        DirectSpace::Hit(6144)
+    );
+    assert_eq!(
+        handle_space_from_info(info, SpaceKind::Available),
+        DirectSpace::Hit(4096)
+    );
+}
+
+#[test]
 fn rejects_handle_available_units_above_total_units() {
     let caller_above_total = FILE_FS_FULL_SIZE_INFORMATION {
         TotalAllocationUnits: 5,
-        ActualAvailableAllocationUnits: 8,
+        ActualAvailableAllocationUnits: 5,
         CallerAvailableAllocationUnits: 6,
         SectorsPerAllocationUnit: 2,
         BytesPerSector: 512,

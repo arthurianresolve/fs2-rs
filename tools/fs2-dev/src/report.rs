@@ -26,15 +26,9 @@ struct ExecutionTrust {
 }
 
 impl ExecutionTrust {
-    const fn for_kind(report_kind: ReportKind) -> Self {
-        let selected_code_acknowledgement = match report_kind {
-            ReportKind::Lock => "not-applicable-current-repository",
-            ReportKind::CrossCrate | ReportKind::RefToRef | ReportKind::Stats => {
-                "explicitly-acknowledged"
-            }
-        };
+    const fn for_kind(_report_kind: ReportKind) -> Self {
         Self {
-            selected_code_acknowledgement,
+            selected_code_acknowledgement: "explicitly-acknowledged",
             authority: "ambient-user",
             sandbox: "none",
             strict_scope: "provenance-and-statistical-rigor-for-trusted-subjects",
@@ -157,7 +151,7 @@ mod tests {
                 "status": "completed",
                 "valid": true,
                 "execution_trust": {
-                    "selected_code_acknowledgement": "not-applicable-current-repository",
+                    "selected_code_acknowledgement": "explicitly-acknowledged",
                     "authority": "ambient-user",
                     "sandbox": "none",
                     "strict_scope": "provenance-and-statistical-rigor-for-trusted-subjects"

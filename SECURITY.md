@@ -123,6 +123,9 @@ an explicitly exploratory operation, or a later inheritance-capable spawn.
 - External GitHub organization settings, branch protection, secrets, runner
   hardening, caches, and artifact visibility are outside repository-source
   verification.
+- Solaris uses process-associated `fcntl` advisory records because it lacks a
+  native handle-scoped `flock` primitive. Independent handles in one process do
+  not contend with the same lifetime semantics as other supported platforms.
 
 ### Windows benchmark path authority
 
@@ -130,7 +133,12 @@ The benchmark tooling retains directory handles and rejects link or reparse
 traversal around mutable workspaces, private staging, and evidence publication.
 Private workspace and staging directories must be owned by the current user and
 use a protected DACL limited to that user and SYSTEM. Publication validates its
-ancestry and retains no-replace destination semantics.
+ancestry, confines destinations beneath the trusted benchmark root, rejects
+intermediate ancestors that grant lower-trust namespace mutation, requires the
+immediate publication parent to use the same private DACL, and retains
+no-replace destination semantics. Command-capture files are created randomly
+after directory hardening and consumed through retained handles rather than
+being reopened by pathname; the no-delete-share directory handle remains live.
 
 These controls protect benchmark staging and publication namespaces. They do
 not sandbox selected code or reduce its ambient authority.
@@ -141,9 +149,9 @@ The benchmark tooling treats mutable workspaces and evidence publication as
 security boundaries. Unix ancestry is retained by descriptor and rejected when
 ownership or mode permits lower-trust namespace replacement. Protected symlinks
 are resolved only after their namespace edge is secured, and the target ancestry
-is validated independently. Sticky shared directories may be ancestors, but the
-final mutable workspace, staging directory, and publication parent must be
-private.
+is validated independently. Evidence destinations remain beneath the explicitly
+trusted benchmark root. Sticky shared directories may be ancestors, but the final
+mutable workspace, staging directory, and publication parent must be private.
 
 Strict Linux paths are limited to recognized direct local filesystems; unknown,
 network, userspace, and layered filesystems fail closed because reported mode

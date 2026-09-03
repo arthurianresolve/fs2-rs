@@ -130,10 +130,11 @@ and artifacts, and apply the versioned policy in
 `benchmarks/measurement-policy.json`.
 
 Every benchmark subject receives one explicit unmeasured priming invocation in
-each fresh process before Criterion warm-up. A separate single-execution
-process records cold-start duration, outcome, and errors. Neither source is
-included in runtime estimates, medians, ratios, confidence bounds, or Criterion
-samples. Stable comparisons use exact,
+each fresh process before warm-up. Criterion ref and cross-crate comparisons
+also use a separate single-execution process for cold-start evidence; paired
+lock and statistics harnesses record their prime observation inside each
+combined process. None of these observations enter runtime estimates, medians,
+ratios, confidence bounds, or Criterion samples. Stable comparisons use exact,
 distribution-free one-sided 95% median bounds and reject any affected workload
 whose upper candidate-to-baseline ratio exceeds `1.02`. Windows filesystem-stat
 comparisons additionally use same-process alternating calls and an A/A control

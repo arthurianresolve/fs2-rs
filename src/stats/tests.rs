@@ -84,11 +84,16 @@ fn rejects_available_space_above_free_space() {
 
 #[cfg(unix)]
 #[test]
-fn accepts_available_space_above_free_space() {
-    let stats = FsStats::from_counters(counters(4096, 8, 9, 10)).unwrap();
-    assert_eq!(stats.free_space(), 32_768);
-    assert_eq!(stats.available_space(), 36_864);
-    assert_eq!(stats.total_space(), 40_960);
+fn rejects_available_space_above_free_space() {
+    let error = FsStats::from_counters(counters(4096, 8, 9, 10)).unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::InvalidData);
+}
+
+#[cfg(unix)]
+#[test]
+fn accepts_available_space_equal_to_free_space() {
+    let stats = FsStats::from_counters(counters(4096, 8, 8, 10)).unwrap();
+    assert_eq!(stats.available_space(), stats.free_space());
 }
 
 #[cfg(unix)]

@@ -141,9 +141,13 @@ pub(crate) fn run(path: &Path) -> Result<()> {
 }
 
 pub(crate) fn load(path: &Path) -> Result<MeasurementPolicy> {
-    let contents = fs::read_to_string(path)?;
-    let policy: MeasurementPolicy = serde_json::from_str(&contents)?;
-    validate(policy)
+    load_with_source(path).map(|(policy, _)| policy)
+}
+
+pub(crate) fn load_with_source(path: &Path) -> Result<(MeasurementPolicy, Vec<u8>)> {
+    let contents = fs::read(path)?;
+    let policy: MeasurementPolicy = serde_json::from_slice(&contents)?;
+    Ok((validate(policy)?, contents))
 }
 
 fn validate_path(path: &Path) -> Result<MeasurementPolicy> {

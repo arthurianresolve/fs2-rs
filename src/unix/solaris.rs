@@ -1,7 +1,8 @@
-//! Solaris does not provide BSD-style `flock(2)`, so lock operations are
-//! implemented via `fcntl` byte-range records instead. This keeps Solaris
-//! behavior aligned with other platforms while handling non-blocking and unlock
-//! semantics explicitly.
+//! Solaris does not provide a native BSD-style `flock(2)`, so lock operations
+//! use process-associated `fcntl` byte-range records. These locks coordinate
+//! separate processes, but independent handles in one process do not contend
+//! as they do on handle-scoped platforms, and closing another descriptor for
+//! the same file can release the process's records.
 
 use std::fs::File;
 use std::io::{Error, Result};

@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, File};
+use std::io::{Read as _, Seek as _};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Output, Stdio};
 use std::time::{Duration, Instant};
@@ -38,15 +39,49 @@ pub(crate) fn run(command: &mut Command, label: &str) -> Result<()> {
 }
 
 pub(crate) fn capture(command: &mut Command, label: &str) -> Result<Output> {
+    #[cfg(windows)]
+    let (_temporary_guard, temporary) = {
+        let temporary_root = std::env::temp_dir();
+        let mut guard = crate::benchmark::windows_security::guard_directory_ancestry(
+            &temporary_root,
+        )
+        .map_err(|error| invalid_data(format!("unable to bind capture temp ancestry: {error}")))?;
+        let temporary = tempfile::Builder::new()
+            .prefix("fs2-capture-")
+            .tempdir_in(&temporary_root)
+            .map_err(|error| {
+                invalid_data(format!("unable to create capture directory: {error}"))
+            })?;
+        guard.push(
+            crate::benchmark::windows_security::harden_new_private_directory(temporary.path())
+                .map_err(|error| {
+                    invalid_data(format!("unable to harden capture directory: {error}"))
+                })?,
+        );
+        (guard, temporary)
+    };
+    #[cfg(not(windows))]
     let temporary = tempfile::tempdir()?;
-    let stdout_path = temporary.path().join("stdout");
-    let stderr_path = temporary.path().join("stderr");
+    // Keep the authoritative capture handles: exclusive randomized creation
+    // fails closed on a preseed attempt, and no pathname is trusted afterward.
+    let mut stdout_file = tempfile::tempfile_in(temporary.path()).map_err(|error| {
+        invalid_data(format!("unable to create secure stdout capture: {error}"))
+    })?;
+    let mut stderr_file = tempfile::tempfile_in(temporary.path()).map_err(|error| {
+        invalid_data(format!("unable to create secure stderr capture: {error}"))
+    })?;
     command
-        .stdout(Stdio::from(File::create(&stdout_path)?))
-        .stderr(Stdio::from(File::create(&stderr_path)?));
+        .stdout(Stdio::from(stdout_file.try_clone()?))
+        .stderr(Stdio::from(stderr_file.try_clone()?));
     let execution = execute(command, process_timeout()?);
-    let stdout = fs::read(&stdout_path)?;
-    let stderr = fs::read(&stderr_path)?;
+    stdout_file.rewind()?;
+    stderr_file.rewind()?;
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    stdout_file.read_to_end(&mut stdout)?;
+    stderr_file.read_to_end(&mut stderr)?;
+    #[cfg(windows)]
+    drop(_temporary_guard);
     if execution.outcome.succeeded() {
         Ok(Output {
             status: execution

@@ -40,8 +40,14 @@ All notable changes to this project are documented in this file.
   fallback, duplicated-handle, and cross-platform error-handling fixes from the
   accepted v0.7 development line.
 - Prevents lower-trust Unix namespace replacement around benchmark workspaces,
-  private staging, and evidence publication while retaining no-replace output
-  publication.
+  private staging, and evidence publication, confines output beneath the trusted
+  benchmark root, and retains no-replace output publication.
+- Protects Windows command-capture directories, consumes captured output through
+  retained handles, and confines evidence publication to mutation-safe ancestry
+  beneath the trusted benchmark root before the no-replace move.
+- Enforces explicit selected-code acknowledgement for every benchmark mode.
 - Rejects malformed Windows provider results where caller-available space
   exceeds caller-visible total or actual free space, while preserving valid
   quota-limited totals.
+- Rejects malformed Windows and Unix provider tuples whose available counters
+  exceed their corresponding free or total domains.

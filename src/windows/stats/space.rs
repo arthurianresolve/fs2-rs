@@ -307,6 +307,8 @@ pub(crate) fn handle_space_from_info(
     let Ok(total_units) = u64::try_from(info.TotalAllocationUnits) else {
         return DirectSpace::Unavailable;
     };
+    // TotalAllocationUnits may be quota-limited while ActualAvailableAllocationUnits
+    // is physical free space, so only compare counters from matching domains.
     if caller_units > total_units || caller_units > actual_units {
         return DirectSpace::Unavailable;
     }
