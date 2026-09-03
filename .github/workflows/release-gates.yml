@@ -22,7 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        rust: ["1.88.0", "1.97.1"]
+        rust: ["1.88.0", "1.98.1"]
     env:
       RUSTUP_TOOLCHAIN: ${{ matrix.rust }}
     steps:
@@ -54,7 +54,7 @@ jobs:
       - name: Compile compatibility fixtures
         run: cargo xtask compatibility
       - name: Check future incompatibilities
-        if: matrix.rust == '1.97.1'
+        if: matrix.rust == '1.98.1'
         run: cargo check --workspace --all-targets --locked --future-incompat-report
 
   package:
@@ -85,7 +85,7 @@ jobs:
     name: Dependency policy and vulnerabilities
     runs-on: ubuntu-latest
     env:
-      RUSTUP_TOOLCHAIN: "1.97.1"
+      RUSTUP_TOOLCHAIN: "1.98.1"
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
