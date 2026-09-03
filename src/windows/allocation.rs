@@ -40,7 +40,9 @@ pub(crate) fn allocation_state(file: &File) -> Result<AllocationState> {
     allocation_state_result(ret, info)
 }
 
+#[cfg(test)]
 pub(crate) const ALLOCATE_SPACE_EXTENDS_LENGTH: bool = true;
+#[cfg(test)]
 pub(crate) const ALWAYS_RESERVE_RANGE: bool = true;
 
 pub(crate) fn allocation_state_result(
@@ -109,6 +111,7 @@ pub(crate) fn allocate(file: &File, len: u64) -> Result<()> {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn allocate_space(file: &File, _state: AllocationState, len: u64) -> Result<()> {
     allocate(file, len)
 }
