@@ -68,6 +68,7 @@ struct CrateMetadata<'a> {
     baseline_tree_sha256: &'a str,
     candidate_tree_sha256: &'a str,
     workload_sha256: String,
+    benchmark_harness_sha256: String,
     measurement_policy_sha256: String,
     benchmark: &'a str,
     filter: Option<&'a str>,
@@ -973,6 +974,7 @@ fn execute(spec: CrateRunSpec<'_>) -> Result<()> {
                             .join("benches")
                             .join(format!("{benchmark}.rs")),
                     )?,
+                    benchmark_harness_sha256: common::tree_digest(benchmark_inputs)?,
                     measurement_policy_sha256: common::normalized_text_hash(policy_path)?,
                     benchmark,
                     filter,

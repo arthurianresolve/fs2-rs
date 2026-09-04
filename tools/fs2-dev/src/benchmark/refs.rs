@@ -319,12 +319,7 @@ fn evaluate_measurements(
     position_replicates: usize,
 ) -> Result<RefEvaluation> {
     let paired = if execution_valid {
-        pair_measurements(
-            measurements,
-            blocks,
-            position_replicates,
-            max_pair_spread,
-        )?
+        pair_measurements(measurements, blocks, position_replicates, max_pair_spread)?
     } else {
         PairedMeasurements {
             pairs: Vec::new(),
@@ -794,9 +789,7 @@ fn pair_measurements(
     max_pair_spread: f64,
 ) -> Result<PairedMeasurements> {
     if position_replicates == 0 || position_replicates.is_multiple_of(2) {
-        return Err(invalid_data(
-            "position replicates must be positive and odd",
-        ));
+        return Err(invalid_data("position replicates must be positive and odd"));
     }
     let keys = measurements
         .iter()
