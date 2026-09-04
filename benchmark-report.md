@@ -2,7 +2,7 @@
 
 Baseline: origin/0.4.3 at 9a340454a8292df025de368fc4b310bb736f382f
 Measured candidate: dev at a10f82678eebf5b9235908b42c4378de57a37c6b
-Current dev reference: 79f16d0b528030dc38b803b3cf1ae677d71d8cef
+Current dev reference: cef22d583ce0199f2d3c1449e73f0113c9f1eb77
 Current tracked-worktree snapshot: 46aae5b5fa131458f84d74f1d6c83838693f7c57
 Host: Windows x86_64, Rust 1.97.1 MSVC, measurements pinned to CPU 0
 
@@ -11,6 +11,11 @@ Execution: 32 of 32 suite invocations exited zero; 19 common cases; 608 current 
 Scope: the common legacy benchmark surface only. Dev-only APIs such as FsStatsQuery and the modern fs2_* methods have no 0.4.3 counterpart and are not included in the direct comparison.
 
 The `lock_unlock` row was refreshed for `ca58b4e` using eight same-process A/B replicates against the exact synchronous v0.4.3 lock sequence; the other rows retain the original full-suite measurements.
+
+The current dev reference additionally hardens POSIX `FileExt::allocate` range
+reservation for sparse files. This Windows-host report does not measure that
+Unix-only behavior; `file_allocate_already_satisfied` must not be extrapolated
+to POSIX targets.
 
 | Case | 0.4.3 p50 | dev p50 | Paired median delta | 8-block ratio range | Outliers |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -115,8 +120,8 @@ report SHA-256 values were respectively
 `5b97c7d43a4902945dbdb3efe2705aa7c3ca334c62c365629cd4916e3b684f4e`,
 and `2a440123438baba5d484929d32f4a35c1b64902676722d9a41cd03d116adbd53`.
 
-The retained local report is
-`C:\Users\georg\f2b-46aae5b5-r2\results-allocation-46aae5b5-cpu0-strict-r2\report.json`.
+The retained report is identified by the recorded report SHA-256 and run
+provenance above; its maintainer-local storage path is intentionally omitted.
 This result establishes non-inferiority within the policy's 2% margin for all
 five common functions and a substantial measured improvement for
 `allocation_granularity`. It is not proof of zero possible slowdown and does
