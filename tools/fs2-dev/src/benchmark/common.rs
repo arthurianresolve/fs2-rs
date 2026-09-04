@@ -908,7 +908,7 @@ mod tests {
 
     #[test]
     fn strict_dependency_closure_stays_inside_digested_trees() {
-        let workspace = tempfile::tempdir().unwrap();
+        let workspace = test_tempdir();
         let trusted = workspace.path().join("trusted");
         let external = workspace.path().join("external");
         let excluded = trusted.join("target/generated");
@@ -969,7 +969,7 @@ mod tests {
         assert!(copy_tree_would_stage_ignored_entry(b"build.rs"));
         assert!(copy_tree_would_stage_ignored_entry(b"nested/target/file"));
 
-        let repo = tempfile::tempdir().unwrap();
+        let repo = test_tempdir();
         git(repo.path(), &["init", "--quiet"]);
         fs::write(
             repo.path().join("Cargo.toml"),
@@ -997,7 +997,7 @@ mod tests {
         fs::write(repo.path().join("notes.txt"), "dirty\n").unwrap();
         assert!(repository_state(repo.path(), "repo").is_err());
 
-        let ignored_build = tempfile::tempdir().unwrap();
+        let ignored_build = test_tempdir();
         git(ignored_build.path(), &["init", "--quiet"]);
         fs::write(
             ignored_build.path().join("Cargo.toml"),
@@ -1022,7 +1022,7 @@ mod tests {
         fs::write(ignored_build.path().join("build.rs"), "fn main() {}\n").unwrap();
         assert!(repository_state(ignored_build.path(), "repo").is_err());
 
-        let ignored_target = tempfile::tempdir().unwrap();
+        let ignored_target = test_tempdir();
         git(ignored_target.path(), &["init", "--quiet"]);
         fs::write(
             ignored_target.path().join("Cargo.toml"),
@@ -1052,7 +1052,7 @@ mod tests {
         .unwrap();
         assert!(repository_state(ignored_target.path(), "repo").is_ok());
 
-        let ignored_pycache = tempfile::tempdir().unwrap();
+        let ignored_pycache = test_tempdir();
         git(ignored_pycache.path(), &["init", "--quiet"]);
         fs::write(
             ignored_pycache.path().join("Cargo.toml"),
@@ -1082,7 +1082,7 @@ mod tests {
         .unwrap();
         assert!(repository_state(ignored_pycache.path(), "repo").is_ok());
 
-        let ignored_pyc = tempfile::tempdir().unwrap();
+        let ignored_pyc = test_tempdir();
         git(ignored_pyc.path(), &["init", "--quiet"]);
         fs::write(
             ignored_pyc.path().join("Cargo.toml"),
@@ -1120,9 +1120,19 @@ mod tests {
         );
     }
 
+    #[cfg(windows)]
+    fn test_tempdir() -> tempfile::TempDir {
+        super::super::windows_security::private_test_tempdir()
+    }
+
+    #[cfg(not(windows))]
+    fn test_tempdir() -> tempfile::TempDir {
+        tempfile::tempdir().unwrap()
+    }
+
     #[test]
     fn clone_revision_materializes_only_recorded_commit_bytes() {
-        let repo = tempfile::tempdir().unwrap();
+        let repo = test_tempdir();
         git(repo.path(), &["init", "--quiet"]);
         fs::write(
             repo.path().join("Cargo.toml"),
@@ -1150,7 +1160,7 @@ mod tests {
         )
         .unwrap();
         let revision = resolve_ref(repo.path(), "HEAD").unwrap();
-        let work = tempfile::tempdir().unwrap();
+        let work = test_tempdir();
         let destination = work.path().join("materialized");
         let logs = work.path().join("logs");
 
