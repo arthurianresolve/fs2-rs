@@ -19,6 +19,7 @@ const STRICT_COOLDOWN_SECONDS: f64 = 10.0;
 const STRICT_NON_INFERIORITY_MARGIN: f64 = 0.02;
 const STRICT_MAX_OUTLIER_FRACTION: f64 = 0.30;
 const STRICT_MAX_PAIR_SPREAD: f64 = 0.20;
+const STRICT_REF_POSITION_REPLICATES: u64 = 3;
 pub(crate) const MAX_PAIRED_REPLICATES: u64 = 127;
 pub(crate) const MAX_SAMPLE_SIZE: u64 = 10_000;
 pub(crate) const MAX_DURATION_SECONDS: f64 = 3_600.0;
@@ -48,6 +49,7 @@ impl MeasurementPolicy {
     pub(crate) fn meets_strict_ref_profile(&self) -> bool {
         self.meets_strict_criterion_profile()
             && self.ref_to_ref.blocks >= MIN_DRIFT_CORRECTED_BLOCKS
+            && self.ref_to_ref.position_replicates >= STRICT_REF_POSITION_REPLICATES
             && self.ref_to_ref.max_pair_spread <= STRICT_MAX_PAIR_SPREAD
             && self.ref_to_ref.cooldown_seconds >= STRICT_COOLDOWN_SECONDS
     }
@@ -112,9 +114,10 @@ pub(crate) struct RefPolicy {
     pub(crate) blocks: u64,
     pub(crate) minimum_blocks: u64,
     pub(crate) maximum_blocks: u64,
+    pub(crate) position_replicates: u64,
     pub(crate) max_pair_spread: f64,
     pub(crate) cooldown_seconds: f64,
-    pub(crate) pair_order: [PairSubject; PAIRS_PER_BUILD_REPLICATE],
+    pub(crate) pair_orders: [[PairSubject; PAIRS_PER_BUILD_REPLICATE]; 2],
 }
 
 #[derive(Debug, Deserialize)]
@@ -155,8 +158,8 @@ fn validate_path(path: &Path) -> Result<MeasurementPolicy> {
 }
 
 fn validate(policy: MeasurementPolicy) -> Result<MeasurementPolicy> {
-    if policy.schema_version != 5 {
-        return Err(invalid_data("measurement policy schema_version must be 5"));
+    if policy.schema_version != 6 {
+        return Err(invalid_data("measurement policy schema_version must be 6"));
     }
     fraction("non_inferiority_margin", policy.non_inferiority_margin)?;
     minimum("sample_size", policy.criterion.sample_size, 10)?;
@@ -197,6 +200,21 @@ fn validate(policy: MeasurementPolicy) -> Result<MeasurementPolicy> {
         policy.ref_to_ref.blocks,
         policy.ref_to_ref.maximum_blocks,
     )?;
+    minimum(
+        "ref_to_ref.position_replicates",
+        policy.ref_to_ref.position_replicates,
+        1,
+    )?;
+    maximum(
+        "ref_to_ref.position_replicates",
+        policy.ref_to_ref.position_replicates,
+        MAX_PAIRED_REPLICATES,
+    )?;
+    if policy.ref_to_ref.position_replicates.is_multiple_of(2) {
+        return Err(invalid_data(
+            "ref_to_ref.position_replicates must be odd so its median is an observed process",
+        ));
+    }
     fraction("max_pair_spread", policy.ref_to_ref.max_pair_spread)?;
     positive(
         "ref_to_ref.cooldown_seconds",
@@ -208,13 +226,23 @@ fn validate(policy: MeasurementPolicy) -> Result<MeasurementPolicy> {
         MAX_DURATION_SECONDS,
     )?;
     exact_order(
-        "ref_to_ref",
-        policy.ref_to_ref.pair_order,
+        "ref_to_ref.pair_orders[0]",
+        policy.ref_to_ref.pair_orders[0],
         [
             PairSubject::A,
             PairSubject::B,
             PairSubject::B,
             PairSubject::A,
+        ],
+    )?;
+    exact_order(
+        "ref_to_ref.pair_orders[1]",
+        policy.ref_to_ref.pair_orders[1],
+        [
+            PairSubject::B,
+            PairSubject::A,
+            PairSubject::A,
+            PairSubject::B,
         ],
     )?;
     minimum("pairs", policy.cross_crate.pairs, MIN_GATING_PAIRS)?;
@@ -352,7 +380,7 @@ mod tests {
 
     fn valid_policy() -> MeasurementPolicy {
         MeasurementPolicy {
-            schema_version: 5,
+            schema_version: 6,
             non_inferiority_margin: 0.02,
             resources: ResourcePolicy {
                 minimum_free_bytes: MIN_BENCHMARK_FREE_BYTES,
@@ -367,13 +395,22 @@ mod tests {
                 blocks: 8,
                 minimum_blocks: 8,
                 maximum_blocks: 64,
+                position_replicates: 3,
                 max_pair_spread: 0.2,
                 cooldown_seconds: 10.0,
-                pair_order: [
-                    PairSubject::A,
-                    PairSubject::B,
-                    PairSubject::B,
-                    PairSubject::A,
+                pair_orders: [
+                    [
+                        PairSubject::A,
+                        PairSubject::B,
+                        PairSubject::B,
+                        PairSubject::A,
+                    ],
+                    [
+                        PairSubject::B,
+                        PairSubject::A,
+                        PairSubject::A,
+                        PairSubject::B,
+                    ],
                 ],
             },
             cross_crate: CrossCratePolicy {
@@ -406,7 +443,14 @@ mod tests {
     #[test]
     fn rejects_unbalanced_order() {
         let mut policy = valid_policy();
-        policy.ref_to_ref.pair_order = [PairSubject::A; 4];
+        policy.ref_to_ref.pair_orders[0] = [PairSubject::A; 4];
+        assert!(validate(policy).is_err());
+    }
+
+    #[test]
+    fn rejects_even_ref_position_replicates() {
+        let mut policy = valid_policy();
+        policy.ref_to_ref.position_replicates = 2;
         assert!(validate(policy).is_err());
     }
 
@@ -441,6 +485,10 @@ mod tests {
 
         let mut policy = valid_policy();
         policy.ref_to_ref.blocks = 7;
+        assert!(!policy.meets_strict_ref_profile());
+
+        let mut policy = valid_policy();
+        policy.ref_to_ref.position_replicates = 1;
         assert!(!policy.meets_strict_ref_profile());
 
         let mut policy = valid_policy();
