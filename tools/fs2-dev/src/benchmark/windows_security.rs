@@ -1,0 +1,822 @@
+use std::ffi::c_void;
+use std::fs;
+use std::io;
+use std::mem::size_of;
+use std::os::windows::ffi::OsStrExt as _;
+use std::os::windows::io::{AsRawHandle as _, FromRawHandle as _};
+use std::path::Path;
+
+use windows_sys::Win32::Foundation::{
+    CloseHandle, ERROR_ALREADY_EXISTS, ERROR_INSUFFICIENT_BUFFER, GENERIC_ALL, GENERIC_WRITE,
+    HANDLE, INVALID_HANDLE_VALUE,
+};
+use windows_sys::Win32::Security::Authorization::{SE_FILE_OBJECT, SetSecurityInfo};
+use windows_sys::Win32::Security::{
+    ACCESS_ALLOWED_ACE, ACE_HEADER, ACL, ACL_REVISION, ACL_SIZE_INFORMATION, AclSizeInformation,
+    AddAccessAllowedAceEx, CONTAINER_INHERIT_ACE, CreateWellKnownSid, DACL_SECURITY_INFORMATION,
+    EqualSid, GetAce, GetAclInformation, GetKernelObjectSecurity, GetLengthSid,
+    GetSecurityDescriptorControl, GetSecurityDescriptorDacl, GetSecurityDescriptorOwner,
+    GetTokenInformation, INHERIT_ONLY_ACE, InitializeAcl, InitializeSecurityDescriptor, IsValidSid,
+    OBJECT_INHERIT_ACE, OWNER_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION, PSID,
+    SE_DACL_PROTECTED, SECURITY_ATTRIBUTES, SECURITY_DESCRIPTOR, SetSecurityDescriptorControl,
+    SetSecurityDescriptorDacl, SetSecurityDescriptorOwner, TOKEN_QUERY, TOKEN_USER, TokenUser,
+    WinBuiltinAdministratorsSid, WinLocalSystemSid,
+};
+use windows_sys::Win32::Storage::FileSystem::{
+    CreateDirectoryW, CreateFileW, DELETE, FILE_ADD_FILE, FILE_ADD_SUBDIRECTORY, FILE_ALL_ACCESS,
+    FILE_ATTRIBUTE_REPARSE_POINT, FILE_ATTRIBUTE_TAG_INFO, FILE_DELETE_CHILD,
+    FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES,
+    FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TRAVERSE, FileAttributeTagInfo,
+    GetFileInformationByHandleEx, OPEN_EXISTING, READ_CONTROL, WRITE_DAC, WRITE_OWNER,
+};
+use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+
+use crate::{Result, invalid_data};
+
+const SECURITY_DESCRIPTOR_REVISION_VALUE: u32 = 1;
+const ACCESS_ALLOWED_ACE_TYPE_VALUE: u8 = 0;
+const ACCESS_DENIED_ACE_TYPE_VALUE: u8 = 1;
+const ACCESS_DENIED_OBJECT_ACE_TYPE_VALUE: u8 = 6;
+const ACCESS_DENIED_CALLBACK_ACE_TYPE_VALUE: u8 = 10;
+const ACCESS_DENIED_CALLBACK_OBJECT_ACE_TYPE_VALUE: u8 = 12;
+const PRIVATE_ACE_FLAGS: u32 = OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE;
+const NAMESPACE_MUTATION_ACCESS: u32 = DELETE
+    | FILE_ADD_FILE
+    | FILE_ADD_SUBDIRECTORY
+    | FILE_DELETE_CHILD
+    | WRITE_DAC
+    | WRITE_OWNER
+    | GENERIC_ALL
+    | GENERIC_WRITE;
+
+pub(crate) fn guard_directory_ancestry(path: &Path) -> Result<Vec<fs::File>> {
+    use std::path::Component;
+
+    reject_ambiguous_path(path)?;
+    if !path.is_absolute() {
+        return Err(invalid_data(format!(
+            "benchmark directory path must be absolute: {}",
+            path.display()
+        )));
+    }
+    let mut current = std::path::PathBuf::new();
+    let mut held = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::Prefix(_) => {
+                current.push(component.as_os_str());
+                continue;
+            }
+            Component::RootDir | Component::Normal(_) => current.push(component.as_os_str()),
+            Component::CurDir => continue,
+            Component::ParentDir => {
+                return Err(invalid_data(format!(
+                    "benchmark directory path may not contain '..': {}",
+                    path.display()
+                )));
+            }
+        }
+        match open_ancestry_directory(&current).map_err(|error| {
+            invalid_data(format!(
+                "unable to retain benchmark directory ancestry {}: {error}",
+                current.display()
+            ))
+        })? {
+            Some(directory) => held.push(directory),
+            None if current != path => {}
+            None => {
+                return Err(invalid_data(format!(
+                    "benchmark directory itself cannot be retained: {}",
+                    path.display()
+                )));
+            }
+        }
+    }
+    if held.is_empty() {
+        return Err(invalid_data(format!(
+            "benchmark directory path has no openable component: {}",
+            path.display()
+        )));
+    }
+    Ok(held)
+}
+
+pub(crate) fn reject_ambiguous_path(path: &Path) -> Result<()> {
+    use std::os::windows::ffi::OsStrExt as _;
+    use std::path::{Component, Prefix};
+
+    for component in path.components() {
+        if let Component::Prefix(prefix) = component
+            && !matches!(prefix.kind(), Prefix::Disk(_) | Prefix::UNC(_, _))
+        {
+            return Err(invalid_data(format!(
+                "benchmark path uses an unsupported Windows namespace prefix: {}",
+                path.display()
+            )));
+        }
+        let Component::Normal(component) = component else {
+            continue;
+        };
+        let encoded = component.encode_wide().collect::<Vec<_>>();
+        let has_forbidden_unit = encoded.iter().any(|unit| matches!(*unit, 0 | 0x3a));
+        let normalized_alias = encoded.first() == Some(&0x20)
+            || encoded.last() == Some(&0x20)
+            || encoded.last() == Some(&0x2e);
+        let component_text = component.to_string_lossy();
+        let basename = component_text.split('.').next().unwrap_or_default();
+        if has_forbidden_unit || normalized_alias || reserved_device_name(basename) {
+            return Err(invalid_data(format!(
+                "benchmark path contains a Win32-normalized or reserved component: {}",
+                path.display()
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn reserved_device_name(name: &str) -> bool {
+    let name = name.to_ascii_uppercase();
+    matches!(
+        name.as_str(),
+        "CON" | "PRN" | "AUX" | "NUL" | "CLOCK$" | "CONIN$" | "CONOUT$"
+    ) || name
+        .strip_prefix("COM")
+        .or_else(|| name.strip_prefix("LPT"))
+        .is_some_and(|number| {
+            matches!(
+                number,
+                "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
+            )
+        })
+}
+
+pub(super) fn create_or_open_private_directory(path: &Path) -> Result<fs::File> {
+    let mut security = PrivateSecurity::new()?;
+    let attributes = security.attributes();
+    let encoded = encode_path(path);
+    let created = unsafe {
+        // SAFETY: the path and security descriptor remain valid for the call.
+        CreateDirectoryW(encoded.as_ptr(), &attributes)
+    };
+    if created == 0 {
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() != Some(ERROR_ALREADY_EXISTS as i32) {
+            return Err(error.into());
+        }
+    }
+
+    let directory = open_directory(path, READ_CONTROL)?;
+    verify_private_directory(&directory, path, &security)?;
+    Ok(directory)
+}
+
+pub(crate) fn harden_new_private_directory(path: &Path) -> Result<fs::File> {
+    let security = PrivateSecurity::new()?;
+    let directory = open_directory(path, READ_CONTROL | WRITE_DAC | WRITE_OWNER)?;
+    let result = unsafe {
+        // SAFETY: the directory handle is valid, and the owner SID and ACL are
+        // owned by `security` for the duration of the call.
+        SetSecurityInfo(
+            directory.as_raw_handle(),
+            SE_FILE_OBJECT,
+            OWNER_SECURITY_INFORMATION
+                | DACL_SECURITY_INFORMATION
+                | PROTECTED_DACL_SECURITY_INFORMATION,
+            security.owner.as_ptr().cast_mut().cast(),
+            std::ptr::null_mut(),
+            security.acl.as_ptr().cast(),
+            std::ptr::null(),
+        )
+    };
+    if result != 0 {
+        return Err(io::Error::from_raw_os_error(result as i32).into());
+    }
+    verify_private_directory(&directory, path, &security)?;
+    Ok(directory)
+}
+
+pub(super) fn open_private_directory(path: &Path) -> Result<fs::File> {
+    let security = PrivateSecurity::new()?;
+    let directory = open_directory(path, READ_CONTROL)?;
+    verify_private_directory(&directory, path, &security)?;
+    Ok(directory)
+}
+
+pub(super) fn open_trusted_ancestor(path: &Path) -> Result<fs::File> {
+    let security = PrivateSecurity::new()?;
+    let directory = open_directory(path, READ_CONTROL)?;
+    verify_trusted_ancestor(&directory, path, &security)?;
+    Ok(directory)
+}
+
+struct PrivateSecurity {
+    owner: Vec<u8>,
+    system: Option<Vec<u8>>,
+    administrators: Vec<u8>,
+    acl: Vec<u8>,
+    descriptor: Box<SECURITY_DESCRIPTOR>,
+}
+
+impl PrivateSecurity {
+    fn new() -> Result<Self> {
+        let mut owner = current_user_sid()?;
+        let system_sid = well_known_sid(WinLocalSystemSid)?;
+        let administrators = well_known_sid(WinBuiltinAdministratorsSid)?;
+        let mut system = if sid_bytes_equal(&owner, &system_sid) {
+            None
+        } else {
+            Some(system_sid)
+        };
+
+        let fixed_ace_size = size_of::<ACCESS_ALLOWED_ACE>() - size_of::<u32>();
+        let mut acl_size = size_of::<ACL>() + fixed_ace_size + owner.len();
+        if let Some(system) = system.as_ref() {
+            acl_size += fixed_ace_size + system.len();
+        }
+        let acl_size = u32::try_from(acl_size)
+            .map_err(|_| invalid_data("benchmark private ACL is too large"))?;
+        let mut acl = vec![0u8; acl_size as usize];
+        let acl_pointer = acl.as_mut_ptr().cast::<ACL>();
+        // SAFETY: `acl` is writable for `acl_size` bytes.
+        if unsafe { InitializeAcl(acl_pointer, acl_size, ACL_REVISION) } == 0 {
+            return Err(io::Error::last_os_error().into());
+        }
+        add_access_ace(acl_pointer, owner.as_mut_ptr().cast())?;
+        if let Some(system) = system.as_mut() {
+            add_access_ace(acl_pointer, system.as_mut_ptr().cast())?;
+        }
+
+        let mut descriptor = Box::new(unsafe {
+            // SAFETY: the descriptor is initialized before being passed to Windows.
+            std::mem::zeroed::<SECURITY_DESCRIPTOR>()
+        });
+        let descriptor_pointer = std::ptr::from_mut(descriptor.as_mut()).cast::<c_void>();
+        // SAFETY: `descriptor_pointer` points to writable descriptor storage.
+        if unsafe {
+            InitializeSecurityDescriptor(descriptor_pointer, SECURITY_DESCRIPTOR_REVISION_VALUE)
+        } == 0
+        {
+            return Err(io::Error::last_os_error().into());
+        }
+        // SAFETY: the owner SID and descriptor remain valid for the call.
+        if unsafe { SetSecurityDescriptorOwner(descriptor_pointer, owner.as_mut_ptr().cast(), 0) }
+            == 0
+        {
+            return Err(io::Error::last_os_error().into());
+        }
+        // SAFETY: `acl_pointer` and the descriptor remain valid for the call.
+        if unsafe { SetSecurityDescriptorDacl(descriptor_pointer, 1, acl_pointer, 0) } == 0 {
+            return Err(io::Error::last_os_error().into());
+        }
+        // SAFETY: the descriptor is initialized and writable.
+        if unsafe {
+            SetSecurityDescriptorControl(descriptor_pointer, SE_DACL_PROTECTED, SE_DACL_PROTECTED)
+        } == 0
+        {
+            return Err(io::Error::last_os_error().into());
+        }
+
+        Ok(Self {
+            owner,
+            system,
+            administrators,
+            acl,
+            descriptor,
+        })
+    }
+
+    fn attributes(&mut self) -> SECURITY_ATTRIBUTES {
+        SECURITY_ATTRIBUTES {
+            nLength: size_of::<SECURITY_ATTRIBUTES>() as u32,
+            lpSecurityDescriptor: std::ptr::from_mut(self.descriptor.as_mut()).cast(),
+            bInheritHandle: 0,
+        }
+    }
+}
+
+fn add_access_ace(acl: *mut ACL, sid: PSID) -> Result<()> {
+    // SAFETY: the caller supplies an initialized ACL and a valid SID.
+    if unsafe { AddAccessAllowedAceEx(acl, ACL_REVISION, PRIVATE_ACE_FLAGS, FILE_ALL_ACCESS, sid) }
+        == 0
+    {
+        return Err(io::Error::last_os_error().into());
+    }
+    Ok(())
+}
+
+fn open_directory(path: &Path, security_access: u32) -> Result<fs::File> {
+    open_directory_with_access(path, FILE_READ_ATTRIBUTES | FILE_TRAVERSE | security_access)
+}
+
+fn open_directory_with_access(path: &Path, desired_access: u32) -> Result<fs::File> {
+    open_directory_with_share(path, desired_access, FILE_SHARE_READ | FILE_SHARE_WRITE)
+}
+
+fn open_ancestry_directory(path: &Path) -> Result<Option<fs::File>> {
+    match open_directory_with_access(path, FILE_READ_ATTRIBUTES) {
+        Ok(directory) => Ok(Some(directory)),
+        Err(exclusive_error)
+            if exclusive_error
+                .downcast_ref::<io::Error>()
+                .and_then(io::Error::raw_os_error)
+                .is_some_and(|code| {
+                    code == windows_sys::Win32::Foundation::ERROR_ACCESS_DENIED as i32
+                        || code == windows_sys::Win32::Foundation::ERROR_SHARING_VIOLATION as i32
+                }) =>
+        {
+            let security = PrivateSecurity::new()?;
+            reject_reparse_metadata(path)?;
+            let directory = match open_directory_with_options(
+                path,
+                0,
+                FILE_SHARE_READ
+                    | FILE_SHARE_WRITE
+                    | windows_sys::Win32::Storage::FileSystem::FILE_SHARE_DELETE,
+                false,
+            ) {
+                Ok(directory) => directory,
+                Err(error)
+                    if error
+                        .downcast_ref::<io::Error>()
+                        .and_then(io::Error::raw_os_error)
+                        == Some(windows_sys::Win32::Foundation::ERROR_ACCESS_DENIED as i32) =>
+                {
+                    reject_reparse_metadata(path)?;
+                    return Ok(None);
+                }
+                Err(error) => {
+                    return Err(invalid_data(format!(
+                        "unable to open compatible ancestry handle: {error}"
+                    )));
+                }
+            };
+            reject_reparse_metadata(path)?;
+            verify_trusted_ancestor(&directory, path, &security).map_err(|error| {
+                invalid_data(format!(
+                    "unable to validate compatible ancestry ACL: {error}"
+                ))
+            })?;
+            Ok(Some(directory))
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn open_directory_with_share(
+    path: &Path,
+    desired_access: u32,
+    share_mode: u32,
+) -> Result<fs::File> {
+    open_directory_with_options(path, desired_access, share_mode, true)
+}
+
+fn open_directory_with_options(
+    path: &Path,
+    desired_access: u32,
+    share_mode: u32,
+    open_reparse_point: bool,
+) -> Result<fs::File> {
+    let encoded = encode_path(path);
+    let flags = FILE_FLAG_BACKUP_SEMANTICS
+        | if open_reparse_point {
+            FILE_FLAG_OPEN_REPARSE_POINT
+        } else {
+            0
+        };
+    let handle = unsafe {
+        // SAFETY: `encoded` is terminated and the returned handle is checked.
+        CreateFileW(
+            encoded.as_ptr(),
+            desired_access,
+            share_mode,
+            std::ptr::null(),
+            OPEN_EXISTING,
+            flags,
+            std::ptr::null_mut(),
+        )
+    };
+    if handle == INVALID_HANDLE_VALUE {
+        return Err(io::Error::last_os_error().into());
+    }
+
+    let mut information = FILE_ATTRIBUTE_TAG_INFO::default();
+    let information_result = unsafe {
+        // SAFETY: `handle` and the output buffer are valid.
+        GetFileInformationByHandleEx(
+            handle,
+            FileAttributeTagInfo,
+            std::ptr::from_mut(&mut information).cast(),
+            size_of::<FILE_ATTRIBUTE_TAG_INFO>() as u32,
+        )
+    };
+    if information_result == 0 || information.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        let error = if information_result == 0 {
+            io::Error::last_os_error().into()
+        } else {
+            invalid_data(format!(
+                "benchmark private directory is a reparse point: {}",
+                path.display()
+            ))
+        };
+        // SAFETY: `handle` is valid and has not transferred to `File`.
+        unsafe {
+            CloseHandle(handle);
+        }
+        return Err(error);
+    }
+
+    Ok(unsafe {
+        // SAFETY: ownership of the validated handle transfers to `File`.
+        fs::File::from_raw_handle(handle)
+    })
+}
+
+fn reject_reparse_metadata(path: &Path) -> Result<()> {
+    use std::os::windows::fs::MetadataExt as _;
+
+    if fs::symlink_metadata(path)?.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        Err(invalid_data(format!(
+            "benchmark directory ancestry is a reparse point: {}",
+            path.display()
+        )))
+    } else {
+        Ok(())
+    }
+}
+
+fn verify_private_directory(
+    directory: &fs::File,
+    path: &Path,
+    expected: &PrivateSecurity,
+) -> Result<()> {
+    let mut descriptor = read_security_descriptor(directory)?;
+    let descriptor_pointer = descriptor.as_mut_ptr().cast::<c_void>();
+
+    let mut control = 0;
+    let mut revision = 0;
+    // SAFETY: `descriptor_pointer` contains a descriptor returned by Windows.
+    if unsafe { GetSecurityDescriptorControl(descriptor_pointer, &mut control, &mut revision) } == 0
+    {
+        return Err(io::Error::last_os_error().into());
+    }
+    if control & SE_DACL_PROTECTED == 0 {
+        return Err(invalid_data(format!(
+            "benchmark private directory DACL is not protected: {}",
+            path.display()
+        )));
+    }
+
+    let owner = security_descriptor_owner(descriptor_pointer)?;
+    if !sid_matches(owner, &expected.owner) {
+        return Err(invalid_data(format!(
+            "benchmark private directory owner differs from the current user: {}",
+            path.display()
+        )));
+    }
+
+    let dacl = security_descriptor_dacl(descriptor_pointer)?.ok_or_else(|| {
+        invalid_data(format!(
+            "benchmark private directory has no DACL: {}",
+            path.display()
+        ))
+    })?;
+    verify_acl(dacl, path, expected)
+}
+
+fn verify_trusted_ancestor(
+    directory: &fs::File,
+    path: &Path,
+    expected: &PrivateSecurity,
+) -> Result<()> {
+    let mut descriptor = read_security_descriptor(directory)?;
+    let descriptor_pointer = descriptor.as_mut_ptr().cast::<c_void>();
+    let owner = security_descriptor_owner(descriptor_pointer)?;
+    if !trusted_sid(owner, expected) {
+        return Err(trusted_ancestor_error(path));
+    }
+    let dacl = security_descriptor_dacl(descriptor_pointer)?
+        .ok_or_else(|| trusted_ancestor_error(path))?;
+    verify_trusted_ancestor_acl(dacl, path, expected)
+}
+
+fn read_security_descriptor(directory: &fs::File) -> Result<Vec<u8>> {
+    let requested = OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION;
+    let mut required = 0;
+    // SAFETY: the handle is valid and this probe intentionally has no output buffer.
+    let probe = unsafe {
+        GetKernelObjectSecurity(
+            directory.as_raw_handle(),
+            requested,
+            std::ptr::null_mut(),
+            0,
+            &mut required,
+        )
+    };
+    let probe_error = io::Error::last_os_error();
+    if probe != 0
+        || required == 0
+        || probe_error.raw_os_error() != Some(ERROR_INSUFFICIENT_BUFFER as i32)
+    {
+        return Err(probe_error.into());
+    }
+    let mut descriptor = vec![0u8; required as usize];
+    // SAFETY: `descriptor` is writable for the size requested by Windows.
+    if unsafe {
+        GetKernelObjectSecurity(
+            directory.as_raw_handle(),
+            requested,
+            descriptor.as_mut_ptr().cast(),
+            required,
+            &mut required,
+        )
+    } == 0
+    {
+        return Err(io::Error::last_os_error().into());
+    }
+
+    Ok(descriptor)
+}
+
+fn security_descriptor_owner(descriptor: *mut c_void) -> Result<PSID> {
+    let mut owner = std::ptr::null_mut();
+    let mut owner_defaulted = 0;
+    // SAFETY: the descriptor is valid and the output pointers are writable.
+    if unsafe { GetSecurityDescriptorOwner(descriptor, &mut owner, &mut owner_defaulted) } == 0 {
+        return Err(io::Error::last_os_error().into());
+    }
+    Ok(owner)
+}
+
+fn security_descriptor_dacl(descriptor: *mut c_void) -> Result<Option<*mut ACL>> {
+    let mut dacl_present = 0;
+    let mut dacl_defaulted = 0;
+    let mut dacl = std::ptr::null_mut();
+    // SAFETY: the descriptor is valid and the output pointers are writable.
+    if unsafe {
+        GetSecurityDescriptorDacl(
+            descriptor,
+            &mut dacl_present,
+            &mut dacl,
+            &mut dacl_defaulted,
+        )
+    } == 0
+    {
+        return Err(io::Error::last_os_error().into());
+    }
+    Ok((dacl_present != 0 && !dacl.is_null()).then_some(dacl))
+}
+
+fn verify_acl(acl: *mut ACL, path: &Path, expected: &PrivateSecurity) -> Result<()> {
+    let mut information = ACL_SIZE_INFORMATION::default();
+    // SAFETY: the ACL is part of the validated descriptor and output storage is sized.
+    if unsafe {
+        GetAclInformation(
+            acl,
+            std::ptr::from_mut(&mut information).cast(),
+            size_of::<ACL_SIZE_INFORMATION>() as u32,
+            AclSizeInformation,
+        )
+    } == 0
+    {
+        return Err(io::Error::last_os_error().into());
+    }
+    let expected_count = if expected.system.is_some() { 2 } else { 1 };
+    if information.AceCount != expected_count {
+        return Err(private_acl_error(path));
+    }
+
+    let mut owner_count = 0;
+    let mut system_count = 0;
+    for index in 0..information.AceCount {
+        let mut ace = std::ptr::null_mut();
+        // SAFETY: `index` is bounded by the ACE count reported for this ACL.
+        if unsafe { GetAce(acl, index, &mut ace) } == 0 {
+            return Err(io::Error::last_os_error().into());
+        }
+        // SAFETY: an access-allowed ACE begins with an ACE header and fixed fields.
+        let header = unsafe { &*ace.cast::<ACE_HEADER>() };
+        // SAFETY: the ACE type is checked before SID contents are used below.
+        let allowed = unsafe { &*ace.cast::<ACCESS_ALLOWED_ACE>() };
+        if header.AceType != ACCESS_ALLOWED_ACE_TYPE_VALUE
+            || u32::from(header.AceFlags) != PRIVATE_ACE_FLAGS
+            || allowed.Mask != FILE_ALL_ACCESS
+        {
+            return Err(private_acl_error(path));
+        }
+        let sid = std::ptr::from_ref(&allowed.SidStart)
+            .cast_mut()
+            .cast::<c_void>();
+        if sid_matches(sid, &expected.owner) {
+            owner_count += 1;
+        } else if expected
+            .system
+            .as_ref()
+            .is_some_and(|system| sid_matches(sid, system))
+        {
+            system_count += 1;
+        } else {
+            return Err(private_acl_error(path));
+        }
+    }
+
+    if owner_count != 1 || system_count != usize::from(expected.system.is_some()) {
+        return Err(private_acl_error(path));
+    }
+    Ok(())
+}
+
+fn verify_trusted_ancestor_acl(
+    acl: *mut ACL,
+    path: &Path,
+    expected: &PrivateSecurity,
+) -> Result<()> {
+    let mut information = ACL_SIZE_INFORMATION::default();
+    // SAFETY: the ACL is part of the validated descriptor and output storage is sized.
+    if unsafe {
+        GetAclInformation(
+            acl,
+            std::ptr::from_mut(&mut information).cast(),
+            size_of::<ACL_SIZE_INFORMATION>() as u32,
+            AclSizeInformation,
+        )
+    } == 0
+    {
+        return Err(io::Error::last_os_error().into());
+    }
+
+    for index in 0..information.AceCount {
+        let mut ace = std::ptr::null_mut();
+        // SAFETY: `index` is bounded by the ACE count reported for this ACL.
+        if unsafe { GetAce(acl, index, &mut ace) } == 0 {
+            return Err(io::Error::last_os_error().into());
+        }
+        // SAFETY: each ACE begins with an ACE header.
+        let header = unsafe { &*ace.cast::<ACE_HEADER>() };
+        if u32::from(header.AceFlags) & INHERIT_ONLY_ACE != 0 {
+            continue;
+        }
+        if usize::from(header.AceSize) < size_of::<ACE_HEADER>() + size_of::<u32>() {
+            return Err(trusted_ancestor_error(path));
+        }
+        // SAFETY: every access-control ACE stores its access mask directly
+        // after the header; the size check above covers this read.
+        let mask = unsafe {
+            ace.cast::<u8>()
+                .add(size_of::<ACE_HEADER>())
+                .cast::<u32>()
+                .read_unaligned()
+        };
+        if mask & NAMESPACE_MUTATION_ACCESS == 0 || denied_ace(header.AceType) {
+            continue;
+        }
+        if header.AceType != ACCESS_ALLOWED_ACE_TYPE_VALUE
+            || usize::from(header.AceSize) < size_of::<ACCESS_ALLOWED_ACE>()
+        {
+            return Err(trusted_ancestor_error(path));
+        }
+        // SAFETY: the ACE type and minimum size were checked above.
+        let allowed = unsafe { &*ace.cast::<ACCESS_ALLOWED_ACE>() };
+        let sid = std::ptr::from_ref(&allowed.SidStart)
+            .cast_mut()
+            .cast::<c_void>();
+        if !trusted_sid(sid, expected) {
+            return Err(trusted_ancestor_error(path));
+        }
+    }
+    Ok(())
+}
+
+fn denied_ace(ace_type: u8) -> bool {
+    matches!(
+        ace_type,
+        ACCESS_DENIED_ACE_TYPE_VALUE
+            | ACCESS_DENIED_OBJECT_ACE_TYPE_VALUE
+            | ACCESS_DENIED_CALLBACK_ACE_TYPE_VALUE
+            | ACCESS_DENIED_CALLBACK_OBJECT_ACE_TYPE_VALUE
+    )
+}
+
+fn trusted_sid(sid: PSID, expected: &PrivateSecurity) -> bool {
+    sid_matches(sid, &expected.owner)
+        || expected
+            .system
+            .as_ref()
+            .is_some_and(|system| sid_matches(sid, system))
+        || sid_matches(sid, &expected.administrators)
+}
+
+fn private_acl_error(path: &Path) -> Box<dyn std::error::Error + Send + Sync> {
+    invalid_data(format!(
+        "benchmark private directory ACL is not limited to the current user and SYSTEM: {}",
+        path.display()
+    ))
+}
+
+fn trusted_ancestor_error(path: &Path) -> Box<dyn std::error::Error + Send + Sync> {
+    invalid_data(format!(
+        "benchmark publication ancestry permits namespace mutation outside the current user, SYSTEM, or Administrators: {}",
+        path.display()
+    ))
+}
+
+fn current_user_sid() -> Result<Vec<u8>> {
+    let mut token = std::ptr::null_mut();
+    // SAFETY: the output pointer is writable and the pseudo-process handle is valid.
+    if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) } == 0 {
+        return Err(io::Error::last_os_error().into());
+    }
+    let token = OwnedHandle(token);
+    let mut required = 0;
+    // SAFETY: this size probe intentionally supplies no output buffer.
+    unsafe {
+        GetTokenInformation(token.0, TokenUser, std::ptr::null_mut(), 0, &mut required);
+    }
+    if required == 0 {
+        return Err(io::Error::last_os_error().into());
+    }
+    let mut information = vec![0u8; required as usize];
+    // SAFETY: `information` is writable for the size returned by the probe.
+    if unsafe {
+        GetTokenInformation(
+            token.0,
+            TokenUser,
+            information.as_mut_ptr().cast(),
+            required,
+            &mut required,
+        )
+    } == 0
+    {
+        return Err(io::Error::last_os_error().into());
+    }
+    // SAFETY: Windows populated the buffer with a TOKEN_USER value.
+    let token_user = unsafe { information.as_ptr().cast::<TOKEN_USER>().read_unaligned() };
+    copy_sid(token_user.User.Sid)
+}
+
+fn well_known_sid(kind: i32) -> Result<Vec<u8>> {
+    let mut required = 0;
+    // SAFETY: this size probe intentionally supplies no SID buffer.
+    unsafe {
+        CreateWellKnownSid(
+            kind,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut required,
+        );
+    }
+    if required == 0 {
+        return Err(io::Error::last_os_error().into());
+    }
+    let mut sid = vec![0u8; required as usize];
+    // SAFETY: `sid` is writable for the size returned by the probe.
+    if unsafe {
+        CreateWellKnownSid(
+            kind,
+            std::ptr::null_mut(),
+            sid.as_mut_ptr().cast(),
+            &mut required,
+        )
+    } == 0
+    {
+        return Err(io::Error::last_os_error().into());
+    }
+    Ok(sid)
+}
+
+fn copy_sid(sid: PSID) -> Result<Vec<u8>> {
+    // SAFETY: validation only reads the SID supplied by Windows.
+    if sid.is_null() || unsafe { IsValidSid(sid) } == 0 {
+        return Err(invalid_data("Windows returned an invalid user SID"));
+    }
+    // SAFETY: the SID was validated immediately above.
+    let length = unsafe { GetLengthSid(sid) } as usize;
+    // SAFETY: a valid SID is readable for the length reported by Windows.
+    Ok(unsafe { std::slice::from_raw_parts(sid.cast::<u8>(), length) }.to_vec())
+}
+
+fn sid_bytes_equal(left: &[u8], right: &[u8]) -> bool {
+    sid_matches(left.as_ptr().cast_mut().cast(), right)
+}
+
+fn sid_matches(candidate: PSID, expected: &[u8]) -> bool {
+    // SAFETY: `candidate` is checked and `expected` owns a complete SID buffer.
+    !candidate.is_null() && unsafe { EqualSid(candidate, expected.as_ptr().cast_mut().cast()) } != 0
+}
+
+fn encode_path(path: &Path) -> Vec<u16> {
+    path.as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect()
+}
+
+struct OwnedHandle(HANDLE);
+
+impl Drop for OwnedHandle {
+    fn drop(&mut self) {
+        // SAFETY: this type exclusively owns the token handle.
+        unsafe {
+            CloseHandle(self.0);
+        }
+    }
+}
